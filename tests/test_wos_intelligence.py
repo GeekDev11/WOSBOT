@@ -82,7 +82,7 @@ async def test_get_player_uses_existing_connection_and_quota(monkeypatch):
     result, error = await cog.get_player(137940156)
     assert error is None
     assert result["player"]["nick_name"] == "OK"
-    assert seen == [(profile, "fake-key", 137940156)]
+    assert seen == [(with_include(profile, ("base",)), "fake-key", 137940156)]
 
 
 def test_with_include_replaces_section_without_mutating_original():
