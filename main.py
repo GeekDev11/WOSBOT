@@ -1564,7 +1564,7 @@ if __name__ == "__main__":
                 break  # Clean exit if bot.start() returns normally
 
             except discord.LoginFailure:
-                startup.error_box("Login Failed", "Invalid bot token.", "Check your bot_token.txt file.\nGuide: https://github.com/whiteout-project/bot/wiki/Creating-a-Discord-Application")
+                startup.error_box("Login Failed", "Invalid bot token.", "Check your bot_token.txt file.\nGuide: https://discord.com/developers/applications")
                 break
 
             except discord.PrivilegedIntentsRequired:
