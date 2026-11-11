@@ -141,6 +141,8 @@ class WosIntelligence(commands.Cog):
         if not data:
             await interaction.followup.send("No player object was found in the API response.", ephemeral=True)
             return
+        from .wos_player_history import store_player
+        await asyncio.to_thread(store_player, int(chief_id), payload)
         embed = discord.Embed(title=str(data["name"] or f"Chief {chief_id}")[:256], description=f"Chief ID: `{chief_id}`")
         for title, key in (("State", "state"), ("Power", "power")):
             value = data[key]
