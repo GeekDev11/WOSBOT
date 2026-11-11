@@ -68,6 +68,31 @@ def basic_fields(payload):
     }
 
 
+def arena_heroes(payload):
+    """Arena defence only; absent data is not a complete inventory."""
+    heroes = payload.get("heroes") if isinstance(payload, dict) else None
+    if isinstance(heroes, dict):
+        heroes = heroes.get("items") or heroes.get("heroes")
+    return [hero for hero in heroes if isinstance(hero, dict)] if isinstance(heroes, list) else []
+
+
+def chief_equipment(payload):
+    """Return equipment or a clear hidden/unavailable state."""
+    gear = payload.get("chief_gear") if isinstance(payload, dict) else None
+    if not isinstance(gear, dict):
+        return None, "Chief gear not reported"
+    if gear.get("hidden") is True:
+        return [], "Chief equipment hidden"
+    items = gear.get("items")
+    if not isinstance(items, list):
+        return [], "Chief gear items not reported"
+    return [item for item in items if isinstance(item, dict)], None
+
+
+def short(value, fallback="—", limit=100):
+    return str(value)[:limit] if value is not None else fallback
+
+
 def describe_error(status):
     return {
         0: "The API connection timed out or failed.",
@@ -161,6 +186,71 @@ class WosIntelligence(commands.Cog):
             description=format_shield(data["shield"]),
         )
         embed.set_footer(text=f"{freshness(payload)} · The player may have refreshed their shield")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    @app_commands.command(name="wosheroes", description="Show a player's reported arena defence heroes")
+    @app_commands.describe(chief_id="In-game Chief ID")
+    async def wosheroes(self, interaction: discord.Interaction, chief_id: str):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
+            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True)
+            return
+        payload, error = await self.get_player(int(chief_id), include=("base", "heroes"))
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+        heroes = arena_heroes(payload)
+        if not heroes:
+            await interaction.followup.send("No arena defence heroes were reported by the API.", ephemeral=True)
+            return
+        embed = discord.Embed(title=f"Arena Defence · Chief {chief_id}")
+        for number, hero in enumerate(heroes[:5], 1):
+            name = short(hero.get("name"), "Unnamed hero", 120)
+            level = short(hero.get("level"))
+            stars = short(hero.get("star_label") or hero.get("stars") or hero.get("star"))
+            power = hero.get("power")
+            weapon = hero.get("exclusive_gear_level")
+            skills = hero.get("skill_levels")
+            gear = hero.get("gear")
+            skill_text = ", ".join(short(skill.get("level")) for skill in skills if isinstance(skill, dict)) if isinstance(skills, list) else "—"
+            equipped = len([piece for piece in gear if isinstance(piece, dict)]) if isinstance(gear, list) else 0
+            value = (
+                f"Level: {level} · Stars: {stars}\n"
+                f"Power: {power:,}" if isinstance(power, int) else f"Level: {level} · Stars: {stars}\nPower: —"
+            )
+            value += f"\nSkills: {skill_text[:180]} · Exclusive weapon: {short(weapon)}\nGear pieces: {equipped}"
+            embed.add_field(name=f"{number}. {name}", value=value[:1024], inline=False)
+        embed.set_footer(text=f"{freshness(payload)} · Arena defence lineup only")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="wosgear", description="Show a player's reported chief equipment")
+    @app_commands.describe(chief_id="In-game Chief ID")
+    async def wosgear(self, interaction: discord.Interaction, chief_id: str):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
+            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True)
+            return
+        payload, error = await self.get_player(int(chief_id), include=("base", "chief_gear"))
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+        items, reason = chief_equipment(payload)
+        if reason:
+            await interaction.followup.send(f"{reason}. {freshness(payload)}.", ephemeral=True)
+            return
+        embed = discord.Embed(title=f"Chief Equipment · {chief_id}")
+        for item in items[:20]:
+            label = short(item.get("name") or item.get("slot"), "Equipment", 120)
+            parts = [f"Tier: {short(item.get('tier'))}", f"Stars: {short(item.get('star'))}",
+                     f"Strength: {short(item.get('strength_level'))}", f"Score: {short(item.get('score'))}"]
+            gems = item.get("gems")
+            if isinstance(gems, list):
+                parts.append(f"Gems: {len(gems)}")
+            embed.add_field(name=label, value=" · ".join(parts)[:1024], inline=False)
+        if not items:
+            embed.description = "No chief equipment items reported."
+        embed.set_footer(text=f"{freshness(payload)} · Last reported equipment")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
