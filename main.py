@@ -5,6 +5,10 @@ import shutil
 import stat
 import contextlib
 
+WOSBOT_REPO = 'GeekDev11/WOSBOT'
+WOSBOT_BRANCH = 'feature/whiteoutstats-intelligence'
+WOSBOT_ARCHIVE = f'https://github.com/{WOSBOT_REPO}/archive/refs/heads/{WOSBOT_BRANCH}.zip'
+
 # Cap glibc malloc arenas before anything allocates: glibc keeps a per-thread
 # arena and never frees it, so OCR across many to_thread workers grows RSS until
 # a 512MB container OOM-kills the bot. Must be set before glibc inits, so re-exec
@@ -73,10 +77,7 @@ try:
     from cogs.bot_restart import is_container, restart_process
 except ImportError:
     # cogs/ is missing (likely a bare main.py drop). Fetch the full source for this branch and restart.
-    _bootstrap_from_main_branch(os.environ.get(
-        "BOT_BOOTSTRAP_URL",
-        "https://github.com/whiteout-project/bot/archive/refs/heads/main.zip",
-    ))
+    _bootstrap_from_main_branch(WOSBOT_ARCHIVE)
     print("Download complete. Restarting...")
     if sys.platform == "win32":
         sys.exit(0)  # .bat / user re-runs; os.execv on Windows can race with the launcher
@@ -362,21 +363,8 @@ def cleanup_removed_packages():
 
     safe_remove("requirements.old", is_dir=False)
 
-# Configuration for multiple update sources
-UPDATE_SOURCES = [
-    {
-        "name": "GitHub",
-        "api_url": "https://api.github.com/repos/whiteout-project/bot/releases/latest",
-        "primary": True
-    },
-    {
-        "name": "GitLab",
-        "api_url": "https://gitlab.whiteout-bot.com/api/v4/projects/1/releases",
-        "project_id": 1,
-        "primary": False
-    }
-    # Can add more sources here as needed
-]
+# WOSBOT fork is the only allowed update source.
+UPDATE_SOURCES = [{'name': 'GitHub', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/branches/{WOSBOT_BRANCH}', 'primary': True}]
 
 def _parse_version(tag):
     """(major, minor, patch) for a vX.Y.Z tag, else None."""
@@ -400,65 +388,16 @@ def _is_newer_version(candidate, current):
     return c > cur
 
 def get_latest_release_info(beta_mode=False):
-    """Try to get latest release info from multiple sources."""
-    for source in UPDATE_SOURCES:
-        try:
-            startup.phase_start(f"Checking for updates ({source['name']})")
-            
-            if source['name'] == "GitHub":
-                if beta_mode:
-                    # Get latest commit from main branch
-                    repo_name = source['api_url'].split('/repos/')[1].split('/releases')[0]
-                    branch_url = f"https://api.github.com/repos/{repo_name}/branches/main"
-                    response = requests.get(branch_url, timeout=30)
-                    if response.status_code == 200:
-                        data = response.json()
-                        commit_sha = data['commit']['sha'][:7]  # Short SHA
-                        return {
-                            "tag_name": f"beta-{commit_sha}",
-                            "body": f"Latest development version from main branch (commit: {commit_sha})",
-                            "download_url": f"https://github.com/{repo_name}/archive/refs/heads/main.zip",
-                            "source": f"{source['name']} (Beta)"
-                        }
-                else:
-                    response = requests.get(source['api_url'], timeout=30)
-                    if response.status_code == 200:
-                        data = response.json()
-                        # Use GitHub's automatic source archive
-                        repo_name = source['api_url'].split('/repos/')[1].split('/releases')[0]
-                        download_url = f"https://github.com/{repo_name}/archive/refs/tags/{data['tag_name']}.zip"
-                        return {
-                            "tag_name": data["tag_name"],
-                            "body": data["body"],
-                            "download_url": download_url,
-                            "source": source['name']
-                        }
-                    
-            elif source['name'] == "GitLab":
-                response = requests.get(source['api_url'], timeout=30)
-                if response.status_code == 200:
-                    releases = response.json()
-                    if releases:
-                        latest = releases[0]  # GitLab returns array, first is latest
-                        tag_name = latest['tag_name']
-                        # Use GitLab's source archive
-                        download_url = f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/archive/{tag_name}/bot-{tag_name}.zip"
-                        return {
-                            "tag_name": tag_name,
-                            "body": latest.get("description", "No release notes available"),
-                            "download_url": download_url,
-                            "source": source['name']
-                        }
-            
-            # Add handling for other sources here
-            
-        except requests.exceptions.RequestException:
-            continue
-        except Exception:
-            continue
-
-    startup.phase_fail("Update check failed (all sources unreachable)")
-    return None
+    """Only retrieve updates from the WOSBOT GitHub branch."""
+    try:
+        startup.phase_start('Checking WOSBOT GitHub branch')
+        response = requests.get(UPDATE_SOURCES[0]['api_url'], timeout=30)
+        response.raise_for_status()
+        sha = response.json()['commit']['sha'][:12]
+        return {'tag_name': f'beta-{sha}', 'body': f'WOSBOT {WOSBOT_BRANCH} ({sha})', 'download_url': WOSBOT_ARCHIVE, 'source': 'WOSBOT GitHub'}
+    except (requests.exceptions.RequestException, KeyError, TypeError, ValueError) as exc:
+        startup.phase_fail('WOSBOT update check failed', details=[str(exc)])
+        return None
 
 def download_requirements_from_release(beta_mode=False):
     """
@@ -799,7 +738,7 @@ if __name__ == "__main__":
         return _install_requirements_individually(requirements_txt_path)
 
     async def check_and_update_files():
-        beta_mode = "--beta" in sys.argv
+        beta_mode = True  # WOSBOT uses own branch commits, never upstream tags
         repair_mode = "--repair" in sys.argv
         # Auto-detect beta installs (version starts with "beta-") so --repair stays on the same channel.
         if repair_mode and not beta_mode and os.path.exists("version"):
@@ -1024,10 +963,10 @@ if __name__ == "__main__":
     from datetime import datetime
             
     # Handle update/repair logic (--repair is detected inside check_and_update_files)
-    if "--no-update" in sys.argv:
-        startup.phase_ok("Update check skipped")
-    else:
+    if "--autoupdate" in sys.argv or "--repair" in sys.argv:
         asyncio.run(check_and_update_files())
+    else:
+        startup.phase_ok("Automatic updates disabled (WOSBOT fork)")
             
     import discord
     from discord.ext import commands
