@@ -65,6 +65,14 @@ def summary_text(entries, max_rows=15):
     return "\n".join(out) or "No results reported."
 
 
+async def BOARD_AUTOCOMPLETE(interaction: discord.Interaction, current: str):
+    needle = current.lower().replace(" ", "_")
+    return [
+        app_commands.Choice(name=board.replace("_", " ").title(), value=board)
+        for board in BOARDS if needle in board
+    ][:25]
+
+
 class WosLeaderboards(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -97,7 +105,7 @@ class WosLeaderboards(commands.Cog):
 
     @app_commands.command(name="wosrankings", description="View Whiteout Stats state leaderboards")
     @app_commands.describe(state_id="State number", board="Leaderboard category", limit="Maximum results, 1 to 100")
-    @app_commands.choices(board=[app_commands.Choice(name=b.replace("_", " ").title(), value=b) for b in BOARDS[:25]])
+    @app_commands.autocomplete(board=BOARD_AUTOCOMPLETE)
     async def wosrankings(
         self, interaction: discord.Interaction, state_id: int, board: str = "personal_power", limit: int = 20
     ):
