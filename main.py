@@ -400,46 +400,19 @@ def get_latest_release_info(beta_mode=False):
         return None
 
 def download_requirements_from_release(beta_mode=False):
-    """
-    Download requirements.txt file directly from the latest release or main branch if beta mode.
-    """
+    """Fetch only the WOSBOT fork's requirements when not already installed."""
     if os.path.exists("requirements.txt"):
         return True
-    
-    # Get latest release info to find the tag
-    release_info = get_latest_release_info(beta_mode=beta_mode)
-    if not release_info:
-        return False
-    
-    tag = release_info["tag_name"]
-    source_name = release_info.get("source", "Unknown")
-    
-    # Build raw URL based on source and mode
-    if source_name == "GitHub" or "GitHub" in source_name:
-        if beta_mode:
-            raw_url = "https://raw.githubusercontent.com/whiteout-project/bot/main/requirements.txt"
-        else:
-            raw_url = f"https://raw.githubusercontent.com/whiteout-project/bot/refs/tags/{tag}/requirements.txt"
-    elif source_name == "GitLab":
-        if beta_mode:
-            raw_url = "https://gitlab.whiteout-bot.com/whiteout-project/bot/-/raw/main/requirements.txt"
-        else:
-            raw_url = f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/raw/{tag}/requirements.txt"
-    else:
-        return False
-
+    url = f"https://raw.githubusercontent.com/{WOSBOT_REPO}/{WOSBOT_BRANCH}/requirements.txt"
     try:
-        response = requests.get(raw_url, timeout=30)
-
-        if response.status_code == 200:
-            with open("requirements.txt", "w") as f:
-                f.write(response.text)
-            return True
-        else:
-            return False
-
-    except Exception:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        with open("requirements.txt", "w", encoding="utf-8") as file:
+            file.write(response.text)
+        return True
+    except requests.exceptions.RequestException:
         return False
+
 
 def check_and_install_requirements():
     """Check each requirement and install missing ones."""
@@ -534,7 +507,7 @@ def setup_dependencies(beta_mode=False):
 
     if not os.path.exists("requirements.txt"):
         if not download_requirements_from_release(beta_mode=beta_mode):
-            startup.phase_fail("Dependencies failed", details=["Could not download requirements.txt"], fix="Download the complete bot package from: https://github.com/whiteout-project/bot/releases")
+            startup.phase_fail("Dependencies failed", details=["Could not download requirements.txt"], fix="Download the complete bot package from: https://github.com/GeekDev11/WOSBOT")
             return False
 
     if not check_and_install_requirements():
