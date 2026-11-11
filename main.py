@@ -364,7 +364,7 @@ def cleanup_removed_packages():
     safe_remove("requirements.old", is_dir=False)
 
 # WOSBOT fork is the only allowed update source.
-UPDATE_SOURCES = [{'name': 'GitHub', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/branches/{WOSBOT_BRANCH}', 'primary': True}]
+UPDATE_SOURCES = [{'name': 'GitHub', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha=feature%2Fwhiteoutstats-intelligence&per_page=1', 'primary': True}]
 
 def _parse_version(tag):
     """(major, minor, patch) for a vX.Y.Z tag, else None."""
@@ -393,7 +393,7 @@ def get_latest_release_info(beta_mode=False):
         startup.phase_start('Checking WOSBOT GitHub branch')
         response = requests.get(UPDATE_SOURCES[0]['api_url'], timeout=30)
         response.raise_for_status()
-        sha = response.json()['commit']['sha'][:12]
+        sha = response.json()[0]['sha'][:12]
         return {'tag_name': f'beta-{sha}', 'body': f'WOSBOT {WOSBOT_BRANCH} ({sha})', 'download_url': WOSBOT_ARCHIVE, 'source': 'WOSBOT GitHub'}
     except (requests.exceptions.RequestException, KeyError, TypeError, ValueError) as exc:
         startup.phase_fail('WOSBOT update check failed', details=[str(exc)])
