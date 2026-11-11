@@ -1568,7 +1568,7 @@ if __name__ == "__main__":
                 break
 
             except discord.PrivilegedIntentsRequired:
-                startup.error_box("Login Failed", "Privileged intents not enabled.", "Follow steps 5+ at:\nhttps://github.com/whiteout-project/bot/wiki/Creating-a-Discord-Application")
+                startup.error_box("Login Failed", "Privileged intents not enabled.", "Follow steps 5+ at:\nhttps://discord.com/developers/applications")
                 break
 
             except discord.HTTPException as e:
