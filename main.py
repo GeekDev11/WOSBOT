@@ -1156,13 +1156,24 @@ if __name__ == "__main__":
     bot.no_dm = '--no-dm' in sys.argv
 
     token_file = "bot_token.txt"
-    if not os.path.exists(token_file):
-        bot_token = input("Enter the bot token: ")
-        with open(token_file, "w") as f:
-            f.write(bot_token)
-    else:
+    # Hosted deployments should supply BOT_TOKEN as a secret environment variable.
+    # Keep file-based setup compatible with existing installations.
+    bot_token = os.environ.get("BOT_TOKEN", "").strip()
+    if not bot_token and os.path.exists(token_file):
         with open(token_file, "r") as f:
             bot_token = f.read().strip()
+    if not bot_token:
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Discord token missing. Set the BOT_TOKEN environment variable "
+                "in the hosting panel (Startup > Environment Variables)."
+            )
+        bot_token = input("Enter the bot token: ").strip()
+        if bot_token:
+            with open(token_file, "w") as f:
+                f.write(bot_token)
+    if not bot_token:
+        raise RuntimeError("Discord token is empty.")
 
     if not os.path.exists("db"):
         os.makedirs("db")
