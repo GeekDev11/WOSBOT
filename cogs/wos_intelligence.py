@@ -5,6 +5,7 @@ No Discord bot token or API key belongs in this module.
 """
 import asyncio
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import discord
 from discord import app_commands
@@ -31,6 +32,23 @@ def format_shield(endtime, now=None):
     return f"{label}: <t:{timestamp}:F> (<t:{timestamp}:R>)"
 
 
+def with_include(profile, sections):
+    """Use include sections without mutating the saved Player Sync profile."""
+    updated = dict(profile)
+    parsed = urlsplit(profile["player_path"])
+    query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != "include"]
+    query.append(("include", ",".join(sections)))
+    updated["player_path"] = urlunsplit(("", "", parsed.path, urlencode(query), ""))
+    return updated
+
+
+def freshness(payload):
+    age = payload.get("age_seconds") if isinstance(payload, dict) else None
+    if isinstance(age, (int, float)) and not isinstance(age, bool) and age >= 0:
+        return f"API snapshot age: {round(age / 60)} min"
+    return "API snapshot age unknown"
+
+
 def basic_fields(payload):
     """Extract known data without interpreting absent fields as zero."""
     player = payload.get("player") if isinstance(payload, dict) else None
@@ -44,6 +62,9 @@ def basic_fields(payload):
         "x": player.get("x"),
         "y": player.get("y"),
         "shield": player.get("shield_endtime"),
+        "kills": player.get("kills"),
+        "vip": player.get("vip"),
+        "alliance": player.get("alliance"),
     }
 
 
@@ -63,7 +84,7 @@ class WosIntelligence(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def get_player(self, chief_id):
+    async def get_player(self, chief_id, include=("base",)):
         profile, key = await asyncio.to_thread(sync.load_connection)
         if not key or not sync.api_available(profile):
             return None, "Configure Player Sync and its API Key first."
@@ -73,7 +94,7 @@ class WosIntelligence(commands.Cog):
         if existing is None:
             return None, "Player Sync is not loaded."
         # Keep the same configured endpoint and credentials, including query options.
-        answer = await sync.fetch_player(existing.session(), profile, key, chief_id)
+        answer = await sync.fetch_player(existing.session(), with_include(profile, include), key, chief_id)
         if answer.status != 200:
             return None, describe_error(answer.status)
         if not isinstance(answer.payload, dict):
@@ -100,6 +121,16 @@ class WosIntelligence(commands.Cog):
             value = data[key]
             formatted = f"{value:,}" if key == "power" and isinstance(value, int) else str(value)
             embed.add_field(name=title, value=formatted if value is not None else "Not reported", inline=True)
+        for label, key in (("Kills", "kills"), ("VIP", "vip")):
+            value = data[key]
+            displayed = f"{value:,}" if key == "kills" and isinstance(value, int) else str(value)
+            embed.add_field(name=label, value=displayed if value is not None else "Not reported", inline=True)
+        alliance = data["alliance"]
+        if isinstance(alliance, dict):
+            tag = alliance.get("abbr")
+            alliance_name = alliance.get("name")
+            if tag or alliance_name:
+                embed.add_field(name="Alliance", value=f"[{tag or '?'}] {alliance_name or ''}"[:1024], inline=False)
         level = data["furnace"]
         embed.add_field(name="Furnace", value=format_furnace_level(level) if isinstance(level, int) else "Not reported", inline=True)
         if data["x"] is not None and data["y"] is not None:
@@ -107,7 +138,7 @@ class WosIntelligence(commands.Cog):
         else:
             embed.add_field(name="Map coordinates", value="Not reported", inline=False)
         embed.add_field(name="Shield", value=format_shield(data["shield"]), inline=False)
-        embed.set_footer(text="Whiteout Stats API · Cached data; not live shield/location verification")
+        embed.set_footer(text=f"Whiteout Stats · {freshness(payload)} · Not live data")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="wosshield", description="Display the last reported shield expiration")
@@ -129,7 +160,7 @@ class WosIntelligence(commands.Cog):
             title=f"Shield · {str(data['name'] or chief_id)[:220]}",
             description=format_shield(data["shield"]),
         )
-        embed.set_footer(text="Last reported API data; the player may have refreshed their shield")
+        embed.set_footer(text=f"{freshness(payload)} · The player may have refreshed their shield")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
