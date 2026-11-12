@@ -284,6 +284,7 @@ class NameStyleEditor(discord.ui.View):
                 f"**Effect:** {self.effect}\n"
                 f"**Colors:** {preview}\n\n"
                 "Choose a font, effect, and colors below, then click **Apply Style**. "
+                "The embed border is only a color preview; it does not change the bot name. "
                 "Use **Custom HEX** for any color you like. "
                 "Apply does not rename the bot or change its avatar or banner.\n\n"
                 "⚠️ Name-style fields are undocumented for bots. Discord can reject "
@@ -303,7 +304,11 @@ class NameStyleEditor(discord.ui.View):
         return True
 
     def _controls(self):
-        self.clear_items()
+        # Preserve the decorator-defined action buttons. clear_items() removed
+        # Apply, Reset, Scope and Custom HEX every time a dropdown changed.
+        for item in list(self.children):
+            if isinstance(item, discord.ui.Select):
+                self.remove_item(item)
         fonts = discord.ui.Select(
             placeholder="Font", row=0,
             options=[discord.SelectOption(
