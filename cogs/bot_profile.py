@@ -90,6 +90,62 @@ NAME_STYLE_RESET = {
 
 
 
+class ProfileImageModal(discord.ui.Modal):
+    """Native image upload. No bot DMs or extra slash commands needed."""
+    def __init__(self, cog, user_id, field, all_servers=False):
+        super().__init__(title=f"Upload Bot {field.title()}", timeout=300)
+        self.cog = cog
+        self.user_id = user_id
+        self.field = field
+        self.all_servers = all_servers
+        self.upload = discord.ui.FileUpload(min_values=1, max_values=1, required=True)
+        self.add_item(discord.ui.Label(
+            text=f"Choose {field} image",
+            component=self.upload,
+            description="PNG, JPG, GIF or WebP, up to 5 MB",
+        ))
+
+    async def on_submit(self, interaction):
+        if interaction.user.id != self.user_id or not self.cog.allowed(interaction):
+            await interaction.response.send_message("Not authorized.", ephemeral=True)
+            return
+        if not self.upload.values:
+            await interaction.response.send_message("No image selected.", ephemeral=True)
+            return
+        if self.all_servers:
+            await interaction.response.send_message(
+                f"Apply this {self.field} to every server using WOSBOT?",
+                view=ConfirmImageUploadView(
+                    self.cog, self.user_id, self.field, self.upload.values[0]
+                ),
+                ephemeral=True,
+            )
+            return
+        await self.cog.image_upload(interaction, self.upload.values[0], False, self.field)
+
+
+class ConfirmImageUploadView(discord.ui.View):
+    def __init__(self, cog, user_id, field, attachment):
+        super().__init__(timeout=60)
+        self.cog, self.user_id = cog, user_id
+        self.field, self.attachment = field, attachment
+
+    @discord.ui.button(label="Apply to All Servers", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, button):
+        if interaction.user.id != self.user_id or not self.cog.allowed(interaction):
+            await interaction.response.send_message("Not authorized.", ephemeral=True)
+            return
+        await self.cog.image_upload(interaction, self.attachment, True, self.field)
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Not authorized.", ephemeral=True)
+            return
+        await interaction.response.edit_message(content="Upload cancelled.", view=None)
+
+
 class ProfileTextModal(discord.ui.Modal, title="Edit WOSBOT Profile"):
     def __init__(self, cog, all_servers=False):
         super().__init__(timeout=300)
@@ -135,24 +191,18 @@ class ProfileView(discord.ui.View):
         self.all_servers = all_servers
 
     def embed(self):
-        scope = "All servers" if self.all_servers else "This server"
         return discord.Embed(
-            title="❄️ WOSBOT Profile",
+            title="❄️ Bot Profile",
             description=(
-                f"**Editing:** {scope}\n\n"
-                "Set a nickname or bio with **Edit Text**.\n"
-                "To upload a banner or avatar, use the Discord slash commands:\n"
-                "• `/botprofile banner`\n"
-                "• `/botprofile avatar`\n\n"
-                "Use `all_servers: True` in those commands to apply the same image "
-                "to every server where the bot is present.\n\n"
-                "**Reset** removes the per-server nickname, bio, avatar, and banner "
-                "so Discord uses the default profile.\n\n"
-                "**Name Style:** click **Customize Name** for a font and effect list, "
-                "color palettes or custom HEX colors, then apply to this server or all servers. "
-                "Use **Refresh Commands** if `/botprofile` and `/botstyle` don't appear. "
-                "Discord may reject undocumented name-style fields, and server role colors "
-                "can override the selected text colors."
+                f"**Where:** {'All servers' if self.all_servers else 'This server'}\n\n"
+                "Edit the bot profile without leaving this server.\n\n"
+                "✏️ **Edit Text** — nickname or bio\n"
+                "🖼️ **Upload Banner** — wide background image\n"
+                "👤 **Upload Avatar** — circular profile picture\n"
+                "🎨 **Customize Name** — font, effects and colors\n"
+                "🔄 **Reset Profile** — restore default server profile\n\n"
+                "Select the scope before editing. Changes happen only on submission. "
+                "Name style effects use undocumented Discord fields."
             ),
             color=theme.emColor1,
         )
@@ -174,6 +224,20 @@ class ProfileView(discord.ui.View):
     async def edit_text(self, interaction, button):
         if await self.check(interaction):
             await interaction.response.send_modal(ProfileTextModal(self.cog, self.all_servers))
+
+    @discord.ui.button(label="Upload Banner", emoji="🖼️", style=discord.ButtonStyle.secondary)
+    async def upload_banner(self, interaction, button):
+        if await self.check(interaction):
+            await interaction.response.send_modal(
+                ProfileImageModal(self.cog, interaction.user.id, "banner", self.all_servers)
+            )
+
+    @discord.ui.button(label="Upload Avatar", emoji="👤", style=discord.ButtonStyle.secondary)
+    async def upload_avatar(self, interaction, button):
+        if await self.check(interaction):
+            await interaction.response.send_modal(
+                ProfileImageModal(self.cog, interaction.user.id, "avatar", self.all_servers)
+            )
 
     @discord.ui.button(label="Reset Profile", emoji="🔄", style=discord.ButtonStyle.danger)
     async def reset(self, interaction, button):
@@ -505,8 +569,6 @@ class ConfirmAllNameStyleView(discord.ui.View):
 
 
 class BotProfile(commands.Cog):
-    botprofile = app_commands.Group(name="botprofile", description="Manage WOSBOT's server profile")
-
     def __init__(self, bot):
         self.bot = bot
         self._change_lock = asyncio.Lock()
@@ -530,19 +592,20 @@ class BotProfile(commands.Cog):
             return NO_GUILD_MESSAGE
         try:
             globals_before = {cmd.name for cmd in self.bot.tree.get_commands()}
-            if not {"botprofile", "botstyle"}.issubset(globals_before):
+            if not {"botprofile"}.issubset(globals_before):
                 return (
                     "Profile commands are missing from the local command tree. "
                     "Check hosting console for cog-load errors before syncing."
                 )
             guild = resolve_profile_guild(self.bot, interaction)
+            self.bot.tree.clear_commands(guild=guild)
             self.bot.tree.copy_global_to(guild=guild)
             result = await self.bot.tree.sync(guild=guild)
             registered = {cmd.name for cmd in result}
-            if {"botprofile", "botstyle"}.issubset(registered):
+            if {"botprofile"}.issubset(registered):
                 return (
                     f"✅ Commands registered for this server ({len(result)} total). "
-                    "Open a new message and type /botprofile or /botstyle. "
+                    "Open a new message and type /botprofile. "
                     "If absent, check the app's commands permissions in Server Settings."
                 )
             return (
@@ -622,52 +685,18 @@ class BotProfile(commands.Cog):
             message += "\nDiscord did not confirm those fields; check the bot profile."
         return message[:1900]
 
-    @app_commands.command(name="botstyle", description="Customize WOSBOT name font, effects and colors")
+    @app_commands.command(name="botprofile", description="Edit the bot's profile in this server")
     @app_commands.guild_only()
-    async def botstyle(self, interaction: discord.Interaction):
-        """Direct menu access even if Discord's grouped slash commands are still propagating."""
+    @app_commands.guild_install()
+    async def botprofile(self, interaction: discord.Interaction):
         if not self.allowed(interaction):
             await interaction.response.send_message("Global Admin only.", ephemeral=True)
             return
-        view = NameStyleEditor(self, interaction.user.id)
+        if not resolve_profile_guild(self.bot, interaction):
+            await interaction.response.send_message(NO_GUILD_MESSAGE, ephemeral=True)
+            return
+        view = ProfileView(self)
         await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
-
-    @botprofile.command(name="style", description="Experimental font and colors for this server's bot name")
-    @app_commands.describe(font="Display-name font", effect="Visual effect",
-                           primary="First HEX color, e.g. #5865F2",
-                           secondary="Second HEX color for Gradient, e.g. #A78BFA")
-    @app_commands.choices(
-        font=[app_commands.Choice(name=name, value=name) for name in FONT_IDS],
-        effect=[app_commands.Choice(name=name, value=name) for name in EFFECT_IDS],
-    )
-    async def style(
-        self, interaction: discord.Interaction,
-        font: app_commands.Choice[str], effect: app_commands.Choice[str],
-        primary: str, secondary: str = "",
-    ):
-        if not self.allowed(interaction):
-            await interaction.response.send_message("Global Admin only.", ephemeral=True)
-            return
-        try:
-            payload = build_name_style(font.value, effect.value, primary, secondary)
-        except ValueError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        await interaction.followup.send(
-            await self.apply_name_style(interaction, payload), ephemeral=True
-        )
-
-    @botprofile.command(name="style-reset", description="Reset experimental name styling in this server")
-    async def style_reset(self, interaction: discord.Interaction):
-        if not self.allowed(interaction):
-            await interaction.response.send_message("Global Admin only.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        await interaction.followup.send(
-            await self.apply_name_style(interaction, NAME_STYLE_RESET.copy()),
-            ephemeral=True,
-        )
 
     async def image_upload(self, interaction, file, all_servers, field):
         if not self.allowed(interaction):
@@ -690,15 +719,6 @@ class BotProfile(commands.Cog):
             ephemeral=True,
         )
 
-    @botprofile.command(name="avatar", description="Upload a server-specific bot avatar (not the banner)")
-    @app_commands.describe(file="PNG, JPG, GIF, or WebP (up to 5 MB)", all_servers="Apply to all bot servers (Global Admin only)")
-    async def avatar(self, interaction: discord.Interaction, file: discord.Attachment, all_servers: bool = False):
-        await self.image_upload(interaction, file, all_servers, "avatar")
-
-    @botprofile.command(name="banner", description="Upload a server-specific bot banner (not the avatar)")
-    @app_commands.describe(file="PNG, JPG, GIF, or WebP (up to 5 MB)", all_servers="Apply to all bot servers (Global Admin only)")
-    async def banner(self, interaction: discord.Interaction, file: discord.Attachment, all_servers: bool = False):
-        await self.image_upload(interaction, file, all_servers, "banner")
 
 
 async def setup(bot):
