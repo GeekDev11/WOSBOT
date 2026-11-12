@@ -366,7 +366,7 @@ class BotOperations(commands.Cog):
 
                 main_embed = discord.Embed(
                     title=f"{theme.refreshIcon} Bot Update Status",
-                    description='Source: GeekDev11/WOSBOT · feature/whiteoutstats-intelligence',
+                    description='Source: GeekDev11/WOSBOT · development',
                     color=theme.emColor1 if not updates_needed else discord.Color.yellow()
                 )
 
@@ -450,7 +450,7 @@ class BotOperations(commands.Cog):
             from urllib.parse import quote
             current_version = self.get_current_version()
             repo = 'GeekDev11/WOSBOT'
-            branch = 'feature/whiteoutstats-intelligence'
+            branch = 'development'
             url = f'https://api.github.com/repos/{repo}/commits?sha={quote(branch, safe="")}&per_page=1'
             response = await asyncio.to_thread(requests.get, url, timeout=15)
             response.raise_for_status()
