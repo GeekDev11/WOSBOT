@@ -131,7 +131,7 @@ class ProfileView(discord.ui.View):
                 "so Discord uses the default profile.\n\n"
                 "**Name Style:** click **Customize Name** for a font and effect list, "
                 "color palettes or custom HEX colors, then apply to this server or all servers. "
-                "You can also try `/botstyle` if slash commands are available. "
+                "Use **Refresh Commands** if `/botprofile` and `/botstyle` don't appear. "
                 "Discord may reject undocumented name-style fields, and server role colors "
                 "can override the selected text colors."
             ),
@@ -174,6 +174,15 @@ class ProfileView(discord.ui.View):
         view = NameStyleEditor(self.cog, interaction.user.id, self.all_servers)
         await interaction.response.send_message(
             embed=view.embed(), view=view, ephemeral=True
+        )
+
+    @discord.ui.button(label="Refresh Commands", emoji="🔃", style=discord.ButtonStyle.secondary)
+    async def refresh_commands(self, interaction, button):
+        if not await self.check(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(
+            await self.cog.refresh_commands(interaction), ephemeral=True
         )
 
     @discord.ui.button(label="Back", emoji="⬅️", style=discord.ButtonStyle.secondary)
@@ -462,6 +471,33 @@ class BotProfile(commands.Cog):
             return
         view = ProfileView(self)
         await safe_edit_message(interaction, embed=view.embed(), view=view, content=None)
+
+    async def refresh_commands(self, interaction):
+        """Explicit test-guild sync for commands that have not propagated globally."""
+        if not self.allowed(interaction) or not interaction.guild:
+            return "Global Admin only. Run this in a server."
+        try:
+            globals_before = {cmd.name for cmd in self.bot.tree.get_commands()}
+            if not {"botprofile", "botstyle"}.issubset(globals_before):
+                return (
+                    "Profile commands are missing from the local command tree. "
+                    "Check hosting console for cog-load errors before syncing."
+                )
+            self.bot.tree.copy_global_to(guild=interaction.guild)
+            result = await self.bot.tree.sync(guild=interaction.guild)
+            registered = {cmd.name for cmd in result}
+            if {"botprofile", "botstyle"}.issubset(registered):
+                return (
+                    f"✅ Commands registered for this server ({len(result)} total). "
+                    "Open a new message and type /botprofile or /botstyle. "
+                    "If absent, check the app's commands permissions in Server Settings."
+                )
+            return (
+                "Discord synced commands but did not return both profile commands. "
+                f"Available: {', '.join(sorted(registered))[:250]}"
+            )
+        except (discord.HTTPException, discord.app_commands.CommandLimitReached, ValueError) as exc:
+            return f"Could not refresh server commands: {str(exc)[:250]}"
 
     async def apply(self, interaction, changes, all_servers=False):
         if not self.allowed(interaction):
