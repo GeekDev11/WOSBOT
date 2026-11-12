@@ -161,3 +161,34 @@ def test_independent_color_swatches_fit_discord_component_rows():
     for fn in ("custom_colors", "change_scope", "apply_style", "reset_style", "close"):
         method = next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == fn)
         assert 'row=4' in ast.get_source_segment(source, method.decorator_list[0])
+
+
+def test_profile_resolves_guild_id_when_guild_object_is_missing():
+    import ast
+    from types import SimpleNamespace
+    source = PROFILE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names = {"resolve_profile_guild", "targets_for"}
+    selected = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+    scope = {}
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(PROFILE), "exec"), scope)
+    guild = SimpleNamespace(id=123, name="VEN")
+    bot = SimpleNamespace(
+        get_guild=lambda guild_id: guild if guild_id == 123 else None,
+        guilds=[guild],
+    )
+    interaction = SimpleNamespace(guild=None, guild_id=123)
+    assert scope["resolve_profile_guild"](bot, interaction) is guild
+    assert scope["targets_for"](bot, interaction, False) == [guild]
+    assert scope["targets_for"](bot, interaction, True) == [guild]
+    interaction.guild_id = None
+    assert scope["targets_for"](bot, interaction, False) == []
+
+
+def test_profile_distinguishes_avatar_banner_and_rejects_missing_context():
+    source = PROFILE.read_text(encoding="utf-8")
+    assert 'NO_GUILD_MESSAGE' in source
+    assert 'No profile image was uploaded.' in source
+    assert 'resolve_profile_guild(self.bot, interaction)' in source
+    assert 'Upload a server-specific bot banner (not the avatar)' in source
+    assert 'Upload a server-specific bot avatar (not the banner)' in source
