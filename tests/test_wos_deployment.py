@@ -71,3 +71,12 @@ def test_modified_release_contract():
     assert 'version_for_commits(commits_ahead)' in versioning
     assert 'compare/{baseline}...{sha}' in versioning
     assert 'DISPLAY_CHANNEL = "Modified"' in versioning
+
+
+def test_startup_updater_does_not_require_new_cogs_before_install():
+    source = SOURCE.read_text()
+    updater = source.split('def get_latest_release_info(', 1)[1].split('def download_requirements_from_release(', 1)[0]
+    assert 'from cogs.wos_versioning import' not in updater
+    assert "WOSBOT_BRANCH = 'modified'" in source
+    assert "'source': 'Modified'" in updater
+    assert 'compare/{baseline}...{sha}' in updater
