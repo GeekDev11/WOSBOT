@@ -36,60 +36,46 @@ class SupportOperations(commands.Cog):
                 await main_menu_cog.show_maintenance(interaction)
 
     async def show_about_menu(self, interaction: discord.Interaction):
-        """Display the About Project information."""
+        """Show the running WOSBOT project's details and attribution."""
         about_embed = discord.Embed(
-            title=f"{theme.infoIcon} About Whiteout Project",
+            title=f'{theme.infoIcon} About WOSBOT',
             description=(
-                f"**Open Source Bot**\n"
-                f"{theme.upperDivider}\n"
-                f"This is an open source Discord bot for Whiteout Survival.\n"
-                f"The project is community-driven and freely available for everyone.\n\n"
-                f"{theme.documentIcon} **Documentation:** [Wiki](https://github.com/whiteout-project/bot/wiki)\n"
-                f"{theme.linkIcon} **Repository:** [GitHub](https://github.com/whiteout-project/bot)\n"
-                f"{theme.chatIcon} **Community:** [Discord](https://discord.gg/apYByj6K2m)\n\n"
-                f"☕ **Like the bot?** [Buy me a coffee](https://buymeacoffee.com/justncodes)\n\n"
-                f"**Contributing**\n"
-                f"{theme.middleDivider}\n"
-                f"Contributions are welcome! Please check our GitHub repository "
-                f"to report issues, suggest features, or submit pull requests.\n\n"
+                '**Your Whiteout Survival companion**\n\n'
+                'WOSBOT helps your alliance manage members, keep player details up to date, '
+                'track changes over time, and organize everyday tasks.\n\n'
+                '**Links**\n'
+                f"'{theme.linkIcon} **GitHub:** [WOSBOT](https://github.com/GeekDev11/WOSBOT)\n'"
+                f"'{theme.documentIcon} **Report an issue:** [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)\n\n'"
+                '**Credits**\n'
+                'WOSBOT is based on the open-source [Whiteout Project bot](https://github.com/whiteout-project/bot). '
+                'Thanks to its original contributors.'
             ),
-            color=discord.Color.green()
+            color=theme.emColor1
         )
-
-        about_embed.set_footer(text=f"Made with {theme.heartIcon} by the WOSLand Bot Team.")
-
+        about_embed.set_footer(text='WOSBOT · Whiteout Survival alliance tools')
         view = discord.ui.View(timeout=menu_timeout())
         view.add_item(discord.ui.Button(
-            label="Back",
-            emoji=f"{theme.backIcon}",
+            label='Back', emoji=f'{theme.backIcon}',
             style=discord.ButtonStyle.secondary,
-            custom_id="back_to_maintenance_from_about"
-        ))
-
+            custom_id='back_to_maintenance_from_about'))
         await safe_edit_message(interaction, embed=about_embed, view=view, content=None)
 
     async def show_support_info(self, interaction: discord.Interaction):
         support_embed = discord.Embed(
-            title=f"{theme.robotIcon} Bot Support Information",
+            title=f'{theme.robotIcon} WOSBOT Help & Support',
             description=(
-                "If you need help with the bot or are experiencing any issues, "
-                "please feel free to ask on our [Discord](https://discord.gg/apYByj6K2m)\n\n"
-                "**Additional resources:**\n"
-                "**GitHub Repository:** [Whiteout Project](https://github.com/whiteout-project/bot)\n"
-                "**Issues & Bug Reports:** [GitHub Issues](https://github.com/whiteout-project/bot/issues)\n\n"
-                "This bot is open source and maintained by the WOSLand community. "
-                "You can report bugs, request features, or contribute to the project "
-                "through our Discord or GitHub repository.\n\n"
-                "For technical support, please make sure to provide "
-                "detailed information about your problem."
+                'Need help, found a bug, or have an idea for WOSBOT?\n\n'
+                '**GitHub:** [WOSBOT repository](https://github.com/GeekDev11/WOSBOT)\n'
+                '**Report a bug:** [Open an issue](https://github.com/GeekDev11/WOSBOT/issues)\n\n'
+                'When reporting a problem, include what you were doing and any relevant '
+                'error messages. Never share your bot token or API keys.\n\n'
+                'WOSBOT builds on the open-source Whiteout Project bot.'
             ),
             color=theme.emColor1
         )
-
         await safe_edit_message(
             interaction, embed=support_embed,
-            view=_BackToMaintenanceView(self), content=None
-        )
+            view=_BackToMaintenanceView(self), content=None)
 
     async def gather_support_logs(self, interaction: discord.Interaction):
         """Gather recent logs and bot info into a zip file"""
