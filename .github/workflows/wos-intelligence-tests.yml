@@ -16,7 +16,8 @@ on:
       - "themes/**"
       - "cogs/pimp_my_bot.py"
       - "cogs/alliance_member_operations.py"
-      - "cogs/alliance_intel_export.py cogs/wos_versioning.py"
+      - "cogs/alliance_intel_export.py"
+      - "cogs/wos_versioning.py"
       - "requirements.txt"
       - ".github/workflows/wos-intelligence-tests.yml"
   workflow_dispatch:
