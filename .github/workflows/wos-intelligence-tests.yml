@@ -12,6 +12,9 @@ on:
       - "main.py"
       - "tests/test_wos_*.py"
       - "tests/test_alliance_intel_export.py"
+      - "tests/test_bundled_theme.py"
+      - "themes/**"
+      - "cogs/pimp_my_bot.py"
       - "cogs/alliance_member_operations.py"
       - "cogs/alliance_intel_export.py cogs/wos_versioning.py"
       - "requirements.txt"
@@ -40,4 +43,4 @@ jobs:
           python -m compileall -q cogs/wos_intelligence.py cogs/wos_alliance_intel.py cogs/wos_leaderboards.py cogs/wos_player_history.py cogs/wos_svs.py cogs/wos_observations.py cogs/alliance_api_sync.py cogs/alliance_api_menu.py cogs/alliance_member_operations.py cogs/alliance_intel_export.py
       - name: Run focused tests
         run: |
-          python -m pytest -q tests/test_wos_intelligence.py tests/test_wos_alliance_intel.py tests/test_wos_leaderboards.py tests/test_wos_player_history.py tests/test_wos_svs.py tests/test_wos_deployment.py tests/test_wos_observations.py tests/test_alliance_intel_export.py
+          python -m pytest -q tests/test_wos_intelligence.py tests/test_wos_alliance_intel.py tests/test_wos_leaderboards.py tests/test_wos_player_history.py tests/test_wos_svs.py tests/test_wos_deployment.py tests/test_wos_observations.py tests/test_alliance_intel_export.py tests/test_bundled_theme.py
