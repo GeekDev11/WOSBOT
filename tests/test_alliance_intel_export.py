@@ -68,10 +68,22 @@ def test_filtered_export_never_includes_other_members(tmp_path):
     sheets = build_export(1, member_ids=[102], db_dir=str(tmp_path),
                           categories=["Current Player Data"])
     assert [r[0] for r in sheets["Members"][1:]] == [102]
-    assert list(sheets) == ["Members", "Export Metadata"]
+    assert list(sheets) == ["Members", "Data Availability", "Export Metadata"]
 
 
 def test_spreadsheet_formula_injection_is_escaped():
     assert _safe_cell("=HYPERLINK(\"x\")").startswith("'")
     assert _safe_cell(" @malicious").startswith("'")
     assert _safe_cell("Safe") == "Safe"
+
+
+def test_member_xlsx_import_ignores_history_sheets():
+    from cogs.alliance_member_operations import _member_import_text, _extract_ids_from_csv
+    sheets = {
+        'Members': [['ID', 'Name', 'FC Level', 'State'], [123456, 'Player', 80, 1501]],
+        'Export Metadata': [['Property', 'Value'], ['Note', 'Do not restore history']],
+    }
+    raw = to_xlsx(sheets)
+    csv_text = _member_import_text('export.xlsx', raw)
+    assert _extract_ids_from_csv(csv_text) == ['123456']
+    assert 'Do not restore history' not in csv_text
