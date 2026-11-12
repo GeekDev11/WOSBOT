@@ -62,13 +62,13 @@ def test_name_styles_are_opt_in_and_per_server():
     assert 'display_name_font_id' in source
     assert 'display_name_effect_id' in source
     assert 'display_name_colors' in source
-     assert 'guild_id=guild.id' in source
+    assert 'guild_id=guild.id' in source
     assert 'await asyncio.sleep(0.6)' in source
     assert 'Customize Name' in source
     assert 'class NameStyleEditor' in source
     assert 'class ConfirmAllNameStyleView' in source
     assert 'class NameStyleColorsModal' in source
-     assert 'from discord.http import Route' in source
+    assert 'from discord.http import Route' in source
 
 
 def test_style_payload_validation_without_importing_bot():
