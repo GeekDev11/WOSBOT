@@ -49,3 +49,18 @@ def test_updater_preserves_database_and_secrets():
     assert 'Database backup failed:' in source
     assert '"bot_token.txt", "version", ".env", ".env.local"' in source
     assert 'norm_path.startswith("./db/")' in source
+
+
+def test_maintenance_update_menu_uses_only_wosbot_branch():
+    source = (SOURCE.parent / 'cogs' / 'bot_operations.py').read_text()
+    assert "repo = 'GeekDev11/WOSBOT'" in source
+    assert "branch = 'feature/whiteoutstats-intelligence'" in source
+    assert "latest_version = f'wosbot-{sha[:12]}'" in source
+    assert 'whiteout-project/bot/releases/latest' not in source
+    assert 'Cannot verify WOSBOT update source. No restart.' in source
+
+
+def test_maintenance_restart_enables_existing_startup_updater():
+    source = (SOURCE.parent / 'cogs' / 'bot_restart.py').read_text()
+    assert 'if allow_update and "--autoupdate" not in relaunch_args:' in source
+    assert 'relaunch_args.append("--autoupdate")' in source
