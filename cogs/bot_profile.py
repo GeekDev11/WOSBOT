@@ -3,7 +3,6 @@
 No experimental display-name API fields, no storing images or bot tokens.
 """
 import asyncio
-import io
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -88,7 +87,7 @@ class ProfileView(discord.ui.View):
                 "To upload a banner or avatar, use the Discord slash commands:\n"
                 "• `/botprofile banner`\n"
                 "• `/botprofile avatar`\n\n"
-                "Choose **All servers** in those commands to apply the same image "
+                "Use `all_servers: True` in those commands to apply the same image "
                 "to every server where the bot is present.\n\n"
                 "**Reset** removes the per-server nickname, bio, avatar, and banner "
                 "so Discord uses the default profile.\n\n"
@@ -170,7 +169,7 @@ class BotProfile(commands.Cog):
 
     @staticmethod
     def allowed(interaction):
-        return PermissionManager.is_admin(interaction.user.id)[1]
+        return bool(PermissionManager.is_admin(interaction.user.id)[1])
 
     async def show_profile(self, interaction):
         if not self.allowed(interaction):
