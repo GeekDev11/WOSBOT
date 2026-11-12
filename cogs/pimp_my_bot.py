@@ -787,6 +787,59 @@ class ThemeManager:
                 conn.commit()
                 logger.info("Theme database created with default theme.")
 
+            # Install bundled themes once, without overwriting user edits or
+            # changing the currently selected global/server theme.
+            bundled_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "themes", "WOSBOT_Aurora_theme.json")
+            if os.path.isfile(bundled_path):
+                try:
+                    with open(bundled_path, encoding="utf-8") as bundled_file:
+                        bundled = json.load(bundled_file)
+                    preset_name = bundled["themeName"]
+                    if not cursor.execute(
+                        "SELECT 1 FROM pimpsettings WHERE themeName=?", (preset_name,)
+                    ).fetchone():
+                        columns = {
+                            entry[1] for entry in cursor.execute("PRAGMA table_info(pimpsettings)")
+                        }
+                        preset_values = {
+                            "themeName": preset_name,
+                            "themeDescription": bundled.get("themeDescription", ""),
+                            "themeCreator": 0,
+                            "is_active": 0,
+                            "created_guild_id": None,
+                        }
+                        for key, value in bundled.get("icons", {}).items():
+                            if key in ICON_NAMES and key in columns and isinstance(value, str):
+                                preset_values[key] = value
+                        for key, value in bundled.get("colors", {}).items():
+                            if key in (
+                                "emColorString1", "emColorString2", "emColorString3",
+                                "emColorString4", "headerColor1", "headerColor2"
+                            ) and key in columns and isinstance(value, str):
+                                preset_values[key] = value
+                        for number in (1, 2, 3):
+                            divider = bundled.get("dividers", {}).get(f"divider{number}", {})
+                            for field, suffix in (
+                                ("start", "Start"), ("pattern", "Pattern"),
+                                ("end", "End"), ("length", "Length")
+                            ):
+                                column = f"divider{suffix}{number}"
+                                if field in divider and column in columns:
+                                    preset_values[column] = divider[field]
+                            code_column = f"dividerCodeBlock{number}"
+                            if code_column in columns:
+                                preset_values[code_column] = int(bool(divider.get("codeBlock", False)))
+                        names = list(preset_values)
+                        placeholders = ", ".join("?" for _ in names)
+                        cursor.execute(
+                            f"INSERT OR IGNORE INTO pimpsettings ({', '.join(names)}) VALUES ({placeholders})",
+                            [preset_values[name] for name in names],
+                        )
+                        conn.commit()
+                        logger.info("Installed bundled theme: %s", preset_name)
+                except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+                    logger.warning("Could not install bundled Aurora theme: %s", exc)
+
     def load(self):
         """Reload the bot-wide active theme and drop cached server themes. Safe to call multiple times."""
         self._ensure_db()
