@@ -9,7 +9,7 @@ from urllib.parse import quote
 REPOSITORY = "GeekDev11/WOSBOT"
 BRANCH = "modified"
 DISPLAY_CHANNEL = "Modified"
-BASELINE_SHA = "c651d257ed947ccd1a703f84f6b6b2cf3055d29b"
+BASELINE_SHA = "04dfa0e4a174515a61ab537f05d68ed2f354719c"
 MAJOR = 2
 MINOR = 2
 
