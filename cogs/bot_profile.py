@@ -36,11 +36,11 @@ def validate_image(filename, content_type, data):
 
 # Community-observed IDs; not officially supported for bot accounts by Discord.
 FONT_IDS = {
-    "Tempo": 1, "BioRhyme": 2, "Sakura": 3, "Jellybean": 4,
+    "Bangers": 1, "BioRhyme": 2, "Sakura": 3, "Jellybean": 4,
     "Compagnon": 5, "Modern": 6, "Medieval": 7, "8Bit": 8,
-    "Ribes": 9, "Vampyre": 10, "gg sans": 11, "Zilla Slab": 12,
+    "Ribes": 9, "Sinistre": 10, "GG Sans": 11, "Zilla Slab": 12,
 }
-EFFECT_IDS = {"Solid": 1, "Gradient": 2, "Neon": 3, "Toon": 4, "Pop": 5}
+EFFECT_IDS = {"Solid": 1, "Gradient": 2, "Neon": 3, "Toon": 4, "Pop": 5, "Glow": 6}
 COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -129,10 +129,11 @@ class ProfileView(discord.ui.View):
                 "to every server where the bot is present.\n\n"
                 "**Reset** removes the per-server nickname, bio, avatar, and banner "
                 "so Discord uses the default profile.\n\n"
-                "**Experimental Name Style:** customize the bot's server nickname font, "
-                "color, and effects with `/botprofile style`. Use `/botprofile style-reset` "
-                "to undo. This feature uses undocumented Discord fields and may not work. "
-                "Role colors override name-style colors in servers."
+                "**Name Style:** click **Customize Name** for a font and effect list, "
+                "color palettes or custom HEX colors, then apply to this server or all servers. "
+                "You can also try `/botstyle` if slash commands are available. "
+                "Discord may reject undocumented name-style fields, and server role colors "
+                "can override the selected text colors."
             ),
             color=theme.emColor1,
         )
