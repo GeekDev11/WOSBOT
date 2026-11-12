@@ -134,3 +134,11 @@ def test_profile_slash_commands_registered_in_bot_tree():
         finally:
             await bot.close()
     asyncio.run(run())
+
+
+def test_profile_has_admin_guild_command_refresh():
+    source = PROFILE.read_text(encoding="utf-8")
+    assert 'label="Refresh Commands"' in source
+    assert 'self.bot.tree.copy_global_to(guild=interaction.guild)' in source
+    assert 'await self.bot.tree.sync(guild=interaction.guild)' in source
+    assert 'if not self.allowed(interaction) or not interaction.guild:' in source
