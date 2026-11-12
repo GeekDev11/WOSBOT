@@ -5,6 +5,7 @@ import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
+from .bot_level_mapping import format_furnace_level
 
 DB_DIR = "db"
 CATEGORIES = ("Current Player Data", "Player History", "Heroes & Equipment",
@@ -127,7 +128,7 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
         if not isinstance(p, dict):
             p = {}
         _add(sheets, "Members", fid, names.get(int(aid), str(aid)) if aid else "",
-             name, fc, _get(p, "kid") if _get(p, "kid") is not None else state,
+             name, format_furnace_level(fc) if fc is not None else "", _get(p, "kid") if _get(p, "kid") is not None else state,
              _get(p, "x"), _get(p, "y"),
              _get(p, "power") if _get(p, "power") is not None else power,
              cp, _get(p, "kills"), _get(p, "vip"), avatar, synced,
@@ -188,6 +189,9 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
             ):
                 for old, new, when in _read(changes_db,
                     f"SELECT {oldcol},{newcol},change_date FROM {table} WHERE fid=? ORDER BY id", (fid,)):
+                    if sheet == "FC History":
+                        old = format_furnace_level(old) if old is not None else ""
+                        new = format_furnace_level(new) if new is not None else ""
                     _add(sheets, sheet, fid, old, new, when, "Local member edit / sync")
             for table, metric, oldcol, newcol in (
                 ("power_changes", "Power", "old_power", "new_power"),
