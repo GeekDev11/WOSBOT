@@ -6,7 +6,7 @@ import stat
 import contextlib
 
 WOSBOT_REPO = 'GeekDev11/WOSBOT'
-WOSBOT_BRANCH = 'feature/whiteoutstats-intelligence'
+WOSBOT_BRANCH = 'development'
 WOSBOT_ARCHIVE = f'https://github.com/{WOSBOT_REPO}/archive/refs/heads/{WOSBOT_BRANCH}.zip'
 
 # Cap glibc malloc arenas before anything allocates: glibc keeps a per-thread
@@ -364,7 +364,7 @@ def cleanup_removed_packages():
     safe_remove("requirements.old", is_dir=False)
 
 # WOSBOT fork is the only allowed update source.
-UPDATE_SOURCES = [{'name': 'GitHub', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha=feature%2Fwhiteoutstats-intelligence&per_page=1', 'primary': True}]
+UPDATE_SOURCES = [{'name': 'GitHub', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha=development&per_page=1', 'primary': True}]
 
 def _parse_version(tag):
     """(major, minor, patch) for a vX.Y.Z tag, else None."""
