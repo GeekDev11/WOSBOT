@@ -94,12 +94,14 @@ def test_custom_name_editor_has_full_options_and_explicit_scope():
     assert '"Bangers": 1' in source
     assert '"Zilla Slab": 12' in source
     assert '"Glow": 6' in source
-    assert 'NAME_COLOR_PRESETS' in source
-    assert '"Aurora": ("#5865F2", "#A78BFA")' in source
+    assert 'NAME_COLOR_SWATCHES' in source
+    assert '"Indigo": ("#5865F2", "🔵")' in source
+    assert 'placeholder="Choose primary text color"' in source
+    assert 'placeholder="Choose second text color"' in source
     assert 'label="Custom HEX"' in source
     assert 'label="Server / All"' in source
-    assert 'label="Apply Style"' in source
-    assert 'label="Reset Style"' in source
+    assert 'label="Apply to Bot Name"' in source
+    assert 'label="Reset Name"' in source
     assert 'Confirm All Servers' in source
     assert 'if self.all_servers:' in source
     assert 'await self.cog.apply_name_style(interaction, payload, False)' in source
@@ -142,3 +144,20 @@ def test_profile_has_admin_guild_command_refresh():
     assert 'self.bot.tree.copy_global_to(guild=interaction.guild)' in source
     assert 'await self.bot.tree.sync(guild=interaction.guild)' in source
     assert 'if not self.allowed(interaction) or not interaction.guild:' in source
+
+
+
+def test_independent_color_swatches_fit_discord_component_rows():
+    import ast
+    source = PROFILE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "NameStyleEditor")
+    controls = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "_controls")
+    assert 'row=0' in ast.get_source_segment(source, controls)
+    assert 'row=1' in ast.get_source_segment(source, controls)
+    assert 'row=2' in ast.get_source_segment(source, controls)
+    assert 'row=3' in ast.get_source_segment(source, controls)
+    assert 'disabled=(self.effect != "Gradient")' in ast.get_source_segment(source, controls)
+    for fn in ("custom_colors", "change_scope", "apply_style", "reset_style", "close"):
+        method = next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == fn)
+        assert 'row=4' in ast.get_source_segment(source, method.decorator_list[0])
