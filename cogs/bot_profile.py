@@ -220,19 +220,26 @@ class ConfirmResetView(discord.ui.View):
 
 
 
-# Named colors are quick choices; Custom Colors lets admins supply any HEX values.
-NAME_COLOR_PRESETS = {
-    "Aurora": ("#5865F2", "#A78BFA"),
-    "Ice": ("#38BDF8", "#A5F3FC"),
-    "Violet": ("#7C3AED", "#F472B6"),
-    "Sunset": ("#F97316", "#EC4899"),
-    "Ocean": ("#0284C7", "#14B8A6"),
-    "Emerald": ("#10B981", "#A3E635"),
-    "Rose": ("#FB7185", "#F9A8D4"),
-    "Gold": ("#F59E0B", "#FDE68A"),
-    "Crimson": ("#DC2626", "#F97316"),
-    "Midnight": ("#334155", "#818CF8"),
-    "Mono": ("#FFFFFF", "#94A3B8"),
+# Independent color swatches for the bot's display-name style, not embed colors.
+# Discord has no native hex/color-picker control for bots. Select swatches or
+# type exact HEX values in the Custom HEX dialog.
+NAME_COLOR_SWATCHES = {
+    "Indigo": ("#5865F2", "🔵"),
+    "Purple": ("#A78BFA", "🟣"),
+    "Violet": ("#7C3AED", "🟣"),
+    "Ice Blue": ("#38BDF8", "🩵"),
+    "Cyan": ("#06B6D4", "🩵"),
+    "Ocean": ("#0284C7", "🔵"),
+    "Emerald": ("#10B981", "🟢"),
+    "Lime": ("#A3E635", "🟢"),
+    "Rose": ("#FB7185", "🩷"),
+    "Pink": ("#EC4899", "🩷"),
+    "Red": ("#DC2626", "🔴"),
+    "Orange": ("#F97316", "🟠"),
+    "Gold": ("#F59E0B", "🟡"),
+    "Yellow": ("#FDE68A", "🟡"),
+    "White": ("#FFFFFF", "⚪"),
+    "Slate": ("#64748B", "⚫"),
 }
 
 
@@ -292,9 +299,9 @@ class NameStyleEditor(discord.ui.View):
                 f"**Font:** {self.font}\n"
                 f"**Effect:** {self.effect}\n"
                 f"**Colors:** {preview}\n\n"
-                "Choose a font, effect, and colors below, then click **Apply Style**. "
-                "The embed border is only a color preview; it does not change the bot name. "
-                "Use **Custom HEX** for any color you like. "
+                "Choose a font and effect, then select **each name color separately**. "
+                "Use **Custom HEX** for any shade. Click **Apply to Bot Name** to send "
+                "your chosen style to Discord. The embed border is only a preview. "
                 "Apply does not rename the bot or change its avatar or banner.\n\n"
                 "⚠️ Name-style fields are undocumented for bots. Discord can reject "
                 "or ignore them. Role colors can override text colors in servers, "
@@ -313,13 +320,12 @@ class NameStyleEditor(discord.ui.View):
         return True
 
     def _controls(self):
-        # Preserve the decorator-defined action buttons. clear_items() removed
-        # Apply, Reset, Scope and Custom HEX every time a dropdown changed.
+        # Rebuild dropdowns but preserve the decorator-defined action buttons.
         for item in list(self.children):
             if isinstance(item, discord.ui.Select):
                 self.remove_item(item)
         fonts = discord.ui.Select(
-            placeholder="Font", row=0,
+            placeholder="Choose font", row=0,
             options=[discord.SelectOption(
                 label=name, value=name, default=(name == self.font)
             ) for name in FONT_IDS],
@@ -327,22 +333,40 @@ class NameStyleEditor(discord.ui.View):
         fonts.callback = self._change_font
         self.add_item(fonts)
         effects = discord.ui.Select(
-            placeholder="Visual effect", row=1,
+            placeholder="Choose effect", row=1,
             options=[discord.SelectOption(
                 label=name, value=name, default=(name == self.effect)
             ) for name in EFFECT_IDS],
         )
         effects.callback = self._change_effect
         self.add_item(effects)
-        palette = discord.ui.Select(
-            placeholder="Color palette", row=2,
-            options=[discord.SelectOption(
-                label=name, value=name,
-                description=f"{colors[0]} / {colors[1]}"
-            ) for name, colors in NAME_COLOR_PRESETS.items()],
+        primary = discord.ui.Select(
+            placeholder="Choose primary text color", row=2,
+            options=[
+                discord.SelectOption(
+                    label=name, value=value,
+                    emoji=emoji, description=value,
+                    default=(value.upper() == self.primary.upper())
+                )
+                for name, (value, emoji) in NAME_COLOR_SWATCHES.items()
+            ],
         )
-        palette.callback = self._change_palette
-        self.add_item(palette)
+        primary.callback = self._change_primary
+        self.add_item(primary)
+        secondary = discord.ui.Select(
+            placeholder="Choose second text color", row=3,
+            disabled=(self.effect != "Gradient"),
+            options=[
+                discord.SelectOption(
+                    label=name, value=value,
+                    emoji=emoji, description=value,
+                    default=(value.upper() == self.secondary.upper())
+                )
+                for name, (value, emoji) in NAME_COLOR_SWATCHES.items()
+            ],
+        )
+        secondary.callback = self._change_secondary
+        self.add_item(secondary)
 
     async def _change_font(self, interaction):
         if not await self.check(interaction):
@@ -358,27 +382,34 @@ class NameStyleEditor(discord.ui.View):
         self._controls()
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
-    async def _change_palette(self, interaction):
+    async def _change_primary(self, interaction):
         if not await self.check(interaction):
             return
-        self.primary, self.secondary = NAME_COLOR_PRESETS[interaction.data["values"][0]]
+        self.primary = interaction.data["values"][0]
         self._controls()
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
-    @discord.ui.button(label="Custom HEX", emoji="🎨", row=3)
+    async def _change_secondary(self, interaction):
+        if not await self.check(interaction):
+            return
+        self.secondary = interaction.data["values"][0]
+        self._controls()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    @discord.ui.button(label="Custom HEX", emoji="🎨", row=4)
     async def custom_colors(self, interaction, button):
         if await self.check(interaction):
             await interaction.response.send_modal(NameStyleColorsModal(self))
 
-    @discord.ui.button(label="Server / All", emoji="🌍", row=3)
+    @discord.ui.button(label="Server / All", emoji="🌍", row=4)
     async def change_scope(self, interaction, button):
         if not await self.check(interaction):
             return
         self.all_servers = not self.all_servers
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
-    @discord.ui.button(label="Apply Style", emoji="✅",
-                       style=discord.ButtonStyle.success, row=3)
+    @discord.ui.button(label="Apply to Bot Name", emoji="✅",
+                       style=discord.ButtonStyle.success, row=4)
     async def apply_style(self, interaction, button):
         if not await self.check(interaction):
             return
@@ -401,7 +432,7 @@ class NameStyleEditor(discord.ui.View):
         result = await self.cog.apply_name_style(interaction, payload, False)
         await interaction.followup.send(result, ephemeral=True)
 
-    @discord.ui.button(label="Reset Style", emoji="↩️",
+    @discord.ui.button(label="Reset Name", emoji="↩️",
                        style=discord.ButtonStyle.secondary, row=4)
     async def reset_style(self, interaction, button):
         if not await self.check(interaction):
