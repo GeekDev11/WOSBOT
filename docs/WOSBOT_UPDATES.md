@@ -1,15 +1,23 @@
 # WOSBOT updater — fork-only release channel
 
 **Source of truth:** `GeekDev11/WOSBOT`  
-**Pinned channel:** `development`  
+**Update channel:** `Modified` (`modified` branch)  
 **Never:** `main`, `whiteout-project/bot`, or an alternate repository.
 
 ## How versions are identified
 
-The existing updater in `main.py` queries the selected branch's latest commit
-through GitHub, then downloads the archive of that **exact 40-character commit SHA**.
-The installed `version` file contains `wosbot-<12-character-sha>`. Therefore
-the downloaded archive cannot change between the check and installation.
+WOSBOT uses human-readable versions in the form `2.2.01`, `2.2.02`,
+`2.2.03` and so on. The last component increments for every new commit
+on `modified`, including bug fixes and feature changes.
+
+The starting baseline is commit `04dfa0e4a174515a61ab537f05d68ed2f354719c`.
+The updater asks GitHub how many commits the current release is ahead of
+that baseline. No separate version-bump commit is required. If the branch
+is rebased or the baseline stops being its ancestor, the updater refuses
+to apply the release rather than guessing a version.
+
+The exact 40-character latest commit SHA is still used internally to download
+an immutable archive, while the console and Discord display the numeric version.
 
 ## Enable the existing updater
 
@@ -34,13 +42,13 @@ For Wispbyte-like panels, set the *host's separate* `AUTO_UPDATE=0` if an old
 
 ## Safe release workflow
 
-1. Commit changes to `development`.
+1. Commit changes to `modified`.
 2. Wait for GitHub Actions **Whiteout Stats integration tests** to finish green.
 3. Back up the persistent `db/` directory and application secrets to off-host
    storage; confirm backups can be restored.
 4. Restart the host application with `--autoupdate`.
-5. Check console output for `GeekDev11/WOSBOT@development`
-   and an installed `wosbot-` commit version.
+5. Check console output for `Modified`
+   and an installed numeric `2.2.xx` version.
 6. Run a test Discord command and check the Player Sync logs.
 
 The updater preserves `db/`, `bot_token.txt`, `.env`, `.env.local` and
@@ -52,7 +60,7 @@ The updater preserves `db/`, `bot_token.txt`, `.env`, `.env.local` and
   atomic deployment with automatic rollback. Save verified backups before updating.
 - It does not automatically wait for CI checks or verify GitHub Actions results.
   Approve only commits whose checks succeeded.
-- The updater keeps the production bot running the **specified development branch**
+- The updater keeps the production bot running the **specified modified branch**
   on purpose; do not switch it to `main` unless you explicitly decide to.
 - `--repair` forces a reinstall from the same selected WOSBOT branch.
 - To disable startup updates, omit `--autoupdate` or use `--no-update`.
