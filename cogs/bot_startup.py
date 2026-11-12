@@ -387,11 +387,10 @@ class BotStartup(commands.Cog):
                     )
 
                     status_embed.add_field(
-                        name=f"{theme.pinIcon} Community & Support",
+                        name=f"{theme.pinIcon} Project & Support",
                         value=(
                             f"**Project:** [WOSBOT on GitHub](https://github.com/GeekDev11/WOSBOT)\n"
                             f"**Report Issues:** [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)\n"
-                            f"**Community:** [Whiteout Project Discord](https://discord.gg/apYByj6K2m) (original project)\n"
                             f"**Credits:** Based on the open-source [Whiteout Project bot](https://github.com/whiteout-project/bot)\n"
                             f"{theme.lowerDivider}"
                         ),
