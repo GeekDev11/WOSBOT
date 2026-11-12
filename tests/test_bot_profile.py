@@ -44,3 +44,43 @@ def test_profile_menu_is_global_admin_only():
     assert 'custom_id="bot_profile"' in source
     assert 'profile_cog.show_profile(interaction)' in source
     assert '"bot_presence", "bot_profile"' in source
+
+
+def test_name_styles_are_opt_in_and_per_server():
+    source = PROFILE.read_text(encoding="utf-8")
+    ast.parse(source)
+    assert 'NAME_STYLE_RESET' in source
+    assert 'def build_name_style(' in source
+    assert 'display_name_font_id' in source
+    assert 'display_name_effect_id' in source
+    assert 'display_name_colors' in source
+    assert '@botprofile.command(name="style"' in source
+    assert '@botprofile.command(name="style-reset"' in source
+    assert 'guild_id=interaction.guild_id' in source
+    assert 'No automatic retry' in source
+    assert 'Aurora Name Style' in source
+    assert 'from discord.http import Route' in source
+
+
+def test_style_payload_validation_without_importing_bot():
+    module = ast.parse(PROFILE.read_text(encoding="utf-8"))
+    defs = [node for node in module.body if isinstance(node, (ast.FunctionDef, ast.Assign)) 
+            and (isinstance(node, ast.FunctionDef) and node.name == "build_name_style"
+                 or isinstance(node, ast.Assign) and any(
+                     isinstance(target, ast.Name) and target.id in {"FONT_IDS", "EFFECT_IDS", "COLOR_PATTERN"}
+                     for target in node.targets))]
+    # Evaluate only the pure helpers and constants (the bot must not start in tests).
+    import re
+    import pytest
+    scope = {"re": re}
+    exec(compile(ast.Module(body=defs, type_ignores=[]), str(PROFILE), "exec"), scope)
+    build = scope["build_name_style"]
+    result = build("Modern", "Gradient", "#5865F2", "#A78BFA")
+    assert result["display_name_colors"] == [0x5865F2, 0xA78BFA]
+    assert result["display_name_effect_id"] == 2
+    with pytest.raises(ValueError):
+        build("Modern", "Gradient", "blue", "#A78BFA")
+    with pytest.raises(ValueError):
+        build("Unknown", "Gradient", "#5865F2", "#A78BFA")
+    with pytest.raises(ValueError):
+        build("Modern", "Gradient", "#5865F2")
