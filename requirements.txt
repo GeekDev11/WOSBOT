@@ -18,3 +18,5 @@ arabic-reshaper>=3.0.0
 python-bidi==0.6.7
 pillow>=10.4.0
 numpy>=2.4.0
+# Excel exports for alliance player intelligence
+openpyxl>=3.1.5,<4
