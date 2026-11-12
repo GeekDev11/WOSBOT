@@ -6,7 +6,7 @@ import stat
 import contextlib
 
 WOSBOT_REPO = 'GeekDev11/WOSBOT'
-WOSBOT_BRANCH = 'development'
+WOSBOT_BRANCH = 'modified'
 WOSBOT_ARCHIVE = f'https://github.com/{WOSBOT_REPO}/archive/refs/heads/{WOSBOT_BRANCH}.zip'
 
 # Cap glibc malloc arenas before anything allocates: glibc keeps a per-thread
@@ -364,7 +364,7 @@ def cleanup_removed_packages():
     safe_remove("requirements.old", is_dir=False)
 
 # WOSBOT fork is the only allowed update source.
-UPDATE_SOURCES = [{'name': 'GitHub', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha=development&per_page=1', 'primary': True}]
+UPDATE_SOURCES = [{'name': 'Modified', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha={WOSBOT_BRANCH}&per_page=1', 'primary': True}]
 
 def _parse_version(tag):
     """(major, minor, patch) for a vX.Y.Z tag, else None."""
@@ -388,20 +388,17 @@ def _is_newer_version(candidate, current):
     return c > cur
 
 def get_latest_release_info(beta_mode=False):
-    """Only retrieve updates from the WOSBOT GitHub branch."""
+    """Download from the exact WOSBOT Modified commit and label it 2.2.xx."""
     try:
-        startup.phase_start('Checking WOSBOT GitHub branch')
-        response = requests.get(UPDATE_SOURCES[0]['api_url'], timeout=30)
-        response.raise_for_status()
-        sha = response.json()[0]['sha']
-        if len(sha) != 40 or any(ch not in '0123456789abcdef' for ch in sha):
-            raise ValueError('Invalid commit SHA returned by GitHub')
-        archive = f'https://github.com/{WOSBOT_REPO}/archive/{sha}.zip'
-        return {'tag_name': f'wosbot-{sha[:12]}',
-                'body': f'WOSBOT {WOSBOT_BRANCH} ({sha[:12]})',
-                'download_url': archive,
-                'source': f'{WOSBOT_REPO}@{WOSBOT_BRANCH}'}
-    except (requests.exceptions.RequestException, KeyError, TypeError, ValueError) as exc:
+        from cogs.wos_versioning import get_latest_info
+        startup.phase_start('Checking for WOSBOT updates')
+        info = get_latest_info(requests.get)
+        sha = info['sha']
+        return {'tag_name': info['version'],
+                'body': info['message'].splitlines()[0] if info['message'] else 'WOSBOT update',
+                'download_url': f'https://github.com/{WOSBOT_REPO}/archive/{sha}.zip',
+                'source': 'Modified'}
+    except (requests.exceptions.RequestException, KeyError, TypeError, ValueError, IndexError) as exc:
         startup.phase_fail('WOSBOT update check failed', details=[str(exc)])
         return None
 
@@ -941,7 +938,7 @@ if __name__ == "__main__":
     if "--autoupdate" in sys.argv or "--repair" in sys.argv:
         asyncio.run(check_and_update_files())
     else:
-        startup.phase_ok(f"Updates opt-in: {WOSBOT_REPO} · {WOSBOT_BRANCH}")
+        startup.phase_ok("Updates available on startup with --autoupdate")
             
     import discord
     from discord.ext import commands
