@@ -15,10 +15,29 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
+def resolve_profile_guild(bot, interaction):
+    """Resolve a guild from its ID if the interaction lacks a cached guild object."""
+    guild_id = getattr(interaction, "guild_id", None)
+    if guild_id is None:
+        return None
+    return bot.get_guild(guild_id)
+
+
 def targets_for(bot, interaction, all_servers):
+    current = resolve_profile_guild(bot, interaction)
+    if not current:
+        return []
     if not all_servers:
-        return [interaction.guild] if interaction.guild else []
+        return [current]
     return sorted(bot.guilds, key=lambda guild: guild.id)
+
+
+NO_GUILD_MESSAGE = (
+    "Discord did not provide a server for this command. "
+    "Open a text channel inside the server where WOSBOT is installed, "
+    "select the server-installed WOSBOT command (not a user-installed/DM command), "
+    "and try again. No profile image was uploaded."
+)
 
 
 def validate_image(filename, content_type, data):
@@ -505,8 +524,10 @@ class BotProfile(commands.Cog):
 
     async def refresh_commands(self, interaction):
         """Explicit test-guild sync for commands that have not propagated globally."""
-        if not self.allowed(interaction) or not interaction.guild:
-            return "Global Admin only. Run this in a server."
+        if not self.allowed(interaction):
+            return "Global Admin only."
+        if not resolve_profile_guild(self.bot, interaction):
+            return NO_GUILD_MESSAGE
         try:
             globals_before = {cmd.name for cmd in self.bot.tree.get_commands()}
             if not {"botprofile", "botstyle"}.issubset(globals_before):
@@ -533,8 +554,8 @@ class BotProfile(commands.Cog):
     async def apply(self, interaction, changes, all_servers=False):
         if not self.allowed(interaction):
             return "Global Admin only."
-        if not interaction.guild:
-            return "Run this command in a Discord server."
+        if not resolve_profile_guild(self.bot, interaction):
+            return NO_GUILD_MESSAGE
         if self._change_lock.locked():
             return "Another profile update is in progress."
         targets = targets_for(self.bot, interaction, all_servers)
@@ -561,8 +582,10 @@ class BotProfile(commands.Cog):
 
     async def apply_name_style(self, interaction, payload, all_servers=False):
         """Explicitly apply experimental styling; report per-server success/uncertainty."""
-        if not self.allowed(interaction) or not interaction.guild:
-            return "Global Admin only. Run this command in a server."
+        if not self.allowed(interaction):
+            return "Global Admin only."
+        if not resolve_profile_guild(self.bot, interaction):
+            return NO_GUILD_MESSAGE
         if self._change_lock.locked():
             return "Another profile change is in progress."
         targets = targets_for(self.bot, interaction, all_servers)
@@ -649,8 +672,8 @@ class BotProfile(commands.Cog):
         if not self.allowed(interaction):
             await interaction.response.send_message("Global Admin only.", ephemeral=True)
             return
-        if not interaction.guild:
-            await interaction.response.send_message("Use this command in a server.", ephemeral=True)
+        if not resolve_profile_guild(self.bot, interaction):
+            await interaction.response.send_message(NO_GUILD_MESSAGE, ephemeral=True)
             return
         if file.size > MAX_IMAGE_BYTES:
             await interaction.response.send_message("File is larger than 5 MB.", ephemeral=True)
@@ -666,12 +689,12 @@ class BotProfile(commands.Cog):
             ephemeral=True,
         )
 
-    @botprofile.command(name="avatar", description="Upload a server-specific bot avatar")
+    @botprofile.command(name="avatar", description="Upload a server-specific bot avatar (not the banner)")
     @app_commands.describe(file="PNG, JPG, GIF, or WebP (up to 5 MB)", all_servers="Apply to all bot servers (Global Admin only)")
     async def avatar(self, interaction: discord.Interaction, file: discord.Attachment, all_servers: bool = False):
         await self.image_upload(interaction, file, all_servers, "avatar")
 
-    @botprofile.command(name="banner", description="Upload a server-specific bot banner")
+    @botprofile.command(name="banner", description="Upload a server-specific bot banner (not the avatar)")
     @app_commands.describe(file="PNG, JPG, GIF, or WebP (up to 5 MB)", all_servers="Apply to all bot servers (Global Admin only)")
     async def banner(self, interaction: discord.Interaction, file: discord.Attachment, all_servers: bool = False):
         await self.image_upload(interaction, file, all_servers, "banner")
