@@ -1,7 +1,7 @@
 # WOSBOT updater — fork-only release channel
 
 **Source of truth:** `GeekDev11/WOSBOT`  
-**Pinned channel:** `feature/whiteoutstats-intelligence`  
+**Pinned channel:** `development`  
 **Never:** `main`, `whiteout-project/bot`, or an alternate repository.
 
 ## How versions are identified
@@ -34,12 +34,12 @@ For Wispbyte-like panels, set the *host's separate* `AUTO_UPDATE=0` if an old
 
 ## Safe release workflow
 
-1. Commit changes to `feature/whiteoutstats-intelligence`.
+1. Commit changes to `development`.
 2. Wait for GitHub Actions **Whiteout Stats integration tests** to finish green.
 3. Back up the persistent `db/` directory and application secrets to off-host
    storage; confirm backups can be restored.
 4. Restart the host application with `--autoupdate`.
-5. Check console output for `GeekDev11/WOSBOT@feature/whiteoutstats-intelligence`
+5. Check console output for `GeekDev11/WOSBOT@development`
    and an installed `wosbot-` commit version.
 6. Run a test Discord command and check the Player Sync logs.
 
