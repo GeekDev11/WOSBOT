@@ -47,8 +47,10 @@ def test_update_archive_is_pinned_to_fork_commit():
 def test_updater_preserves_database_and_secrets():
     source = SOURCE.read_text()
     assert 'Database backup failed:' in source
-    assert '"bot_token.txt", "version", ".env", ".env.local"' in source
-    assert 'norm_path.startswith("./db/")' in source
+    assert 'rel.startswith(("db/", ".git/"))' in source
+    assert 'rel in ("version", "bot_token.txt", ".env", ".env.local")' in source
+    assert '"files": files + ["version"]' in source
+    assert '_restore_previous_update("installation failed")' in source
 
 
 def test_maintenance_update_menu_uses_only_wosbot_branch():
