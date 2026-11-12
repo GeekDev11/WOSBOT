@@ -76,7 +76,26 @@ try:
     from cogs import bot_startup_display as startup
     from cogs.bot_restart import is_container, restart_process
 except ImportError:
-    # cogs/ is missing (likely a bare main.py drop). Fetch the full source for this branch and restart.
+    # If the new boot-critical modules fail to import, restore the verified
+    # previous installation BEFORE attempting any network bootstrap.
+    import json as _recovery_json
+    _recovery_file = os.path.join(".wos_update_recovery", "state.json")
+    if os.path.isfile(_recovery_file):
+        with open(_recovery_file, encoding="utf-8") as _handle:
+            _state = _recovery_json.load(_handle)
+        for _rel in reversed(_state["files"]):
+            _target = os.path.join(os.getcwd(), _rel)
+            _backup = os.path.join(".wos_update_recovery", "files", _rel)
+            if os.path.isfile(_backup):
+                os.makedirs(os.path.dirname(_target), exist_ok=True)
+                shutil.copy2(_backup, _target)
+            elif os.path.isfile(_target):
+                os.remove(_target)
+        shutil.rmtree(".wos_update_recovery")
+        print("  Core module failed to load. Previous WOSBOT version restored.", flush=True)
+        _restart_args = [a for a in sys.argv if a not in ("--autoupdate", "--repair", "--no-update")]
+        os.execv(sys.executable, [sys.executable, *_restart_args, "--no-update"])
+    # No pending update: this may be a bare main.py installation.
     _bootstrap_from_main_branch(WOSBOT_ARCHIVE)
     print("Download complete. Restarting...")
     if sys.platform == "win32":
