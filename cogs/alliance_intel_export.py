@@ -3,7 +3,6 @@ import io
 import json
 import os
 import sqlite3
-from collections import defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
 
@@ -27,6 +26,7 @@ SHEET_HEADERS = {
                         "Availability", "Raw Gear JSON"],
     "Equipment History": ["ID", "Field", "Old Value", "New Value", "Observed At", "Source"],
     "Observations": ["ID", "Observed At", "Source", "Captured Data"],
+    "Data Availability": ["ID", "Field", "Availability", "Last Observation"],
     "Export Metadata": ["Property", "Value"],
 }
 
@@ -74,7 +74,7 @@ def _add(sheets, name, *values):
     sheets[name].append([_safe_cell(v) for v in values])
 
 
-def _ensure(sheets):
+def _ensure():
     return {name: [list(headers)] for name, headers in SHEET_HEADERS.items()}
 
 
@@ -86,7 +86,7 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
     categories = set(categories or CATEGORIES)
     if "Complete Export" in categories:
         categories = set(CATEGORIES)
-    sheets = _ensure(SHEET_HEADERS)
+    sheets = _ensure()
     users_db = os.path.join(db_dir, "users.sqlite")
     query = ("SELECT fid,nickname,furnace_lv,kid,power,combat_power,avatar_url,"
              "api_synced_at,alliance FROM users")
@@ -125,6 +125,19 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
              _get(p, "power") if _get(p, "power") is not None else power,
              cp, _get(p, "kills"), _get(p, "vip"), avatar, synced,
              recorded_at, source, "Last saved observation (not necessarily live)" if recorded_at else "Local member record only")
+        for field, value in (('State', _get(p, 'kid')), ('X', _get(p, 'x')),
+                             ('Y', _get(p, 'y')), ('Kills', _get(p, 'kills')),
+                             ('VIP', _get(p, 'vip')), ('Heroes', payload.get('heroes')),
+                             ('Chief Gear', payload.get('chief_gear'))):
+            if field == 'Chief Gear' and isinstance(value, dict) and value.get('hidden') is True:
+                availability = 'Hidden by source'
+            elif value is None:
+                availability = 'Not reported'
+            elif isinstance(value, (dict, list)) and not value:
+                availability = 'Empty response (not proof of none owned)'
+            else:
+                availability = 'Last recorded API value; freshness unverified'
+            _add(sheets, 'Data Availability', fid, field, availability, recorded_at)
         if not ({"Heroes & Equipment", "Equipment History"} & categories):
             continue
         heroes = payload.get("heroes") if isinstance(payload, dict) else None
@@ -207,7 +220,7 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
     _add(sheets, "Export Metadata", "Missing data", "Blank = not reported; no value is inferred")
     _add(sheets, "Export Metadata", "Hero coverage", "Arena lineup only when provided by API")
     _add(sheets, "Export Metadata", "Freshness", "Observations may contain retained values from earlier API responses")
-    keep = {"Members", "Export Metadata"}
+    keep = {"Members", "Data Availability", "Export Metadata"}
     if "Player History" in categories:
         keep.update(("Name History", "FC History", "Power History", "State & Location", "Alliance History"))
     if "Heroes & Equipment" in categories:
