@@ -366,7 +366,7 @@ class BotOperations(commands.Cog):
 
                 main_embed = discord.Embed(
                     title=f"{theme.refreshIcon} Bot Update Status",
-                    description='Source: GeekDev11/WOSBOT · development',
+                    description='Update channel: Modified',
                     color=theme.emColor1 if not updates_needed else discord.Color.yellow()
                 )
 
@@ -445,25 +445,13 @@ class BotOperations(commands.Cog):
                     await interaction.followup.send(error_text, ephemeral=True)
 
     async def check_for_updates(self):
-        """Check the same fork branch as the startup updater, never upstream releases."""
+        """Use the same Modified release version as the startup updater."""
         try:
-            from urllib.parse import quote
+            from .wos_versioning import get_latest_info
             current_version = self.get_current_version()
-            repo = 'GeekDev11/WOSBOT'
-            branch = 'development'
-            url = f'https://api.github.com/repos/{repo}/commits?sha={quote(branch, safe="")}&per_page=1'
-            response = await asyncio.to_thread(requests.get, url, timeout=15)
-            response.raise_for_status()
-            commits = response.json()
-            if not isinstance(commits, list) or not commits:
-                raise ValueError('No commits returned for WOSBOT branch')
-            commit = commits[0]
-            sha = commit.get('sha', '')
-            if not isinstance(sha, str) or len(sha) != 40 or any(c not in '0123456789abcdef' for c in sha):
-                raise ValueError('Invalid WOSBOT commit SHA')
-            latest_version = f'wosbot-{sha[:12]}'
-            message = commit.get('commit', {}).get('message', '')
-            notes = [line.strip() for line in message.splitlines() if line.strip()]
+            info = await asyncio.to_thread(get_latest_info, requests.get)
+            latest_version = info['version']
+            notes = [line.strip() for line in info['message'].splitlines() if line.strip()]
             return current_version, latest_version, notes[:10], current_version != latest_version
         except (requests.exceptions.RequestException, ValueError, KeyError, TypeError) as exc:
             logger.error('WOSBOT update check failed: %s', exc)
