@@ -45,6 +45,17 @@ class _UpdateAndRestartView(discord.ui.View):
                 ephemeral=True,
             )
             return
+        operations = self.bot.get_cog('BotOperations')
+        if operations is None:
+            await interaction.response.send_message('WOSBOT updater unavailable.', ephemeral=True)
+            return
+        current, latest, _notes, needed = await operations.check_for_updates()
+        if latest is None:
+            await interaction.response.send_message('Cannot verify WOSBOT update source. No restart.', ephemeral=True)
+            return
+        if not needed:
+            await interaction.response.send_message(f'Already up to date: `{current}`', ephemeral=True)
+            return
         await interaction.response.defer()
         await health_cog.perform_restart(interaction, allow_update=True)
 
@@ -355,6 +366,7 @@ class BotOperations(commands.Cog):
 
                 main_embed = discord.Embed(
                     title=f"{theme.refreshIcon} Bot Update Status",
+                    description='Source: GeekDev11/WOSBOT · feature/whiteoutstats-intelligence',
                     color=theme.emColor1 if not updates_needed else discord.Color.yellow()
                 )
 
