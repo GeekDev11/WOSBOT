@@ -80,3 +80,87 @@ def test_startup_updater_does_not_require_new_cogs_before_install():
     assert "WOSBOT_BRANCH = 'modified'" in source
     assert "'source': 'Modified'" in updater
     assert 'compare/{baseline}...{sha}' in updater
+
+
+def _load_recovery_helpers():
+    """Load only stdlib updater helpers: importing main.py would start the bot."""
+    import ast
+    import json
+    import os
+    import shutil
+    import sys
+    tree = ast.parse(SOURCE.read_text())
+    wanted = {
+        "_update_recovery_dir", "_update_recovery_state",
+        "_restore_previous_update", "_pending_update_start",
+        "_confirm_successful_update", "_validate_staged_release",
+        "_install_verified_release",
+    }
+    node_list = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
+    assert len(node_list) == len(wanted)
+    ns = {"os": os, "shutil": shutil, "sys": sys}
+    exec(compile(ast.Module(body=node_list, type_ignores=[]), str(SOURCE), "exec"), ns)
+    return ns
+
+
+def _make_staged_release(root, main_text="print('working')\n"):
+    required = ("main.py", "requirements.txt", "cogs/bot_restart.py",
+                "cogs/bot_startup_display.py", "cogs/wos_versioning.py")
+    for rel in required:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(main_text if rel == "main.py" else "pass\n")
+    return root
+
+
+def test_rejects_incomplete_and_invalid_staged_code(tmp_path):
+    import pytest
+    h = _load_recovery_helpers()
+    root = tmp_path / "release"
+    root.mkdir()
+    with pytest.raises(RuntimeError, match="Missing required update file"):
+        h["_validate_staged_release"](root)
+    _make_staged_release(root, "def bad(:\n")
+    with pytest.raises(SyntaxError):
+        h["_validate_staged_release"](root)
+
+
+def test_update_keeps_old_files_until_success_and_can_restore(tmp_path, monkeypatch):
+    h = _load_recovery_helpers()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "main.py").write_text("print('old')\n")
+    (tmp_path / "version").write_text("2.2.10")
+    stage = _make_staged_release(tmp_path / "release")
+    h["_install_verified_release"](stage, "2.2.11")
+    assert (tmp_path / "version").read_text() == "2.2.11"
+    assert (tmp_path / "main.py").read_text() == "print('working')\n"
+    assert h["_update_recovery_state"]()["attempted"] is False
+    assert h["_restore_previous_update"]("test failure")
+    assert (tmp_path / "main.py").read_text() == "print('old')\n"
+    assert (tmp_path / "version").read_text() == "2.2.10"
+    assert not (tmp_path / "cogs" / "wos_versioning.py").exists()
+    assert not (tmp_path / ".wos_update_recovery").exists()
+
+
+def test_successful_startup_clears_recovery_snapshot(tmp_path, monkeypatch):
+    h = _load_recovery_helpers()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "main.py").write_text("print('old')\n")
+    stage = _make_staged_release(tmp_path / "release")
+    h["_install_verified_release"](stage, "2.2.11")
+    h["_confirm_successful_update"]()
+    assert not (tmp_path / ".wos_update_recovery").exists()
+    assert (tmp_path / "main.py").read_text() == "print('working')\n"
+
+
+def test_update_never_replaces_main_before_syntax_validation():
+    source = SOURCE.read_text()
+    assert 'compile(path.read_bytes(), str(path), "exec")' in source
+    assert source.index("_validate_staged_release(update_dir)") < source.index("install_packages(requirements_path,")
+    assert source.index("_install_verified_release(update_dir, latest_tag)") < source.index('startup.phase_ok(f"Update completed')
+
+
+def test_startup_banner_has_no_old_support_invite():
+    source = (SOURCE.parent / "cogs" / "bot_startup_display.py").read_text()
+    assert 'Need help?' not in source
+    assert 'discord.gg/apYByj6K2m' not in source
