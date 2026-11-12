@@ -197,16 +197,33 @@ class Alliance(commands.Cog):
     @app_commands.command(name="settings", description="Open settings menu.")
     async def settings(self, interaction: discord.Interaction):
         try:
-            if interaction.guild is not None: # Check bot permissions only if in a guild
+            if interaction.guild is not None:
+                # User-installed apps may offer commands in a server even when the
+                # bot is not installed as a server member. Report that case clearly.
                 perm_check = interaction.guild.me
-                if perm_check is None or not perm_check.guild_permissions.administrator:
+                if perm_check is None:
                     await interaction.response.send_message(
-                        f"Beeb boop {theme.robotIcon} I need **Administrator** permissions to function. "
-                        "Go to server settings --> Roles --> find my role --> scroll down and turn on Administrator", 
-                        ephemeral=True
+                        "WOSBOT is not installed as a bot member of this server. "
+                        "A user-installed app can run slash commands without appearing "
+                        "under Server Settings → Roles. To manage server settings, "
+                        "install this application **to the server** from Discord "
+                        "Developer Portal → Installation, using both bot and "
+                        "applications.commands scopes. Then check Server Settings → "
+                        "Integrations → Bots and Apps.",
+                        ephemeral=True,
                     )
                     return
-                
+                if not perm_check.guild_permissions.administrator:
+                    await interaction.response.send_message(
+                        "WOSBOT is installed as a server member, but its bot role "
+                        "does not have Administrator permission. The current settings "
+                        "command requires this permission. Review the role under "
+                        "Server Settings → Roles. Only grant Administrator if you "
+                        "intend to give this bot full server access.",
+                        ephemeral=True,
+                    )
+                    return
+
             with sqlite3.connect('db/settings.sqlite', timeout=30.0) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM admin")
