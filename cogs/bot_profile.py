@@ -535,8 +535,9 @@ class BotProfile(commands.Cog):
                     "Profile commands are missing from the local command tree. "
                     "Check hosting console for cog-load errors before syncing."
                 )
-            self.bot.tree.copy_global_to(guild=interaction.guild)
-            result = await self.bot.tree.sync(guild=interaction.guild)
+            guild = resolve_profile_guild(self.bot, interaction)
+            self.bot.tree.copy_global_to(guild=guild)
+            result = await self.bot.tree.sync(guild=guild)
             registered = {cmd.name for cmd in result}
             if {"botprofile", "botstyle"}.issubset(registered):
                 return (
