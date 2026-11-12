@@ -485,6 +485,8 @@ class MainMenu(commands.Cog):
                     f"└ API status, DB health, system info, restart, cleanup tools (Global Admin only)\n\n"
                     f"{theme.robotIcon} **Bot Presence**\n"
                     f"└ Set the bot's Discord activity status (Global Admin only)\n\n"
+                    f"❄️ **Bot Profile**\n"
+                    f"└ Customize the bot's nickname, bio, banner and avatar by server (Global Admin only)\n\n"
                     f"{theme.supportIcon} **Request Support**\n"
                     f"└ Open a support DM with logs attached\n\n"
                     f"{theme.infoIcon} **About Project**\n"
@@ -2824,7 +2826,7 @@ class MaintenanceView(discord.ui.View):
         self.is_global = is_global
 
         # Gate Global-Admin-only buttons by stable custom_id, not label text.
-        global_only = {"check_updates", "backup_system", "bot_health", "bot_presence",
+        global_only = {"check_updates", "backup_system", "bot_health", "bot_presence", "bot_profile",
                        "toggle_remote_ocr"}
         for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id in global_only:
@@ -2916,6 +2918,26 @@ class MaintenanceView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error loading Bot Presence: {e}")
             print(f"Error loading Bot Presence: {e}")
+
+    @discord.ui.button(
+        label="Bot Profile",
+        emoji="❄️",
+        style=discord.ButtonStyle.primary,
+        custom_id="bot_profile",
+        row=2
+    )
+    async def profile_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        _, is_global = PermissionManager.is_admin(interaction.user.id)
+        if not is_global:
+            await interaction.response.send_message("Global Admin only.", ephemeral=True)
+            return
+        profile_cog = self.cog.bot.get_cog("BotProfile")
+        if profile_cog:
+            await profile_cog.show_profile(interaction)
+        else:
+            await interaction.response.send_message(
+                "Bot Profile module is unavailable.", ephemeral=True
+            )
 
     @discord.ui.button(
         label="Request Support",
