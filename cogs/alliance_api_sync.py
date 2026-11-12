@@ -989,7 +989,20 @@ class AllianceApiSync(commands.Cog):
         names = dict(await asyncio.to_thread(PermissionManager.list_alliances))
         reporter = await asyncio.to_thread(self._sync_log_reporter, names)
         session = self.session()
-        result = await run_sync(lambda fid: fetch_player(session, profile, key, fid), profile,
+        from .wos_intelligence import with_include
+        rich_profile = with_include(profile, ('base', 'heroes', 'chief_gear'))
+
+        async def fetch_extended(fid):
+            answer = await fetch_player(session, rich_profile, key, fid)
+            if answer.status in (400, 403, 422):
+                # Optional sections can be restricted. Keep basic Player Sync working.
+                if not await _take_slot(profile):
+                    return FetchResult(429)
+                logger.info('Detailed sections unavailable for %s; using basic player data', fid)
+                return await fetch_player(session, profile, key, fid)
+            return answer
+
+        result = await run_sync(fetch_extended, profile,
                                 alliance_id=alliance_id, queue=queue, started_at=started_at, reporter=reporter)
         scope = names.get(alliance_id, f"Alliance {alliance_id}") if alliance_id else "All alliances"
         await asyncio.to_thread(save_setting, "last_run", summary(result, scope))
