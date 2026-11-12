@@ -3,6 +3,7 @@ name: Whiteout Stats integration tests
 on:
   push:
     branches:
+      - development
       - feature/whiteoutstats-intelligence
   pull_request:
     paths:
