@@ -44,8 +44,8 @@ class SupportOperations(commands.Cog):
                 'WOSBOT helps your alliance manage members, keep player details up to date, '
                 'track changes over time, and organize everyday tasks.\n\n'
                 '**Links**\n'
-                f"'{theme.linkIcon} **GitHub:** [WOSBOT](https://github.com/GeekDev11/WOSBOT)\n'"
-                f"'{theme.documentIcon} **Report an issue:** [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)\n\n'"
+                f"{theme.linkIcon} **GitHub:** [WOSBOT](https://github.com/GeekDev11/WOSBOT)\n"
+                f"{theme.documentIcon} **Report an issue:** [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)\n\n"
                 '**Credits**\n'
                 'WOSBOT is based on the open-source [Whiteout Project bot](https://github.com/whiteout-project/bot). '
                 'Thanks to its original contributors.'
