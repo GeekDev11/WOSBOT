@@ -6,14 +6,22 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE = ROOT / "cogs" / "bot_profile.py"
 
 
-def test_profile_editor_compiles_and_has_required_commands():
+def test_profile_editor_compiles_and_has_one_command():
     source = PROFILE.read_text(encoding="utf-8")
     ast.parse(source)
-    assert 'app_commands.Group(name="botprofile"' in source
-    assert '@botprofile.command(name="avatar"' in source
-    assert '@botprofile.command(name="banner"' in source
+    assert '@app_commands.command(name="botprofile"' in source
+    assert '@app_commands.guild_only()' in source
+    assert '@app_commands.guild_install()' in source
     assert 'async def show_profile' in source
     assert 'async def apply' in source
+    assert 'discord.ui.FileUpload' in source
+    assert 'discord.ui.Label(' in source
+    assert 'class ProfileImageModal' in source
+    assert 'class ConfirmImageUploadView' in source
+    assert 'label="Upload Banner"' in source
+    assert 'label="Upload Avatar"' in source
+    assert '@botprofile.command' not in source
+    assert '@app_commands.command(name="botstyle"' not in source
 
 
 def test_profile_upload_validates_bytes_and_admin_permission():
@@ -54,16 +62,13 @@ def test_name_styles_are_opt_in_and_per_server():
     assert 'display_name_font_id' in source
     assert 'display_name_effect_id' in source
     assert 'display_name_colors' in source
-    assert '@botprofile.command(name="style"' in source
-    assert '@botprofile.command(name="style-reset"' in source
-    assert 'guild_id=guild.id' in source
+     assert 'guild_id=guild.id' in source
     assert 'await asyncio.sleep(0.6)' in source
     assert 'Customize Name' in source
     assert 'class NameStyleEditor' in source
     assert 'class ConfirmAllNameStyleView' in source
     assert 'class NameStyleColorsModal' in source
-    assert '@app_commands.command(name="botstyle"' in source
-    assert 'from discord.http import Route' in source
+     assert 'from discord.http import Route' in source
 
 
 def test_style_payload_validation_without_importing_bot():
@@ -118,7 +123,7 @@ def test_name_editor_keeps_action_buttons_when_dropdowns_change():
 
 
 def test_profile_slash_commands_registered_in_bot_tree():
-    """Guard against cogs loading without registering slash commands."""
+    """The single entry point must actually register."""
     import asyncio
     import discord
     from discord.ext import commands
@@ -128,11 +133,8 @@ def test_profile_slash_commands_registered_in_bot_tree():
         try:
             await bot.add_cog(BotProfile(bot))
             names = {cmd.name for cmd in bot.tree.get_commands()}
-            assert "botprofile" in names, f"Missing botprofile: {names}"
-            assert "botstyle" in names, f"Missing botstyle: {names}"
-            group = next(cmd for cmd in bot.tree.get_commands() if cmd.name == "botprofile")
-            children = {cmd.name for cmd in group.commands}
-            assert {"banner", "avatar", "style", "style-reset"}.issubset(children), children
+            assert "botprofile" in names, names
+            assert "botstyle" not in names, names
         finally:
             await bot.close()
     asyncio.run(run())
@@ -141,6 +143,7 @@ def test_profile_slash_commands_registered_in_bot_tree():
 def test_profile_has_admin_guild_command_refresh():
     source = PROFILE.read_text(encoding="utf-8")
     assert 'label="Refresh Commands"' in source
+    assert 'self.bot.tree.clear_commands(guild=guild)' in source
     assert 'self.bot.tree.copy_global_to(guild=guild)' in source
     assert 'await self.bot.tree.sync(guild=guild)' in source
     assert 'if not resolve_profile_guild(self.bot, interaction):' in source
