@@ -9,13 +9,13 @@ import sqlite3
 from datetime import datetime, timezone
 
 DB_PATH = "db/wos_player_observations.sqlite"
-SECTIONS = ("player", "heroes", "chief_gear", "alliance")
+EXCLUDED_CHANGE_KEYS = {"age_seconds", "cached_at", "fetched_at", "updated_at", "timestamp"}
 
 
 def _normalise(payload):
     if not isinstance(payload, dict):
         return {}
-    return {section: payload[section] for section in SECTIONS if section in payload and payload[section] is not None}
+    return {section: value for section, value in payload.items() if value is not None}
 
 
 def _flatten(value, prefix=""):
@@ -30,6 +30,20 @@ def _flatten(value, prefix=""):
             output.update(_flatten(item, f"{prefix}[{i}]"))
         return output
     return {prefix: value}
+
+
+def _merge(previous, current):
+    """Preserve omitted API fields from previously observed player data."""
+    if not isinstance(previous, dict) or not isinstance(current, dict):
+        return current
+    merged = dict(previous)
+    for key, value in current.items():
+        merged[key] = _merge(merged[key], value) if key in merged else value
+    return merged
+
+
+def _volatile(path):
+    return path.rsplit(".", 1)[-1] in EXCLUDED_CHANGE_KEYS
 
 
 def save_observation(chief_id, payload, *, source="whiteoutstats", observed_at=None, path=DB_PATH):
@@ -65,8 +79,7 @@ def save_observation(chief_id, payload, *, source="whiteoutstats", observed_at=N
                          (int(chief_id),)).fetchone()
         previous = json.loads(old[0]) if old else {}
         # A response may omit an optional API section; keep its last known state.
-        merged = dict(previous)
-        merged.update(sections)
+        merged = _merge(previous, sections)
         cursor = db.execute(
             "INSERT INTO observations(chief_id, observed_at, source, payload_json) VALUES (?, ?, ?, ?)",
             (int(chief_id), observed_at, source, json.dumps(merged, ensure_ascii=False, sort_keys=True)))
@@ -77,7 +90,7 @@ def save_observation(chief_id, payload, *, source="whiteoutstats", observed_at=N
              json.dumps(old_fields[field], ensure_ascii=False),
              json.dumps(value, ensure_ascii=False))
             for field, value in new_fields.items()
-            if field in old_fields and old_fields[field] != value
+            if field in old_fields and old_fields[field] != value and not _volatile(field)
         ]
         db.executemany(
             "INSERT INTO observation_changes(chief_id, observation_id, observed_at, path, old_json, new_json) "
