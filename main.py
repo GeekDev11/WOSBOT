@@ -390,9 +390,40 @@ def _is_newer_version(candidate, current):
 def get_latest_release_info(beta_mode=False):
     """Download from the exact WOSBOT Modified commit and label it 2.2.xx."""
     try:
-        from cogs.wos_versioning import get_latest_info
+        # Keep the bootstrap self-contained: a hosting server may have only
+        # main.py after a partial migration. A missing cog must never crash it.
+        from urllib.parse import quote
         startup.phase_start('Checking for WOSBOT updates')
-        info = get_latest_info(requests.get)
+        latest_url = (
+            f'https://api.github.com/repos/{WOSBOT_REPO}/commits'
+            f'?sha={quote(WOSBOT_BRANCH, safe="")}&per_page=1'
+        )
+        response = requests.get(latest_url, timeout=30)
+        response.raise_for_status()
+        commits = response.json()
+        if not isinstance(commits, list) or not commits:
+            raise ValueError('No commits returned for Modified')
+        commit = commits[0]
+        sha = commit['sha']
+        if not isinstance(sha, str) or len(sha) != 40 or any(
+            ch not in '0123456789abcdef' for ch in sha
+        ):
+            raise ValueError('Invalid WOSBOT commit SHA')
+        baseline = '04dfa0e4a174515a61ab537f05d68ed2f354719c'
+        compare_url = f'https://api.github.com/repos/{WOSBOT_REPO}/compare/{baseline}...{sha}'
+        compared_response = requests.get(compare_url, timeout=30)
+        compared_response.raise_for_status()
+        comparison = compared_response.json()
+        if comparison.get('status') not in ('identical', 'ahead'):
+            raise ValueError('Modified version baseline has diverged')
+        ahead = comparison.get('ahead_by')
+        if isinstance(ahead, bool) or not isinstance(ahead, int) or ahead < 0:
+            raise ValueError('Invalid Modified version offset')
+        info = {
+            'version': f'2.2.{ahead + 1:02d}',
+            'sha': sha,
+            'message': commit.get('commit', {}).get('message', ''),
+        }
         sha = info['sha']
         return {'tag_name': info['version'],
                 'body': info['message'].splitlines()[0] if info['message'] else 'WOSBOT update',
