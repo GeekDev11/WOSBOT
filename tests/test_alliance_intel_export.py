@@ -87,3 +87,21 @@ def test_member_xlsx_import_ignores_history_sheets():
     csv_text = _member_import_text('export.xlsx', raw)
     assert _extract_ids_from_csv(csv_text) == ['123456']
     assert 'Do not restore history' not in csv_text
+
+
+def test_older_provider_snapshots_are_exported(tmp_path):
+    _db(tmp_path / 'users.sqlite', '''
+        CREATE TABLE users(fid INTEGER,nickname TEXT,furnace_lv INTEGER,kid INTEGER,
+          power INTEGER,combat_power INTEGER,avatar_url TEXT,api_synced_at TEXT,alliance TEXT);
+        INSERT INTO users VALUES(501,'Five',80,1501,100,50,NULL,NULL,'1');
+    ''')
+    _db(tmp_path / 'whiteoutstats.sqlite', '''
+        CREATE TABLE wos_player_history(chief_id INTEGER,source_cached_at REAL,
+          observed_at TEXT,nickname TEXT,state_id INTEGER,furnace_level INTEGER,
+          power INTEGER,kills INTEGER,vip_level INTEGER);
+        INSERT INTO wos_player_history VALUES(501,1790000000,'2026-11-01','Five',1501,80,100,10,5);
+    ''')
+    sheets=build_export(1, db_dir=str(tmp_path), categories=['Player History'])
+    assert 'Provider History' in sheets
+    assert sheets['Provider History'][1][0] == 501
+    assert sheets['Provider History'][1][6] == 100
