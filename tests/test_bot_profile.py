@@ -104,3 +104,33 @@ def test_custom_name_editor_has_full_options_and_explicit_scope():
     assert 'if self.all_servers:' in source
     assert 'await self.cog.apply_name_style(interaction, payload, False)' in source
     assert 'no changes' not in source.lower() or 'Apply' in source
+
+
+
+def test_name_editor_keeps_action_buttons_when_dropdowns_change():
+    source = PROFILE.read_text(encoding="utf-8")
+    assert 'for item in list(self.children):' in source
+    assert 'if isinstance(item, discord.ui.Select):' in source
+    assert 'self.remove_item(item)' in source
+    assert 'self.clear_items()' not in source
+
+
+def test_profile_slash_commands_registered_in_bot_tree():
+    """Guard against cogs loading without registering slash commands."""
+    import asyncio
+    import discord
+    from discord.ext import commands
+    from cogs.bot_profile import BotProfile
+    async def run():
+        bot = commands.Bot(command_prefix="!", intents=discord.Intents.none())
+        try:
+            await bot.add_cog(BotProfile(bot))
+            names = {cmd.name for cmd in bot.tree.get_commands()}
+            assert "botprofile" in names, f"Missing botprofile: {names}"
+            assert "botstyle" in names, f"Missing botstyle: {names}"
+            group = next(cmd for cmd in bot.tree.get_commands() if cmd.name == "botprofile")
+            children = {cmd.name for cmd in group.commands}
+            assert {"banner", "avatar", "style", "style-reset"}.issubset(children), children
+        finally:
+            await bot.close()
+    asyncio.run(run())
