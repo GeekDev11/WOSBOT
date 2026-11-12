@@ -592,17 +592,20 @@ class BotProfile(commands.Cog):
             return NO_GUILD_MESSAGE
         try:
             globals_before = {cmd.name for cmd in self.bot.tree.get_commands()}
-            if not {"botprofile"}.issubset(globals_before):
+            if "botprofile" not in globals_before:
                 return (
                     "Profile commands are missing from the local command tree. "
                     "Check hosting console for cog-load errors before syncing."
                 )
             guild = resolve_profile_guild(self.bot, interaction)
-            self.bot.tree.clear_commands(guild=guild)
-            self.bot.tree.copy_global_to(guild=guild)
+            # Only replace our profile commands. Keep other cogs' guild commands.
+            self.bot.tree.remove_command("botstyle", guild=guild)
+            self.bot.tree.remove_command("botprofile", guild=guild)
+            command = self.bot.tree.get_command("botprofile")
+            self.bot.tree.add_command(command, guild=guild, override=True)
             result = await self.bot.tree.sync(guild=guild)
             registered = {cmd.name for cmd in result}
-            if {"botprofile"}.issubset(registered):
+            if "botprofile" in registered:
                 return (
                     f"✅ Commands registered for this server ({len(result)} total). "
                     "Open a new message and type /botprofile. "
