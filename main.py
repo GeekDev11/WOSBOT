@@ -1575,7 +1575,7 @@ if __name__ == "__main__":
                 bot._commands_synced = True
                 startup.phase_ok(f"Slash commands synced with Discord ({len(synced_commands)} commands)")
                 registered_names = {cmd.name for cmd in synced_commands}
-                missing_profile = {"botprofile", "botstyle"} - registered_names
+                missing_profile = {"botprofile"} - registered_names
                 if missing_profile:
                     startup.warn(
                         "Profile slash commands not registered: "
