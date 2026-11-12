@@ -139,7 +139,7 @@ class _SyncView(GlobalAdminView):
 
 
 def _hub_state():
-    state = sync.load_settings("profile", "enabled", "interval", "key", "last_run", "budget")
+    state = sync.load_settings("profile", "enabled", "interval", "key", "last_run", "budget", "last_daily_date")
     return {
         **state,
         "missing": sync.missing_for_sync(state["profile"]),
@@ -174,11 +174,8 @@ def _last_run_line(last_run) -> str:
     return f"{line} {stopped}" if stopped else line
 
 
-def _turned_on_text(last_queued, interval_hours) -> str:
-    if sync.is_due(datetime.now(timezone.utc), last_queued, interval_hours):
-        return "Automatic sync is on. The first sync starts within 5 minutes."
-    due = last_queued + timedelta(hours=interval_hours)
-    return f"Automatic sync is on. The next sync runs <t:{int(due.timestamp())}:R>."
+def _turned_on_text(last_daily_date=None, interval_hours=None) -> str:
+    return "Automatic sync is on. It runs daily at 00:00 UTC (03:00 Saudi time)."
 
 
 class PlayerSyncView(_SyncView):
@@ -195,7 +192,7 @@ class PlayerSyncView(_SyncView):
                          not ready and not on)
         self._add_button("Sync Now", theme.retryIcon, primary, 0, self._on_sync_now, not ready)
         self._add_button("Sync Alliance", theme.allianceIcon, primary, 0, self._on_sync_alliance, not ready)
-        self._add_button("Interval", theme.timeIcon, primary, 0, self._on_interval)
+        self._add_button("Daily: 00:00 UTC", theme.timeIcon, secondary, 0, self._on_schedule_info)
         self._add_button("Connection", theme.globeIcon, primary, 1, self._on_connection)
         self._add_button("API Key", theme.shieldIcon, primary, 1, self._on_key)
         self._add_button("Fields", theme.editListIcon, primary, 1, self._on_fields)
@@ -208,10 +205,10 @@ class PlayerSyncView(_SyncView):
 
         profile = state["profile"]
         setup = "Ready" if ready else f"Still needs the {_and_list(state['missing'])}"
-        auto = f"On, {_every(state['interval'])}" if on else "Off"
+        auto = "On · daily at 00:00 UTC" if on else "Off"
         key = state['key'] if state['key'] != "not set" else "Not added yet"
         lines = [
-            "Syncs member names, furnace levels, states, power and pictures from a player-data API. "
+            "Syncs all reported player fields, including state, map coordinates, heroes and gear where the API provides them. "
             "Set the connection, API key and fields, then turn on Auto Sync.\n",
             f"{theme.upperDivider}",
             f"{theme.settingsIcon} **Setup:** {setup}",
@@ -228,8 +225,8 @@ class PlayerSyncView(_SyncView):
             f"{theme.lowerDivider}",
             f"{theme.retryIcon} **Auto Sync** / **Sync Now** / **Sync Alliance**",
             "└ Sync on a schedule, or now for all alliances or one.",
-            f"{theme.timeIcon} **Interval**",
-            "└ Set how often Auto Sync runs.",
+            f"{theme.timeIcon} **Daily schedule**",
+            "└ Runs at 00:00 UTC; use Sync Now for a baseline.",
             f"{theme.globeIcon} **Connection**",
             "└ Set the API's base URL and player path.",
             f"{theme.shieldIcon} **API Key**",
@@ -257,9 +254,8 @@ class PlayerSyncView(_SyncView):
         if not on:
             self.last_result = _done("Automatic sync is off. A sync that's already running will still finish.")
         else:
-            last_queued = await asyncio.to_thread(sync.load_setting, "last_queued")
-            hours = await asyncio.to_thread(sync.load_setting, "interval")
-            self.last_result = _done(_turned_on_text(last_queued, hours))
+            await asyncio.to_thread(sync.save_setting, "last_daily_date", sync.utc_today())
+            self.last_result = _done(_turned_on_text())
         await self.show(interaction)
 
     async def _on_sync_now(self, interaction):
@@ -269,9 +265,9 @@ class PlayerSyncView(_SyncView):
     async def _on_sync_alliance(self, interaction):
         await AlliancePickView(self.cog, self.original_user_id).show(interaction)
 
-    async def _on_interval(self, interaction):
-        hours = await asyncio.to_thread(sync.load_setting, "interval")
-        await interaction.response.send_modal(IntervalModal(self.cog, self.original_user_id, hours))
+    async def _on_schedule_info(self, interaction):
+        self.last_result = _done("Auto Sync runs at 00:00 UTC daily. Use Sync Now for an immediate baseline.")
+        await self.show(interaction)
 
     async def _on_connection(self, interaction):
         profile = await asyncio.to_thread(sync.load_setting, "profile")
