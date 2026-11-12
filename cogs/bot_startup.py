@@ -389,17 +389,16 @@ class BotStartup(commands.Cog):
                     status_embed.add_field(
                         name=f"{theme.pinIcon} Community & Support",
                         value=(
-                            f"**Documentation:** [Wiki](https://github.com/whiteout-project/bot/wiki)\n"
-                            f"**GitHub Repository:** [Whiteout Project](https://github.com/whiteout-project/bot)\n"
-                            f"**Discord Community:** [Join our Discord](https://discord.gg/apYByj6K2m)\n"
-                            f"**Bug Reports:** [GitHub Issues](https://github.com/whiteout-project/bot/issues)\n\n"
-                            f"☕ **Like the bot?** [Buy me a coffee](https://buymeacoffee.com/justncodes)\n"
+                            f"**Project:** [WOSBOT on GitHub](https://github.com/GeekDev11/WOSBOT)\n"
+                            f"**Report Issues:** [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)\n"
+                            f"**Community:** [Whiteout Project Discord](https://discord.gg/apYByj6K2m) (original project)\n"
+                            f"**Credits:** Based on the open-source [Whiteout Project bot](https://github.com/whiteout-project/bot)\n"
                             f"{theme.lowerDivider}"
                         ),
                         inline=False
                     )
 
-                    status_embed.set_footer(text="Thanks for using the bot! Maintained with ❤️ by the WOSLand Bot Team.")
+                    status_embed.set_footer(text="WOSBOT · Whiteout Survival alliance tools")
 
                     await admin_user.send(embed=status_embed)
 
