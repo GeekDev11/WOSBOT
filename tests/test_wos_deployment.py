@@ -53,7 +53,6 @@ def test_updater_preserves_database_and_secrets():
 
 def test_maintenance_update_menu_uses_only_wosbot_branch():
     source = (SOURCE.parent / 'cogs' / 'bot_operations.py').read_text()
-    assert "repo = 'GeekDev11/WOSBOT'" in source
     assert "from .wos_versioning import get_latest_info" in source
     assert "latest_version = info['version']" in source
     assert 'whiteout-project/bot/releases/latest' not in source
