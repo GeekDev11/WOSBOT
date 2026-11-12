@@ -2256,6 +2256,41 @@ class AllianceMemberOperations(commands.Cog):
         self.conn_users.close()
         self.conn_alliance.close()
 
+    async def process_advanced_export(self, interaction, alliance_id, alliance_name, categories,
+                                      prefiltered_members=None):
+        """Export current and historical player data without changing any database."""
+        from .alliance_intel_export import build_export, to_xlsx
+        await interaction.response.defer(ephemeral=True)
+        try:
+            filtered_ids = None if prefiltered_members is None else [int(m['fid']) for m in prefiltered_members]
+            sheets = await asyncio.to_thread(build_export, alliance_id,
+                                              member_ids=filtered_ids, categories=categories)
+            count = len(sheets['Members']) - 1
+            if not count:
+                await interaction.followup.send('No authorized members found for this selection.', ephemeral=True)
+                return
+            content = await asyncio.to_thread(to_xlsx, sheets)
+            if len(content) > 8 * 1024 * 1024:
+                await interaction.followup.send(
+                    'The Excel export exceeds the safe 8 MB attachment limit. Filter the members or choose fewer categories.',
+                    ephemeral=True)
+                return
+            filename = f"{alliance_name.replace(' ', '_')}_intel_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}.xlsx"
+            try:
+                await interaction.user.send(
+                    content=f'WOSBOT intelligence export: {alliance_name} · {count} members · {len(sheets)} sheets',
+                    file=discord.File(io.BytesIO(content), filename=filename))
+                await interaction.followup.send(
+                    f'Exported {count} members across {len(sheets)} Excel sheets. File sent via DM.',
+                    ephemeral=True)
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    content='Direct messages are disabled. Here is your private export:',
+                    file=discord.File(io.BytesIO(content), filename=filename), ephemeral=True)
+        except Exception as exc:
+            logger.exception('Advanced member export failed')
+            await interaction.followup.send(f'Export failed: {type(exc).__name__}. Check bot logs.', ephemeral=True)
+
     async def process_member_export(self, interaction: discord.Interaction, alliance_id, alliance_name: str, selected_columns: list, export_format: str, prefiltered_members: list | None = None):
         """Process the member export with selected columns and format.
         When prefiltered_members is provided, uses it instead of querying DB."""
@@ -2901,6 +2936,47 @@ class AllianceSelectViewWithAll(discord.ui.View):
         self.add_item(select)
         self.current_select = select
 
+class AdvancedExportView(discord.ui.View):
+    """Read-only multi-sheet export. Original CSV/TSV interface stays unchanged."""
+    def __init__(self, alliance_id, alliance_name, cog, filtered_members, author_id):
+        super().__init__(timeout=menu_timeout())
+        self.alliance_id, self.alliance_name = alliance_id, alliance_name
+        self.cog, self.filtered_members, self.author_id = cog, filtered_members, author_id
+        self.categories = ['Complete Export']
+        choices = ('Current Player Data', 'Player History', 'Heroes & Equipment',
+                   'Equipment History', 'Complete Export')
+        selector = discord.ui.Select(placeholder='Choose export categories', row=0,
+                                    min_values=1, max_values=5,
+                                    options=[discord.SelectOption(label=x, default=(x == 'Complete Export'))
+                                             for x in choices])
+        async def picked(interaction):
+            if interaction.user.id != self.author_id:
+                await interaction.response.send_message('This export menu belongs to another user.', ephemeral=True)
+                return
+            self.categories = list(selector.values)
+            await interaction.response.defer()
+        selector.callback = picked
+        self.add_item(selector)
+
+    @discord.ui.button(label='Generate Excel', style=discord.ButtonStyle.success, row=1)
+    async def generate(self, interaction, button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message('This export menu belongs to another user.', ephemeral=True)
+            return
+        await self.cog.process_advanced_export(interaction, self.alliance_id, self.alliance_name,
+                                               self.categories, self.filtered_members)
+
+    @discord.ui.button(label='Back', style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction, button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message('This export menu belongs to another user.', ephemeral=True)
+            return
+        await interaction.response.edit_message(
+            embed=discord.Embed(title='Select Export Columns', color=theme.emColor1),
+            view=ExportColumnSelectView(self.alliance_id, self.alliance_name, self.cog,
+                                        include_alliance=self.alliance_id == 'all',
+                                        prefiltered_members=self.filtered_members))
+
 class ExportColumnSelectView(discord.ui.View):
     def __init__(self, alliance_id, alliance_name, cog, include_alliance=False,
                  prefiltered_members=None):
@@ -2962,12 +3038,24 @@ class ExportColumnSelectView(discord.ui.View):
         next_btn.callback = self.next_button
         self.add_item(next_btn)
 
+        advanced_btn = discord.ui.Button(label='Advanced Export (.xlsx)',
+                                         style=discord.ButtonStyle.success, row=3)
+        advanced_btn.callback = self.advanced_export_button
+        self.add_item(advanced_btn)
         cancel_btn = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.danger, custom_id="cancel", row=2)
         cancel_btn.callback = self.cancel_button
         self.add_item(cancel_btn)
 
         self.update_buttons()
     
+    async def advanced_export_button(self, interaction):
+        await interaction.response.edit_message(
+            embed=discord.Embed(title='Advanced Member Export',
+                                description='Select one or more data categories. Complete Export includes all categories.\nNo API requests or database modifications will occur.',
+                                color=theme.emColor1),
+            view=AdvancedExportView(self.alliance_id, self.alliance_name, self.cog,
+                                    self.prefiltered_members, interaction.user.id))
+
     def update_buttons(self):
         # Update button styles based on selection state
         for item in self.children:
