@@ -52,6 +52,8 @@ def restart_process(allow_update: bool = False):
     if allow_update:
         drop.add("--no-update")
     relaunch_args = [arg for arg in sys.argv if arg not in drop]
+    if allow_update and "--autoupdate" not in relaunch_args:
+        relaunch_args.append("--autoupdate")
 
     if sys.platform == "win32":
         venv_python = os.path.join("bot_venv", "Scripts", "python.exe")
