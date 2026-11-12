@@ -99,6 +99,28 @@ def _bot_editable_message(interaction: discord.Interaction, message):
     return channel.get_partial_message(message.id)
 
 
+def _member_import_text(filename: str, data: bytes) -> str:
+    """Read current-profile CSV or the Members sheet from a WOSBOT Excel export."""
+    if filename.lower().endswith('.csv'):
+        return data.decode('utf-8-sig')
+    if not filename.lower().endswith('.xlsx'):
+        raise ValueError('Only CSV and XLSX files are supported')
+    from openpyxl import load_workbook
+    workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
+    try:
+        sheet = workbook['Members'] if 'Members' in workbook.sheetnames else workbook.active
+        if sheet.max_row and sheet.max_row > 5001:
+            raise ValueError('Import exceeds 5000 rows')
+        output = io.StringIO()
+        writer = csv.writer(output)
+        for i, row in enumerate(sheet.iter_rows(values_only=True)):
+            if i > 5000:
+                raise ValueError('Import exceeds 5000 rows')
+            writer.writerow([str(value) if value is not None else '' for value in row])
+        return output.getvalue()
+    finally:
+        workbook.close()
+
 def _extract_profiles_from_csv(text: str) -> dict:
     """{fid: (name, level, state, power, combat_power)} from an export-shaped CSV; {} without a header row."""
     rows = list(csv.reader(io.StringIO(text.strip())))
@@ -858,7 +880,7 @@ class ManageMembersView(MemberListView):
         instructions = discord.Embed(
             title=f"{theme.importIcon} Import Members from CSV",
             description=(
-                f"Upload a **.csv** file **in this channel** within 2 minutes.\n\n"
+                f"Upload a **.csv** or **.xlsx** file **in this channel** within 2 minutes.\n\n"
                 f"**Format**\n"
                 f"{theme.upperDivider}\n"
                 f"• Header row with an **`ID`** (or `FID`) column, or the bot's export file as-is.\n"
@@ -880,7 +902,7 @@ class ManageMembersView(MemberListView):
                 m.author.id == self.author_id
                 and m.channel.id == interaction.channel_id
                 and bool(m.attachments)
-                and m.attachments[0].filename.lower().endswith(".csv")
+                and m.attachments[0].filename.lower().endswith((".csv", ".xlsx"))
             )
 
         try:
@@ -894,8 +916,11 @@ class ManageMembersView(MemberListView):
             return
 
         try:
-            raw = await upload.attachments[0].read()
-            ids = raw.decode("utf-8-sig", errors="replace")
+            attachment = upload.attachments[0]
+            if attachment.size > 4 * 1024 * 1024:
+                raise ValueError('Import file exceeds 4 MB. Split the file into smaller imports.')
+            raw = await attachment.read()
+            ids = _member_import_text(attachment.filename, raw)
         except Exception as e:
             logger.error(f"Member import: could not read CSV: {e}")
             await interaction.edit_original_response(embed=discord.Embed(
@@ -920,38 +945,22 @@ class ManageMembersView(MemberListView):
             ))
             return
 
-        # Existing members get updated; new IDs are added (and named) below.
+        # Preview imports instead of immediately replacing newer player values.
         profiles = _extract_profiles_from_csv(ids)
         known = await asyncio.to_thread(self._known_fids)
-        existing_lines = "\n".join(
-            f"{fid}, {', '.join(profile)}"
-            for fid, profile in profiles.items() if fid in known
-        )
-        updated, skipped, errors, caught = (0, 0, [], 0)
-        if existing_lines:
-            updated, skipped, errors, state_fids = await asyncio.to_thread(
-                apply_edit_lines, existing_lines, self.alliance_id)
-            caught = enqueue_catchups(self.cog.bot, state_fids)
-            logger.info(f"Member import on alliance {self.alliance_id}: "
-                        f"{updated} member(s) updated from the file")
-
-        new_fids = [f for f in fids if f not in known]
-        if not new_fids:
-            await interaction.edit_original_response(
-                embed=edit_result_embed(f"{theme.importIcon} Import Complete",
-                                        updated, skipped, errors, added=0, caught=caught))
-            await self.refresh_after_edit(interaction, None, already_responded=True)
-            return
-
-        if updated or errors:
-            await interaction.followup.send(
-                embed=edit_result_embed(f"{theme.editListIcon} Existing Members Updated",
-                                        updated, skipped, errors, caught=caught),
-                ephemeral=True)
-        # Hand off only the ID column so the count isn't polluted by the export's
-        # other columns; the profiles ride along so new members land already named.
-        await self.cog.add_user(interaction, self.alliance_id, "\n".join(new_fids),
-                                profiles=profiles)
+        incoming = [fid for fid in fids if fid not in known]
+        matched = [fid for fid in fids if fid in known]
+        review = CSVImportReviewView(self, fids, profiles, known, self.author_id)
+        await interaction.edit_original_response(
+            embed=discord.Embed(
+                title=f'{theme.importIcon} Review Member Import',
+                description=(
+                    f'**{len(fids)} valid player IDs**\n'
+                    f'**{len(incoming)} new members** to add\n'
+                    f'**{len(matched)} already registered IDs**\n\n'
+                    'By default, only new members are added. Updating existing members is a separate explicit action and may replace newer values.\n'
+                    'Historical observations, gear records, and other export-only columns are never imported or overwritten.'
+                ), color=theme.emColor1), view=review)
 
     def _known_fids(self) -> set:
         try:
@@ -2935,6 +2944,56 @@ class AllianceSelectViewWithAll(discord.ui.View):
         select.callback = select_callback
         self.add_item(select)
         self.current_select = select
+
+class CSVImportReviewView(discord.ui.View):
+    """Import current members only. Existing-member overwrites require explicit approval."""
+    def __init__(self, parent, fids, profiles, known, author_id):
+        super().__init__(timeout=menu_timeout())
+        self.parent, self.fids, self.profiles = parent, list(fids), dict(profiles)
+        self.known, self.author_id = set(known), author_id
+
+    async def _run(self, interaction, update_existing):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message('This import belongs to another user.', ephemeral=True)
+            return
+        if not await self.parent.cog.is_admin(interaction.user.id):
+            await interaction.response.send_message('Alliance administration permission required.', ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        updated = skipped = caught = 0
+        errors = []
+        if update_existing:
+            existing_lines = '\n'.join(
+                f"{fid}, {', '.join(profile)}" for fid, profile in self.profiles.items() if fid in self.known
+            )
+            if existing_lines:
+                updated, skipped, errors, state_fids = await asyncio.to_thread(
+                    apply_edit_lines, existing_lines, self.parent.alliance_id)
+                caught = enqueue_catchups(self.parent.cog.bot, state_fids)
+        new_fids = [fid for fid in self.fids if fid not in self.known]
+        await interaction.edit_original_response(
+            embed=edit_result_embed('Import Results', updated, skipped, errors,
+                                    added=0, caught=caught), view=None)
+        if new_fids:
+            await self.parent.cog.add_user(interaction, self.parent.alliance_id,
+                                          '\n'.join(new_fids), profiles=self.profiles)
+        else:
+            await self.parent.refresh_after_edit(interaction, None, already_responded=True)
+
+    @discord.ui.button(label='Add New Only (Safe)', style=discord.ButtonStyle.success)
+    async def add_only(self, interaction, button):
+        await self._run(interaction, False)
+
+    @discord.ui.button(label='Update Existing + Add New', style=discord.ButtonStyle.danger)
+    async def update_existing(self, interaction, button):
+        await self._run(interaction, True)
+
+    @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message('This import belongs to another user.', ephemeral=True)
+            return
+        await interaction.response.edit_message(content='Import cancelled.', embed=None, view=None)
 
 class AdvancedExportView(discord.ui.View):
     """Read-only multi-sheet export. Original CSV/TSV interface stays unchanged."""
