@@ -193,5 +193,7 @@ def test_profile_distinguishes_avatar_banner_and_rejects_missing_context():
     assert 'NO_GUILD_MESSAGE' in source
     assert 'No profile image was uploaded.' in source
     assert 'resolve_profile_guild(self.bot, interaction)' in source
-    assert 'Upload a server-specific bot banner (not the avatar)' in source
-    assert 'Upload a server-specific bot avatar (not the banner)' in source
+    assert 'label="Upload Banner"' in source
+    assert 'label="Upload Avatar"' in source
+    assert 'ProfileImageModal(self.cog, interaction.user.id, "banner", self.all_servers)' in source
+    assert 'ProfileImageModal(self.cog, interaction.user.id, "avatar", self.all_servers)' in source
