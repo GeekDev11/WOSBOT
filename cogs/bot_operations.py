@@ -432,64 +432,29 @@ class BotOperations(commands.Cog):
                 else:
                     await interaction.followup.send(error_text, ephemeral=True)
 
-    @staticmethod
-    def _is_stable_upgrade(current_version: str, latest_tag: str) -> bool:
-        """True if latest_tag is a strictly newer vX.Y.Z. Unparseable current
-        (e.g. v0.0.0 fresh install) => any differing tag upgrades (pull-forward)."""
-        def parse(tag):
-            try:
-                parts = [int(n) for n in tag.strip().lstrip("vV").split(".")[:3]]
-            except (ValueError, AttributeError):
-                return None
-            if not parts:
-                return None
-            while len(parts) < 3:
-                parts.append(0)
-            return tuple(parts)
-
-        cur, latest = parse(current_version), parse(latest_tag)
-        if cur is None or latest is None:
-            return current_version != latest_tag
-        return latest > cur
-
     async def check_for_updates(self):
-        """Check for updates using GitHub releases API"""
+        """Check the same fork branch as the startup updater, never upstream releases."""
         try:
+            from urllib.parse import quote
             current_version = self.get_current_version()
-
-            # Beta builds (version "beta-<sha>") track main and are ahead of the
-            # latest stable tag, so don't offer the stable release as an update.
-            if current_version.startswith("beta-"):
-                return current_version, current_version, [], False
-
-            latest_release_url = "https://api.github.com/repos/whiteout-project/bot/releases/latest"
-
-            response = await asyncio.to_thread(requests.get, latest_release_url, timeout=10)
-            if response.status_code != 200:
-                return None, None, [], False
-
-            latest_release_data = response.json()
-            latest_tag = latest_release_data.get("tag_name", "")
-
-            if not latest_tag:
-                return current_version, None, [], False
-
-            updates_needed = self._is_stable_upgrade(current_version, latest_tag)
-            
-            # Parse release notes
-            update_notes = []
-            release_body = latest_release_data.get("body", "")
-            if release_body:
-                for line in release_body.split('\n'):
-                    line = line.strip()
-                    if line and (line.startswith('-') or line.startswith('*') or line.startswith('•')):
-                        update_notes.append(line)
-
-            return current_version, latest_tag, update_notes, updates_needed
-
-        except Exception as e:
-            logger.error(f"Error checking for updates: {e}")
-            print(f"Error checking for updates: {e}")
+            repo = 'GeekDev11/WOSBOT'
+            branch = 'feature/whiteoutstats-intelligence'
+            url = f'https://api.github.com/repos/{repo}/commits?sha={quote(branch, safe="")}&per_page=1'
+            response = await asyncio.to_thread(requests.get, url, timeout=15)
+            response.raise_for_status()
+            commits = response.json()
+            if not isinstance(commits, list) or not commits:
+                raise ValueError('No commits returned for WOSBOT branch')
+            commit = commits[0]
+            sha = commit.get('sha', '')
+            if not isinstance(sha, str) or len(sha) != 40 or any(c not in '0123456789abcdef' for c in sha):
+                raise ValueError('Invalid WOSBOT commit SHA')
+            latest_version = f'wosbot-{sha[:12]}'
+            message = commit.get('commit', {}).get('message', '')
+            notes = [line.strip() for line in message.splitlines() if line.strip()]
+            return current_version, latest_version, notes[:10], current_version != latest_version
+        except (requests.exceptions.RequestException, ValueError, KeyError, TypeError) as exc:
+            logger.error('WOSBOT update check failed: %s', exc)
             return None, None, [], False
 
 # ────────────────────────────────────────────────────────────────────────
