@@ -1,11 +1,24 @@
-# WOSLand Discord Bot for Whiteout Survival
+# WOSBOT
 
-Discord Bot written in Python that supports alliance management, event reminders and attendance tracking, gift code redemption, minister appointment planning and more. This bot is free, open source and self-hosted.
+A modified, self-hosted Discord bot for **Whiteout Survival**, maintained in [GeekDev11/WOSBOT](https://github.com/GeekDev11/WOSBOT).
 
-**The bot is being actively maintained by the [WOSLand](https://discord.gg/apYByj6K2m) community.**
+It includes alliance and member management, player syncing and history, events and reminders, attendance tracking, gift-code tools, and configurable Discord menus.
 
-## 🚀 Getting Started
+## Getting started
 
-To get started with the bot, head over to the [wiki](https://github.com/whiteout-project/bot/wiki) for instructions and other information.
+WOSBOT runs on Python 3.12. The maintained release branch is **`modified`**.
 
-If you have any issues with the bot, head over to the [common issues](https://github.com/whiteout-project/bot/wiki/Common-Issues) page or join our [discord server](https://discord.gg/apYByj6K2m) for support.
+1. Set up the bot using the installation instructions appropriate for your host.
+2. Keep your Discord bot token private and preserve the persistent `db/` directory.
+3. Install dependencies with `pip install -r requirements.txt`.
+4. Start with `python3 main.py --autoupdate` on a supported host.
+
+See [WOSBOT update documentation](docs/WOSBOT_UPDATES.md) for update channels, backup precautions, and rollback limitations.
+
+## Issues and contributions
+
+Report bugs or suggest improvements via [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues).
+
+## Acknowledgment
+
+This fork is based on the open-source [Whiteout Project bot](https://github.com/whiteout-project/bot). Original authorship and license notices remain credited in the repository's [LICENSE](LICENSE).
