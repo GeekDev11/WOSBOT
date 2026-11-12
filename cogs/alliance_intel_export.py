@@ -25,6 +25,7 @@ SHEET_HEADERS = {
     "Chief Equipment": ["ID", "Slot", "Gear", "Level", "Last Observed",
                         "Availability", "Raw Gear JSON"],
     "Equipment History": ["ID", "Field", "Old Value", "New Value", "Observed At", "Source"],
+    "Provider History": ["ID", "Source Cached At", "Observed At", "Name", "State", "FC Level", "Power", "Kills", "VIP"],
     "Observations": ["ID", "Observed At", "Source", "Captured Data"],
     "Data Availability": ["ID", "Field", "Availability", "Last Observation"],
     "Export Metadata": ["Property", "Value"],
@@ -212,6 +213,13 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
                 "FROM wos_alliance_events WHERE chief_id=? ORDER BY id", (fid,)):
                 _add(sheets, "Alliance History", fid, aid, event, old, new, when,
                      "Observed roster change; not proof of state transfer")
+    if 'Player History' in categories or 'Complete Export' in categories:
+        for fid in fids:
+            for cached, observed, nickname, state, fc, power, kills, vip in _read(
+                os.path.join(db_dir, 'whiteoutstats.sqlite'),
+                'SELECT source_cached_at,observed_at,nickname,state_id,furnace_level,power,kills,vip_level '
+                'FROM wos_player_history WHERE chief_id=? ORDER BY source_cached_at', (fid,)):
+                _add(sheets, 'Provider History', fid, cached, observed, nickname, state, fc, power, kills, vip)
     if "Complete Export" in categories:
         for fid in fids:
             for when, src, data in _read(observation_db,
@@ -231,7 +239,7 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
     _add(sheets, "Export Metadata", "Freshness", "Observations may contain retained values from earlier API responses")
     keep = {"Members", "Data Availability", "Export Metadata"}
     if "Player History" in categories:
-        keep.update(("Name History", "FC History", "Power History", "State & Location", "Alliance History"))
+        keep.update(("Name History", "FC History", "Power History", "State & Location", "Alliance History", "Provider History"))
     if "Heroes & Equipment" in categories:
         keep.update(("Heroes", "Hero Equipment", "Chief Equipment"))
     if "Equipment History" in categories:
