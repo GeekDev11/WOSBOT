@@ -56,9 +56,13 @@ def test_name_styles_are_opt_in_and_per_server():
     assert 'display_name_colors' in source
     assert '@botprofile.command(name="style"' in source
     assert '@botprofile.command(name="style-reset"' in source
-    assert 'guild_id=interaction.guild_id' in source
-    assert 'No automatic retry' in source
-    assert 'Aurora Name Style' in source
+    assert 'guild_id=guild.id' in source
+    assert 'await asyncio.sleep(0.6)' in source
+    assert 'Customize Name' in source
+    assert 'class NameStyleEditor' in source
+    assert 'class ConfirmAllNameStyleView' in source
+    assert 'class NameStyleColorsModal' in source
+    assert '@app_commands.command(name="botstyle"' in source
     assert 'from discord.http import Route' in source
 
 
@@ -84,3 +88,19 @@ def test_style_payload_validation_without_importing_bot():
         build("Unknown", "Gradient", "#5865F2", "#A78BFA")
     with pytest.raises(ValueError):
         build("Modern", "Gradient", "#5865F2")
+
+def test_custom_name_editor_has_full_options_and_explicit_scope():
+    source = PROFILE.read_text(encoding="utf-8")
+    assert '"Bangers": 1' in source
+    assert '"Zilla Slab": 12' in source
+    assert '"Glow": 6' in source
+    assert 'NAME_COLOR_PRESETS' in source
+    assert '"Aurora": ("#5865F2", "#A78BFA")' in source
+    assert 'label="Custom HEX"' in source
+    assert 'label="Server / All"' in source
+    assert 'label="Apply Style"' in source
+    assert 'label="Reset Style"' in source
+    assert 'Confirm All Servers' in source
+    assert 'if self.all_servers:' in source
+    assert 'await self.cog.apply_name_style(interaction, payload, False)' in source
+    assert 'no changes' not in source.lower() or 'Apply' in source
