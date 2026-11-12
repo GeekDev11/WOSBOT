@@ -35,7 +35,6 @@ else:
 _IS_TTY = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
 _BOX_WIDTH = 46
 
-DISCORD_LINK = "discord.gg/apYByj6K2m"
 
 def _get_ready_messages():
     """Build ready messages using theme icons at call time."""
@@ -94,9 +93,8 @@ def _center(text, width):
 def header(version, python_version, flags=None):
     """Display the startup header box. flags is an optional list of active CLI flags."""
     inner = _BOX_WIDTH - 2  # inside the borders
-    title = "Whiteout Survival Bot (Python)"
+    title = "WOSBOT"
     ver_line = f"{version} {_DOT} Python {python_version}"
-    help_line = f"Need help? {DISCORD_LINK}"
 
     print()
     print(f"  {_TL}{_H * inner}{_TR}")
@@ -105,7 +103,6 @@ def header(version, python_version, flags=None):
     if flags:
         flags_line = f"Flags: {', '.join(flags)}"
         print(f"  {_V}{_center(flags_line, inner)}{_V}")
-    print(f"  {_V}{_center(help_line, inner)}{_V}")
     print(f"  {_BL}{_H * inner}{_BR}")
     print()
 
