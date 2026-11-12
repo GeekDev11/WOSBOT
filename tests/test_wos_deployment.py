@@ -11,7 +11,7 @@ SOURCE = Path(__file__).resolve().parents[1] / "main.py"
 def test_bootstrap_pinned_to_our_repo():
     source = SOURCE.read_text()
     assert "WOSBOT_REPO = 'GeekDev11/WOSBOT'" in source
-    assert "WOSBOT_BRANCH = 'feature/whiteoutstats-intelligence'" in source
+    assert "WOSBOT_BRANCH = 'development'" in source
     assert "_bootstrap_from_main_branch(WOSBOT_ARCHIVE)" in source
     assert "BOT_BOOTSTRAP_URL" not in source
     assert "whiteout-project/bot" not in source
@@ -54,7 +54,7 @@ def test_updater_preserves_database_and_secrets():
 def test_maintenance_update_menu_uses_only_wosbot_branch():
     source = (SOURCE.parent / 'cogs' / 'bot_operations.py').read_text()
     assert "repo = 'GeekDev11/WOSBOT'" in source
-    assert "branch = 'feature/whiteoutstats-intelligence'" in source
+    assert "branch = 'development'" in source
     assert "latest_version = f'wosbot-{sha[:12]}'" in source
     assert 'whiteout-project/bot/releases/latest' not in source
     assert 'Cannot verify WOSBOT update source. No restart.' in source
