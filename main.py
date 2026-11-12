@@ -393,8 +393,14 @@ def get_latest_release_info(beta_mode=False):
         startup.phase_start('Checking WOSBOT GitHub branch')
         response = requests.get(UPDATE_SOURCES[0]['api_url'], timeout=30)
         response.raise_for_status()
-        sha = response.json()[0]['sha'][:12]
-        return {'tag_name': f'beta-{sha}', 'body': f'WOSBOT {WOSBOT_BRANCH} ({sha})', 'download_url': WOSBOT_ARCHIVE, 'source': 'WOSBOT GitHub'}
+        sha = response.json()[0]['sha']
+        if len(sha) != 40 or any(ch not in '0123456789abcdef' for ch in sha):
+            raise ValueError('Invalid commit SHA returned by GitHub')
+        archive = f'https://github.com/{WOSBOT_REPO}/archive/{sha}.zip'
+        return {'tag_name': f'wosbot-{sha[:12]}',
+                'body': f'WOSBOT {WOSBOT_BRANCH} ({sha[:12]})',
+                'download_url': archive,
+                'source': f'{WOSBOT_REPO}@{WOSBOT_BRANCH}'}
     except (requests.exceptions.RequestException, KeyError, TypeError, ValueError) as exc:
         startup.phase_fail('WOSBOT update check failed', details=[str(exc)])
         return None
@@ -713,12 +719,7 @@ if __name__ == "__main__":
     async def check_and_update_files():
         beta_mode = True  # WOSBOT uses own branch commits, never upstream tags
         repair_mode = "--repair" in sys.argv
-        # Auto-detect beta installs (version starts with "beta-") so --repair stays on the same channel.
-        if repair_mode and not beta_mode and os.path.exists("version"):
-            with open("version", "r") as f:
-                if f.read().strip().startswith("beta-"):
-                    beta_mode = True
-                    print("  Repair detected a beta install — repairing from the main branch instead of the latest release.")
+        # Always use the configured WOSBOT branch for updates and repairs.
         release_info = get_latest_release_info(beta_mode=beta_mode)
         
         if release_info:
@@ -783,8 +784,9 @@ if __name__ == "__main__":
 
                         try:
                             shutil.copytree("db", db_bak_path)
-                        except Exception:
-                            pass  # Database backup failed, continue anyway
+                        except Exception as exc:
+                            startup.phase_fail("Update aborted", details=[f"Database backup failed: {exc}"])
+                            return
 
                     download_url = release_info["download_url"]
                     if not download_url:
@@ -874,7 +876,7 @@ if __name__ == "__main__":
                                 norm_path = dst_path.replace("\\", "/")
 
                                 # Skip certain files that shouldn't be overwritten
-                                if file in ["bot_token.txt", "version"] or norm_path.startswith("db/") or norm_path.startswith("./db/"):
+                                if file in ["bot_token.txt", "version", ".env", ".env.local"] or norm_path.startswith("db/") or norm_path.startswith("./db/") or norm_path.startswith(".git/") or norm_path.startswith("./.git/"):
                                     continue
 
                                 os.makedirs(os.path.dirname(dst_path), exist_ok=True)
@@ -939,7 +941,7 @@ if __name__ == "__main__":
     if "--autoupdate" in sys.argv or "--repair" in sys.argv:
         asyncio.run(check_and_update_files())
     else:
-        startup.phase_ok("Automatic updates disabled (WOSBOT fork)")
+        startup.phase_ok(f"Updates opt-in: {WOSBOT_REPO} · {WOSBOT_BRANCH}")
             
     import discord
     from discord.ext import commands
