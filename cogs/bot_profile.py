@@ -1,9 +1,11 @@
-"""Global-admin WOSBOT profile editor (official per-guild Discord member fields).
+"""WOSBOT profile editor with opt-in experimental name styling.
 
-No experimental display-name API fields, no storing images or bot tokens.
+Name styles use undocumented Discord bot fields; never apply automatically.
 """
 import asyncio
 import discord
+import re
+from discord.http import Route
 from discord import app_commands
 from discord.ext import commands
 from .permission_handler import PermissionManager
@@ -31,6 +33,39 @@ def validate_image(filename, content_type, data):
     if not valid or content_type not in ALLOWED_TYPES:
         raise ValueError("Please upload a PNG, JPG, GIF, or WebP image.")
     return data
+
+# Community-observed IDs; not officially supported for bot accounts by Discord.
+FONT_IDS = {"Tempo": 1, "Sakura": 3, "Jellybean": 4,
+            "Modern": 6, "Medieval": 7, "8Bit": 8, "Vampyre": 10}
+EFFECT_IDS = {"Solid": 1, "Gradient": 2, "Neon": 3, "Toon": 4, "Pop": 5}
+COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def build_name_style(font, effect, primary, secondary=None):
+    """Validate style before making a network request."""
+    if font not in FONT_IDS or effect not in EFFECT_IDS:
+        raise ValueError("Unknown font or effect.")
+    if not isinstance(primary, str) or not COLOR_PATTERN.fullmatch(primary):
+        raise ValueError("Primary color must look like #5865F2.")
+    if effect == "Gradient":
+        if not isinstance(secondary, str) or not COLOR_PATTERN.fullmatch(secondary):
+            raise ValueError("Gradient requires a second color like #A78BFA.")
+        colors = [int(primary[1:], 16), int(secondary[1:], 16)]
+    else:
+        colors = [int(primary[1:], 16)]
+    return {
+        "display_name_font_id": FONT_IDS[font],
+        "display_name_effect_id": EFFECT_IDS[effect],
+        "display_name_colors": colors,
+    }
+
+
+NAME_STYLE_RESET = {
+    "display_name_font_id": None,
+    "display_name_effect_id": None,
+    "display_name_colors": None,
+}
+
 
 
 class ProfileTextModal(discord.ui.Modal, title="Edit WOSBOT Profile"):
@@ -91,8 +126,10 @@ class ProfileView(discord.ui.View):
                 "to every server where the bot is present.\n\n"
                 "**Reset** removes the per-server nickname, bio, avatar, and banner "
                 "so Discord uses the default profile.\n\n"
-                "Bot name fonts and effects aren't included because their bot API fields "
-                "are undocumented."
+                "**Experimental Name Style:** customize the bot's server nickname font, "
+                "color, and effects with `/botprofile style`. Use `/botprofile style-reset` "
+                "to undo. This feature uses undocumented Discord fields and may not work. "
+                "Role colors override name-style colors in servers."
             ),
             color=theme.emColor1,
         )
@@ -123,6 +160,17 @@ class ProfileView(discord.ui.View):
             "Reset the bot's per-server nickname, bio, avatar, and banner?"
             + (" This will affect **all servers**." if self.all_servers else " This server only."),
             view=ConfirmResetView(self.cog, self.all_servers, interaction.user.id),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Aurora Name Style", emoji="✨", style=discord.ButtonStyle.secondary)
+    async def aurora_name_style(self, interaction, button):
+        if not await self.check(interaction):
+            return
+        await interaction.response.send_message(
+            "Apply **Modern + Indigo/Violet Gradient** to WOSBOT's name in this server? "
+            "This is an experimental Discord feature and may be rejected.",
+            view=ConfirmNameStyleView(self.cog, interaction.user.id),
             ephemeral=True,
         )
 
@@ -158,6 +206,35 @@ class ConfirmResetView(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button):
         await interaction.response.edit_message(content="Reset cancelled.", view=None)
+
+
+class ConfirmNameStyleView(discord.ui.View):
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.user_id = user_id
+
+    @discord.ui.button(label="Apply Aurora", style=discord.ButtonStyle.primary)
+    async def apply_style(self, interaction, button):
+        if interaction.user.id != self.user_id or not self.cog.allowed(interaction):
+            await interaction.response.send_message("Not authorized.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.followup.send(
+            await self.cog.apply_name_style(
+                interaction,
+                build_name_style("Modern", "Gradient", "#5865F2", "#A78BFA"),
+            ),
+            ephemeral=True,
+        )
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Not authorized.", ephemeral=True)
+            return
+        await interaction.response.edit_message(content="Style unchanged.", view=None)
 
 
 class BotProfile(commands.Cog):
@@ -206,6 +283,78 @@ class BotProfile(commands.Cog):
             if len(failures) > 8:
                 msg += f"\n…and {len(failures) - 8} more failures."
         return msg[:1900]
+
+    async def apply_name_style(self, interaction, payload):
+        """One opt-in request for one server; no automatic retries or global fanout."""
+        if not self.allowed(interaction) or not interaction.guild:
+            return "Global Admin only. Run this command in a server."
+        if self._change_lock.locked():
+            return "Another profile change is in progress."
+        async with self._change_lock:
+            try:
+                route = Route(
+                    "PATCH", "/guilds/{guild_id}/members/@me",
+                    guild_id=interaction.guild_id,
+                )
+                result = await self.bot.http.request(route, json=payload)
+                if not isinstance(result, dict):
+                    return "Discord responded, but did not return a member profile. Style is unverified."
+                # Undocumented fields may be ignored even when Discord returns 200.
+                returned = {
+                    key: result.get(key) for key in NAME_STYLE_RESET
+                }
+                if returned != payload:
+                    return (
+                        "Discord accepted the request but did not confirm the name-style "
+                        "fields. Check WOSBOT's profile in this server; styling may be unavailable."
+                    )
+                return "✅ Discord confirmed this server's name-style settings. Reopen the profile to view."
+            except discord.HTTPException as exc:
+                if exc.status in (400, 403, 404):
+                    return (
+                        f"Discord rejected the experimental name style (HTTP {exc.status}). "
+                        "The bot's existing profile is unchanged."
+                    )
+                return f"Couldn't apply the style (HTTP {exc.status}). No automatic retry."
+            except (ValueError, TypeError) as exc:
+                return f"Invalid name style: {exc}"
+
+    @botprofile.command(name="style", description="Experimental font and colors for this server's bot name")
+    @app_commands.describe(font="Display-name font", effect="Visual effect",
+                           primary="First HEX color, e.g. #5865F2",
+                           secondary="Second HEX color for Gradient, e.g. #A78BFA")
+    @app_commands.choices(
+        font=[app_commands.Choice(name=name, value=name) for name in FONT_IDS],
+        effect=[app_commands.Choice(name=name, value=name) for name in EFFECT_IDS],
+    )
+    async def style(
+        self, interaction: discord.Interaction,
+        font: app_commands.Choice[str], effect: app_commands.Choice[str],
+        primary: str, secondary: str = "",
+    ):
+        if not self.allowed(interaction):
+            await interaction.response.send_message("Global Admin only.", ephemeral=True)
+            return
+        try:
+            payload = build_name_style(font.value, effect.value, primary, secondary)
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(
+            await self.apply_name_style(interaction, payload), ephemeral=True
+        )
+
+    @botprofile.command(name="style-reset", description="Reset experimental name styling in this server")
+    async def style_reset(self, interaction: discord.Interaction):
+        if not self.allowed(interaction):
+            await interaction.response.send_message("Global Admin only.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(
+            await self.apply_name_style(interaction, NAME_STYLE_RESET.copy()),
+            ephemeral=True,
+        )
 
     async def image_upload(self, interaction, file, all_servers, field):
         if not self.allowed(interaction):
