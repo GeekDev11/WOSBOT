@@ -1571,9 +1571,17 @@ if __name__ == "__main__":
             # Sync once per process — on_ready re-fires on reconnect; commands are static.
             if not getattr(bot, '_commands_synced', False):
                 startup.phase_start("Syncing slash commands with Discord")
-                await bot.tree.sync()
+                synced_commands = await bot.tree.sync()
                 bot._commands_synced = True
-                startup.phase_ok("Slash commands synced with Discord")
+                startup.phase_ok(f"Slash commands synced with Discord ({len(synced_commands)} commands)")
+                registered_names = {cmd.name for cmd in synced_commands}
+                missing_profile = {"botprofile", "botstyle"} - registered_names
+                if missing_profile:
+                    startup.warn(
+                        "Profile slash commands not registered: "
+                        + ", ".join(sorted(missing_profile))
+                        + ". Use /settings → Maintenance → Bot Profile → Customize Name."
+                    )
 
             # API health checks
             try:
