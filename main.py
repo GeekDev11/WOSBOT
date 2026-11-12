@@ -735,7 +735,6 @@ def _confirm_successful_update():
 def _validate_staged_release(root):
     """Reject incomplete or invalid code without touching the running installation."""
     import pathlib
-    import py_compile
     root = pathlib.Path(root).resolve()
     for required in ("main.py", "requirements.txt", "cogs/bot_restart.py",
                      "cogs/bot_startup_display.py", "cogs/wos_versioning.py"):
@@ -752,7 +751,7 @@ def _validate_staged_release(root):
             continue
         if path.suffix == ".py":
             # Check every Python source before replacing main.py or any cog.
-            py_compile.compile(str(path), cfile=os.devnull, doraise=True)
+            compile(path.read_bytes(), str(path), "exec")
         files.append(rel)
     return files
 
@@ -988,7 +987,16 @@ if __name__ == "__main__":
                         if len(extracted_items) == 1 and os.path.isdir(os.path.join(update_dir, extracted_items[0])):
                             update_dir = os.path.join(update_dir, extracted_items[0])
                         
-                        # Install dependencies while the current, working code is intact.
+                        # Validate the archive and all Python files before running pip
+                        # or touching the existing working installation.
+                        try:
+                            _validate_staged_release(update_dir)
+                        except Exception as exc:
+                            startup.phase_fail("Update rejected", details=[str(exc)])
+                            safe_remove("update")
+                            return
+
+                        # Install dependencies while the current code is intact.
                         # Do not uninstall old packages until a release is confirmed healthy.
                         requirements_path = os.path.join(update_dir, "requirements.txt")
                         if os.path.isfile(requirements_path):
