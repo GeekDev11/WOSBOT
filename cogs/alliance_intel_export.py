@@ -94,6 +94,8 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
     if alliance_id != "all":
         query += " WHERE alliance=?"
         params = (str(alliance_id),)
+    else:
+        query += " WHERE alliance IS NOT NULL AND alliance != ''"
     members = _read(users_db, query, params)
     if member_ids is not None:
         allowed = set(int(x) for x in member_ids)
@@ -101,6 +103,10 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
     fids = {int(m[0]) for m in members}
     names = dict(_read(os.path.join(db_dir, "alliance.sqlite"),
                        "SELECT alliance_id,name FROM alliance_list"))
+    if alliance_id == 'all':
+        allowed = {str(aid) for aid in names}
+        members = [m for m in members if str(m[8]) in allowed]
+        fids = {int(m[0]) for m in members}
     changes_db = os.path.join(db_dir, "changes.sqlite")
     observation_db = os.path.join(db_dir, "wos_player_observations.sqlite")
     latest = {}
@@ -216,6 +222,9 @@ def build_export(alliance_id, *, member_ids=None, db_dir=DB_DIR, categories=None
     _add(sheets, "Export Metadata", "Alliance scope", alliance_id)
     _add(sheets, "Export Metadata", "Selected members", len(fids))
     _add(sheets, "Export Metadata", "API requests during export", 0)
+    for filename in ("users.sqlite", "changes.sqlite", "whiteoutstats.sqlite", "wos_player_observations.sqlite"):
+        _add(sheets, "Export Metadata", "Source: " + filename,
+             "Present" if os.path.isfile(os.path.join(db_dir, filename)) else "Unavailable")
     _add(sheets, "Export Metadata", "History meaning", "Detected between observations; times are not precise in-game event times")
     _add(sheets, "Export Metadata", "Missing data", "Blank = not reported; no value is inferred")
     _add(sheets, "Export Metadata", "Hero coverage", "Arena lineup only when provided by API")
