@@ -671,7 +671,142 @@ def raise_open_file_limit(floor=1024, target=4096):
         )
 
 
+
+# The updater's recovery code intentionally uses only the Python standard library.
+# Keep it inside main.py: it must be available before newly downloaded cogs exist.
+def _update_recovery_dir():
+    return os.path.join(os.getcwd(), ".wos_update_recovery")
+
+
+def _update_recovery_state():
+    import json
+    path = os.path.join(_update_recovery_dir(), "state.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _restore_previous_update(reason):
+    """Restore only application files changed by the attempted update, never user data."""
+    import json
+    base = _update_recovery_dir()
+    state = _update_recovery_state()
+    if not state:
+        return False
+    print(f"  Update recovery: {reason}. Restoring previous code...", flush=True)
+    for rel in reversed(state["files"]):
+        # All names originate in our own staged archive validated before installation.
+        destination = os.path.join(os.getcwd(), rel)
+        backup = os.path.join(base, "files", rel)
+        if os.path.isfile(backup):
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.copy2(backup, destination)
+        elif os.path.isfile(destination):
+            os.remove(destination)
+    shutil.rmtree(base)
+    print("  Previous version restored; existing databases were not changed.", flush=True)
+    return True
+
+
+def _pending_update_start():
+    """On the second attempted boot, recover rather than crash-loop."""
+    import json
+    state = _update_recovery_state()
+    if not state:
+        return
+    if state.get("attempted"):
+        _restore_previous_update("new version did not finish starting")
+        os.execv(sys.executable, [sys.executable, *[a for a in sys.argv if a != "--autoupdate"], "--no-update"]
+                 if "--no-update" not in sys.argv else [sys.executable, *sys.argv])
+    state["attempted"] = True
+    with open(os.path.join(_update_recovery_dir(), "state.json"), "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+
+
+def _confirm_successful_update():
+    """Retire recovery snapshot only after all cogs and Discord are ready."""
+    base = _update_recovery_dir()
+    if os.path.isfile(os.path.join(base, "state.json")):
+        shutil.rmtree(base)
+        print("  ✅ Updated version passed startup checks; recovery backup cleared.", flush=True)
+
+
+def _validate_staged_release(root):
+    """Reject incomplete or invalid code without touching the running installation."""
+    import pathlib
+    import py_compile
+    root = pathlib.Path(root).resolve()
+    for required in ("main.py", "requirements.txt", "cogs/bot_restart.py",
+                     "cogs/bot_startup_display.py", "cogs/wos_versioning.py"):
+        if not (root / required).is_file():
+            raise RuntimeError(f"Missing required update file: {required}")
+    files = []
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise RuntimeError(f"Release contains a symbolic link: {path}")
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(("db/", ".git/")) or rel in ("version", "bot_token.txt", ".env", ".env.local"):
+            continue
+        if path.suffix == ".py":
+            # Check every Python source before replacing main.py or any cog.
+            py_compile.compile(str(path), cfile=os.devnull, doraise=True)
+        files.append(rel)
+    return files
+
+
+def _install_verified_release(root, latest_tag):
+    """Back up every target, install all files, and retain rollback until Discord is ready."""
+    import json
+    import pathlib
+    root = pathlib.Path(root).resolve()
+    files = _validate_staged_release(root)
+    recovery = _update_recovery_dir()
+    if os.path.exists(recovery):
+        raise RuntimeError("Previous unconfirmed update exists; refusing to overwrite recovery copy")
+    os.makedirs(os.path.join(recovery, "files"))
+    try:
+        for rel in files + ["version"]:
+            old = pathlib.Path(os.getcwd()) / rel
+            if old.is_file():
+                backup = pathlib.Path(recovery) / "files" / rel
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(old, backup)
+        # Write the manifest before changing anything, making an interrupted copy recoverable.
+        with open(os.path.join(recovery, "state.json"), "w", encoding="utf-8") as handle:
+            json.dump({"version": latest_tag, "files": files + ["version"], "attempted": False}, handle)
+        for rel in files:
+            target = pathlib.Path(os.getcwd()) / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + ".wos-new")
+            shutil.copy2(root / rel, temporary)
+            os.replace(temporary, target)
+        version_temp = pathlib.Path("version.wos-new")
+        version_temp.write_text(latest_tag, encoding="utf-8")
+        os.replace(version_temp, "version")
+    except Exception:
+        _restore_previous_update("installation failed")
+        raise
+
+
+def _install_update_exception_handler(exc_type, exc, tb):
+    """Recover after an uncaught startup exception instead of requiring a manual upload."""
+    import traceback
+    traceback.print_exception(exc_type, exc, tb)
+    if _update_recovery_state():
+        try:
+            if _restore_previous_update("startup exception"):
+                args = [a for a in sys.argv if a not in ("--autoupdate", "--repair", "--no-update")]
+                os.execv(sys.executable, [sys.executable, *args, "--no-update"])
+        except Exception as recovery_error:
+            print(f"  Recovery failed: {recovery_error}", flush=True)
+
+
 if __name__ == "__main__":
+    sys.excepthook = _install_update_exception_handler
+    _pending_update_start()
     # ── Proxy support (--proxy flag) ───────────────────────────────────────────
     # Pass --proxy <url> to route all game API traffic through a proxy server.
     # Example: python main.py --proxy http://192.168.1.10:18080
@@ -853,100 +988,23 @@ if __name__ == "__main__":
                         if len(extracted_items) == 1 and os.path.isdir(os.path.join(update_dir, extracted_items[0])):
                             update_dir = os.path.join(update_dir, extracted_items[0])
                         
-                        # Handle main.py update
-                        main_py_path = os.path.join(update_dir, "main.py")
-                        if os.path.exists(main_py_path):
-                            safe_remove("main.py.bak")
-                                
-                            try:
-                                if os.path.exists("main.py"):
-                                    os.rename("main.py", "main.py.bak")
-                            except Exception:
-                                # If backup fails, just remove the current file
-                                safe_remove("main.py")
-
-                            try:
-                                shutil.copy2(main_py_path, "main.py")
-                            except Exception as e:
-                                startup.phase_fail("Update failed", details=[f"Could not install new main.py: {e}"])
-                                return
-                            
+                        # Install dependencies while the current, working code is intact.
+                        # Do not uninstall old packages until a release is confirmed healthy.
                         requirements_path = os.path.join(update_dir, "requirements.txt")
-                        if os.path.exists(requirements_path):
-                            success = install_packages(requirements_path, debug="--verbose" in sys.argv or "--debug" in sys.argv)
-
-                            if success:
-                                # Copy new requirements.txt to working directory before cleanup
-                                try:
-                                    if os.path.exists("requirements.txt"):
-                                        safe_remove("requirements.txt", is_dir=False)
-                                    shutil.copy2(requirements_path, "requirements.txt")
-                                except Exception:
-                                    pass  # Silent requirements.txt copy failure
-
-                                # Now cleanup removed packages (comparing old vs new)
-                                cleanup_removed_packages()
-                            else:
-                                # install_packages already reported pip's real error.
+                        if os.path.isfile(requirements_path):
+                            if not install_packages(requirements_path, debug="--verbose" in sys.argv or "--debug" in sys.argv):
+                                startup.phase_fail("Update aborted", details=["Dependency installation failed; existing code left unchanged"])
+                                safe_remove("update")
                                 return
-                            
-                            # Remove the requirements.txt from update folder after copying
-                            safe_remove(requirements_path)
-                            
-                        for root, _, files in os.walk(update_dir):
-                            for file in files:
-                                if file == "main.py":
-                                    continue
-                                    
-                                src_path = os.path.join(root, file)
-                                rel_path = os.path.relpath(src_path, update_dir)
-                                dst_path = os.path.join(".", rel_path)
-                                norm_path = dst_path.replace("\\", "/")
 
-                                # Skip certain files that shouldn't be overwritten
-                                if file in ["bot_token.txt", "version", ".env", ".env.local"] or norm_path.startswith("db/") or norm_path.startswith("./db/") or norm_path.startswith(".git/") or norm_path.startswith("./.git/"):
-                                    continue
+                        try:
+                            _install_verified_release(update_dir, latest_tag)
+                        except Exception as exc:
+                            startup.phase_fail("Update aborted", details=[str(exc)])
+                            safe_remove("update")
+                            return
 
-                                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-
-                                # Only backup cogs Python files (.py extension)
-                                is_cogs_file = (norm_path.startswith("cogs/") or norm_path.startswith("./cogs/")) and file.endswith(".py")
-                                
-                                if is_cogs_file and os.path.exists(dst_path):
-                                    # Calculate file hashes to check if backup is needed
-                                    src_hash = calculate_file_hash(src_path)
-                                    dst_hash = calculate_file_hash(dst_path)
-                                    
-                                    if src_hash != dst_hash:
-                                        # Files are different, create backup
-                                        cogs_bak_dir = "cogs.bak"
-                                        os.makedirs(cogs_bak_dir, exist_ok=True)
-                                        
-                                        # Get relative path within cogs directory
-                                        rel_path_in_cogs = os.path.relpath(dst_path, "cogs")
-                                        backup_path = os.path.join(cogs_bak_dir, rel_path_in_cogs)
-                                        
-                                        # Create subdirectories in backup if needed
-                                        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-                                        
-                                        try:
-                                            # Remove old backup if exists
-                                            if os.path.exists(backup_path):
-                                                safe_remove(backup_path, is_dir=False)
-                                            # Copy current file to backup
-                                            shutil.copy2(dst_path, backup_path)
-                                        except Exception:
-                                            pass  # Silent backup failure
-
-                                try:
-                                    shutil.copy2(src_path, dst_path)
-                                except Exception:
-                                    pass  # Silent copy failure
-                        
                         safe_remove("update")
-
-                        with open("version", "w") as f:
-                            f.write(latest_tag)
 
                         startup.phase_ok(f"Update completed ({latest_tag} from {source_name})")
 
@@ -1468,6 +1526,9 @@ if __name__ == "__main__":
         total = len(cogs)
         loaded = total - len(failed_cogs)
         if failed_cogs:
+            if _update_recovery_state():
+                _restore_previous_update("modules failed to load")
+                os.execv(sys.executable, [sys.executable, *[a for a in sys.argv if a not in ("--autoupdate", "--repair", "--no-update")], "--no-update"])
             startup.phase_fail(
                 f"{loaded}/{total} modules loaded",
                 details=[f"{cog}: {error}" for cog, error in failed_cogs],
@@ -1577,6 +1638,7 @@ if __name__ == "__main__":
             elif getattr(bot, 'startup_dm_sent', False):
                 startup.info("Startup DM sent to Global Admin")
 
+            _confirm_successful_update()
             startup.ready()
         except Exception as e:
             logging.getLogger('bot').error(f"Error syncing commands: {e}")
