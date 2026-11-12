@@ -22,6 +22,7 @@ from .gift_state_resolver import _put_setting, _settings, left_alliance_state
 from .permission_handler import PermissionManager
 from .pimp_my_bot import count_text, theme
 from .process_queue import PLAYER_SYNC, PreemptedException
+from .wos_observations import save_observation
 
 logger = logging.getLogger('alliance')
 
@@ -247,6 +248,7 @@ SETTINGS = {
                  _int_within(INTERVAL_MIN_HOURS, INTERVAL_MAX_HOURS, "hours")),
     "last_run": ('api_sync_last_run', _json_dict, json.dumps),
     "last_queued": ('api_sync_last_queued', _datetime, datetime.isoformat),
+    "last_daily_date": ('api_sync_last_daily_date', lambda value: value or "", str),
     "budget": ('api_sync_budget', _json_dict, json.dumps),
     "autodelete": ('api_sync_autodelete', lambda value: value != '0', _flag),
     "keep_minutes": ('api_sync_keep_minutes', _int_or(KEEP_MINUTES_DEFAULT),
@@ -571,6 +573,10 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
         return True
     if answer.status == 200:
         await asyncio.to_thread(_apply, fid, alliance, read_player(answer.payload, profile), result)
+        try:
+            await asyncio.to_thread(save_observation, fid, answer.payload)
+        except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+            logger.error("Player Sync: cannot save full observation %s: %s", fid, exc)
     else:
         logger.info(f"Player Sync: API has no data for {fid} (HTTP {answer.status})")
         await asyncio.to_thread(mark_synced, fid, utc_now())
@@ -962,14 +968,16 @@ class AllianceApiSync(commands.Cog):
         save_setting("last_queued", datetime.now(timezone.utc))
         return 'queued'
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=1)
     async def schedule_loop(self):
         try:
-            state = await asyncio.to_thread(load_settings, "enabled", "profile", "last_queued", "interval")
+            state = await asyncio.to_thread(load_settings, "enabled", "profile", "last_daily_date")
             if not state["enabled"] or missing_for_sync(state["profile"]):
                 return
-            if is_due(datetime.now(timezone.utc), state["last_queued"], state["interval"]):
-                self.queue_sync()
+            now = datetime.now(timezone.utc)
+            if state["last_daily_date"] != now.date().isoformat():
+                if self.queue_sync() == "queued":
+                    await asyncio.to_thread(save_setting, "last_daily_date", now.date().isoformat())
         except Exception as e:
             logger.warning(f"Player Sync: schedule check failed: {e}")
 
