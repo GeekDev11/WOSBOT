@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .wos_intelligence import basic_fields
+from .chief_stalker import basic_fields
 
 DB_PATH = Path("db/whiteoutstats.sqlite")
 

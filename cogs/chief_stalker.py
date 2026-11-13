@@ -103,7 +103,7 @@ def describe_error(status):
     }.get(status, f"Whiteout Stats returned HTTP {status}.")
 
 
-class WosIntelligence(commands.Cog):
+class ChiefStalker(commands.Cog):
     """Additional read-only API commands; does not alter Player Sync records."""
 
     def __init__(self, bot):
@@ -257,4 +257,4 @@ class WosIntelligence(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(WosIntelligence(bot))
+    await bot.add_cog(ChiefStalker(bot))

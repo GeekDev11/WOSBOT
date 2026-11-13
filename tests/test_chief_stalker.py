@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from cogs.wos_intelligence import basic_fields, describe_error, format_shield, with_include, arena_heroes, chief_equipment, WosIntelligence
+from cogs.chief_stalker import basic_fields, describe_error, format_shield, with_include, arena_heroes, chief_equipment, ChiefStalker
 
 
 def test_basic_fields_accepts_player_object():
@@ -50,7 +50,7 @@ def test_errors_do_not_reveal_key(status):
 
 @pytest.mark.asyncio
 async def test_get_player_uses_existing_connection_and_quota(monkeypatch):
-    import cogs.wos_intelligence as module
+    import cogs.chief_stalker as module
     from cogs.alliance_api_sync import FetchResult
 
     profile = {
@@ -78,7 +78,7 @@ async def test_get_player_uses_existing_connection_and_quota(monkeypatch):
         def get_cog(self, name):
             return FakeSync() if name == "AllianceApiSync" else None
 
-    cog = WosIntelligence(FakeBot())
+    cog = ChiefStalker(FakeBot())
     result, error = await cog.get_player(137940156)
     assert error is None
     assert result["player"]["nick_name"] == "OK"
@@ -110,12 +110,12 @@ def test_chief_equipment_hidden_vs_unavailable():
 
 @pytest.mark.asyncio
 async def test_heroes_command_requests_only_relevant_sections(monkeypatch):
-    import cogs.wos_intelligence as module
+    import cogs.chief_stalker as module
     captured = []
     async def get_player(self, chief_id, include=("base",)):
         captured.append((chief_id, include))
         return {"heroes": [{"name": "Hero A", "level": 80, "skill_levels": [{"level": 5}]}]}, None
-    monkeypatch.setattr(module.WosIntelligence, "get_player", get_player)
+    monkeypatch.setattr(module.ChiefStalker, "get_player", get_player)
     sent = []
     class Response:
         async def defer(self, **kwargs):
@@ -126,7 +126,7 @@ async def test_heroes_command_requests_only_relevant_sections(monkeypatch):
     class Interaction:
         response = Response()
         followup = Followup()
-    cog = WosIntelligence(object())
+    cog = ChiefStalker(object())
     await cog.wosheroes.callback(cog, Interaction(), "137940156")
     assert captured == [(137940156, ("base", "heroes"))]
     assert "embed" in sent[0][1]
