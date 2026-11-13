@@ -183,10 +183,10 @@ async def test_check_command_reuses_client_and_shows_refresh(monkeypatch):
         id = 42
     class Response:
         async def defer(self, **kwargs):
-            assert kwargs["ephemeral"] is True
+            assert kwargs.get("ephemeral") is not True
     class Followup:
         async def send(self, **kwargs):
-            assert kwargs["ephemeral"] is True
+            assert kwargs.get("ephemeral") is not True
             assert isinstance(kwargs["view"], CheckRefreshView)
             assert kwargs["view"].requester_id == 42
             assert kwargs["embed"].fields[0].value == "🟢 Reported online"

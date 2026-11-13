@@ -235,23 +235,23 @@ class ChiefStalker(commands.Cog):
     @app_commands.command(name="check", description="Check a chief's reported activity and profile")
     @app_commands.describe(chief_id="In-game Chief ID")
     async def check(self, interaction: discord.Interaction, chief_id: str):
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        # Match /w: usable in servers and DMs with a normal visible response.
+        await interaction.response.defer(thinking=True)
         if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
-            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True)
+            await interaction.followup.send("Enter a valid numeric Chief ID.")
             return
         numeric_id = int(chief_id)
         payload, error = await self.get_player(numeric_id)
         if error:
-            await interaction.followup.send(error, ephemeral=True)
+            await interaction.followup.send(error)
             return
         embed = check_embed(payload, numeric_id)
         if embed is None:
-            await interaction.followup.send("No player object was found in the API response.", ephemeral=True)
+            await interaction.followup.send("No player object was found in the API response.")
             return
         await interaction.followup.send(
             embed=embed,
             view=CheckRefreshView(self, numeric_id, interaction.user.id),
-            ephemeral=True,
         )
 
     @app_commands.command(name="wosplayer", description="Inspect a Whiteout Survival player using Whiteout Stats")
