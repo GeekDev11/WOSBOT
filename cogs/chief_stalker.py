@@ -143,7 +143,11 @@ def check_embed(payload, chief_id):
         inline=True,
     )
     if timestamp is not None:
-        embed.add_field(name="Recorded activity time", value=f"<t:{timestamp}:F>", inline=False)
+        embed.add_field(
+            name="Recorded activity time (UTC)",
+            value=datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            inline=False,
+        )
     for label, key in (("State", "state"), ("Power", "power"), ("Kills", "kills"), ("VIP", "vip")):
         value = data[key]
         formatted = f"{value:,}" if type(value) is int else short(value, "Not reported", 80)

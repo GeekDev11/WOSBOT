@@ -153,7 +153,7 @@ def test_check_embed_reports_activity_and_profile():
     rendered = {field.name: field.value for field in embed.fields}
     assert rendered["Activity status"] == "⚪ Reported offline"
     assert rendered["Reported last active"] == "<t:1794608176:R>"
-    assert rendered["Recorded activity time"] == "<t:1794608176:F>"
+    assert rendered["Recorded activity time (UTC)"] == "2026-11-13 22:16:16 UTC"
     assert rendered["Alliance"] == "[ERA] NewEra"
     assert rendered["Last reported coordinates"] == "X: 774 · Y: 815"
     assert "stale" in embed.footer.text
@@ -165,7 +165,7 @@ def test_check_activity_unknown_is_not_offline():
     rendered = {field.name: field.value for field in embed.fields}
     assert rendered["Activity status"] == "Not reported"
     assert rendered["Reported last active"] == "Not reported"
-    assert "Recorded activity time" not in rendered
+    assert "Recorded activity time (UTC)" not in rendered
     assert activity_timestamp(True) is None
     assert activity_timestamp(-1) is None
     assert activity_timestamp("1794608176") is None
@@ -197,3 +197,27 @@ async def test_check_command_reuses_client_and_shows_refresh(monkeypatch):
     cog = ChiefStalker(object())
     await cog.check.callback(cog, Interaction(), "137940156")
     assert seen == [(137940156, ("base",))]
+
+
+def test_check_utc_is_independent_of_local_timezone(monkeypatch):
+    import os
+    import time
+    from cogs.chief_stalker import check_embed
+    payload = {"player": {"nick_name": "Example", "last_active_at": 1794608176.0}}
+    previous_tz = os.environ.get("TZ")
+    try:
+        for tz in ("UTC", "Asia/Riyadh", "America/Los_Angeles"):
+            monkeypatch.setenv("TZ", tz)
+            if hasattr(time, "tzset"):
+                time.tzset()
+            embed = check_embed(payload, 137940156)
+            fields = {field.name: field.value for field in embed.fields}
+            assert fields["Recorded activity time (UTC)"] == "2026-11-13 22:16:16 UTC"
+            assert fields["Reported last active"] == "<t:1794608176:R>"
+    finally:
+        if previous_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", previous_tz)
+        if hasattr(time, "tzset"):
+            time.tzset()
