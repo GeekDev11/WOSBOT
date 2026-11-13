@@ -103,6 +103,112 @@ def describe_error(status):
     }.get(status, f"Whiteout Stats returned HTTP {status}.")
 
 
+
+def activity_timestamp(value):
+    """Accept plausible Unix seconds, but do not invent a login time."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        timestamp = int(value)
+        if timestamp <= 0:
+            return None
+        datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        return timestamp
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def check_embed(payload, chief_id):
+    """Show the API's reported activity, never claim verified game presence."""
+    data = basic_fields(payload)
+    if not data:
+        return None
+    player = payload["player"]
+    online = player.get("online")
+    status = ("🟢 Reported online" if online is True else
+              "⚪ Reported offline" if online is False else
+              "Not reported")
+    last_login = player.get("last_login")
+    timestamp = activity_timestamp(player.get("last_active_at"))
+    embed = discord.Embed(
+        title=short(data["name"], f"Chief {chief_id}", 256),
+        description=f"👀 **Chief Stalker** · Chief ID: `{chief_id}`",
+        color=discord.Color.green() if online is True else discord.Color.blurple(),
+    )
+    embed.add_field(name="Activity status", value=status, inline=True)
+    embed.add_field(
+        name="Reported last active",
+        value=(f"<t:{timestamp}:R>" if timestamp is not None
+               else short(last_login, "Not reported", 200)),
+        inline=True,
+    )
+    if timestamp is not None:
+        embed.add_field(name="Recorded activity time", value=f"<t:{timestamp}:F>", inline=False)
+    for label, key in (("State", "state"), ("Power", "power"), ("Kills", "kills"), ("VIP", "vip")):
+        value = data[key]
+        formatted = f"{value:,}" if type(value) is int else short(value, "Not reported", 80)
+        embed.add_field(name=label, value=formatted, inline=True)
+    furnace = data["furnace"]
+    embed.add_field(
+        name="Furnace",
+        value=format_furnace_level(furnace) if type(furnace) is int else "Not reported",
+        inline=True,
+    )
+    alliance = data["alliance"]
+    if isinstance(alliance, dict):
+        abbr, name = alliance.get("abbr"), alliance.get("name")
+    else:
+        abbr, name = player.get("alliance_abbr"), player.get("alliance_name")
+    if abbr or name:
+        embed.add_field(
+            name="Alliance",
+            value=f"[{short(abbr, '?', 30)}] {short(name, '', 150)}"[:1024],
+            inline=False,
+        )
+    coords = (f"X: {data['x']} · Y: {data['y']}"
+              if data["x"] is not None and data["y"] is not None else "Not reported")
+    embed.add_field(name="Last reported coordinates", value=coords, inline=False)
+    avatar = player.get("avatar_url")
+    if isinstance(avatar, str) and avatar.startswith(("https://", "http://")):
+        embed.set_thumbnail(url=avatar)
+    embed.set_footer(
+        text=f"Whiteout Stats · {freshness(payload)} · Activity may be stale or inaccurate"
+    )
+    return embed
+
+
+class CheckRefreshView(discord.ui.View):
+    """User-scoped refresh; reuses the existing API client and quota limits."""
+
+    def __init__(self, cog, chief_id, requester_id):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.chief_id = chief_id
+        self.requester_id = requester_id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "Only the person who ran /check can refresh this result.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        payload, error = await self.cog.get_player(self.chief_id)
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+        embed = check_embed(payload, self.chief_id)
+        if embed is None:
+            await interaction.followup.send("No player object was found in the API response.", ephemeral=True)
+            return
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
 class ChiefStalker(commands.Cog):
     """Additional read-only API commands; does not alter Player Sync records."""
 
@@ -125,6 +231,28 @@ class ChiefStalker(commands.Cog):
         if not isinstance(answer.payload, dict):
             return None, "The API returned no usable JSON object."
         return answer.payload, None
+
+    @app_commands.command(name="check", description="Check a chief's reported activity and profile")
+    @app_commands.describe(chief_id="In-game Chief ID")
+    async def check(self, interaction: discord.Interaction, chief_id: str):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
+            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True)
+            return
+        numeric_id = int(chief_id)
+        payload, error = await self.get_player(numeric_id)
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+        embed = check_embed(payload, numeric_id)
+        if embed is None:
+            await interaction.followup.send("No player object was found in the API response.", ephemeral=True)
+            return
+        await interaction.followup.send(
+            embed=embed,
+            view=CheckRefreshView(self, numeric_id, interaction.user.id),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="wosplayer", description="Inspect a Whiteout Survival player using Whiteout Stats")
     @app_commands.describe(chief_id="In-game Chief ID")

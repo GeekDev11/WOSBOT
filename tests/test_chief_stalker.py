@@ -130,3 +130,70 @@ async def test_heroes_command_requests_only_relevant_sections(monkeypatch):
     await cog.wosheroes.callback(cog, Interaction(), "137940156")
     assert captured == [(137940156, ("base", "heroes"))]
     assert "embed" in sent[0][1]
+
+
+def test_check_embed_reports_activity_and_profile():
+    from cogs.chief_stalker import check_embed
+    payload = {
+        "player": {
+            "nick_name": "FUTURE IS BRIGHT",
+            "kid": 1501,
+            "furnace_level": 80,
+            "power": 1303347544,
+            "online": False,
+            "last_login": "Last active 28m ago",
+            "last_active_at": 1794608176.0,
+            "alliance": {"abbr": "ERA", "name": "NewEra"},
+            "x": 774, "y": 815,
+        },
+        "age_seconds": 1602,
+    }
+    embed = check_embed(payload, 137940156)
+    assert embed is not None
+    rendered = {field.name: field.value for field in embed.fields}
+    assert rendered["Activity status"] == "⚪ Reported offline"
+    assert rendered["Reported last active"] == "<t:1794608176:R>"
+    assert rendered["Recorded activity time"] == "<t:1794608176:F>"
+    assert rendered["Alliance"] == "[ERA] NewEra"
+    assert rendered["Last reported coordinates"] == "X: 774 · Y: 815"
+    assert "stale" in embed.footer.text
+
+
+def test_check_activity_unknown_is_not_offline():
+    from cogs.chief_stalker import check_embed, activity_timestamp
+    embed = check_embed({"player": {"nick_name": "Test"}}, 123)
+    rendered = {field.name: field.value for field in embed.fields}
+    assert rendered["Activity status"] == "Not reported"
+    assert rendered["Reported last active"] == "Not reported"
+    assert "Recorded activity time" not in rendered
+    assert activity_timestamp(True) is None
+    assert activity_timestamp(-1) is None
+    assert activity_timestamp("1794608176") is None
+
+
+@pytest.mark.asyncio
+async def test_check_command_reuses_client_and_shows_refresh(monkeypatch):
+    from cogs.chief_stalker import ChiefStalker, CheckRefreshView
+    seen = []
+    async def fake_get(self, chief_id, include=("base",)):
+        seen.append((chief_id, include))
+        return {"player": {"nick_name": "Chief", "online": True}}, None
+    monkeypatch.setattr(ChiefStalker, "get_player", fake_get)
+    class User:
+        id = 42
+    class Response:
+        async def defer(self, **kwargs):
+            assert kwargs["ephemeral"] is True
+    class Followup:
+        async def send(self, **kwargs):
+            assert kwargs["ephemeral"] is True
+            assert isinstance(kwargs["view"], CheckRefreshView)
+            assert kwargs["view"].requester_id == 42
+            assert kwargs["embed"].fields[0].value == "🟢 Reported online"
+    class Interaction:
+        user = User()
+        response = Response()
+        followup = Followup()
+    cog = ChiefStalker(object())
+    await cog.check.callback(cog, Interaction(), "137940156")
+    assert seen == [(137940156, ("base",))]
