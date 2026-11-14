@@ -208,7 +208,7 @@ def read_quality(fids, path=DB_PATH):
 
 
 def format_tier(tier, skill):
-    if tier == 12 and skill in (1, 2, 3):
+    if tier == 12 and skill in (0, 1, 2, 3):
         return f"T12 · Skill {skill}/3"
     if tier == 11:
         return "T11"
