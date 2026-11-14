@@ -1534,7 +1534,7 @@ if __name__ == "__main__":
     startup.phase_ok("Database ready")
 
     async def load_cogs():
-        cogs = ["pimp_my_bot", "process_queue", "onnx_lifecycle", "bot_main_menu", "alliance", "alliance_member_operations", "alliance_api_sync", "chief_stalker", "wos_alliance_intel", "wos_leaderboards", "wos_player_history", "wos_svs", "bot_operations", "bot_profile", "alliance_logs", "bot_support", "bot_health", "gift_operations", "alliance_history", "alliance_w_command", "bot_startup", "notification_system", "notification_schedule", "alliance_id_channel", "alliance_channels", "bot_backup", "notification_editor", "notification_templates", "notification_wizard", "attendance", "attendance_report", "attendance_ocr", "minister_schedule", "minister_menu", "minister_archive", "alliance_registration", "bear_track"]
+        cogs = ["pimp_my_bot", "process_queue", "onnx_lifecycle", "bot_main_menu", "alliance", "alliance_member_operations", "alliance_api_sync", "chief_stalker", "troop_quality", "wos_alliance_intel", "wos_leaderboards", "wos_player_history", "wos_svs", "bot_operations", "bot_profile", "alliance_logs", "bot_support", "bot_health", "gift_operations", "alliance_history", "alliance_w_command", "bot_startup", "notification_system", "notification_schedule", "alliance_id_channel", "alliance_channels", "bot_backup", "notification_editor", "notification_templates", "notification_wizard", "attendance", "attendance_report", "attendance_ocr", "minister_schedule", "minister_menu", "minister_archive", "alliance_registration", "bear_track"]
 
         failed_cogs = []
 

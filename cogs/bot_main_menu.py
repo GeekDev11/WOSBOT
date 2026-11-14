@@ -401,7 +401,8 @@ class MainMenu(commands.Cog):
                     f"{theme.listIcon} **History**\n"
                     f"└ Furnace level, power and nickname changes per member\n\n"
                     f"{theme.chartIcon} **Power Rankings**\n"
-                    f"└ Members ranked by power and attendance\n\n"
+                    f"└ Members ranked by power and attendance\n\n"                    "🛡️ **Troop Quality**\n"
+                    "└ Track T11/T12 tiers and T12 skills by troop type\n\n"
                     f"{theme.lockIcon} **State Lock**\n"
                     f"└ Only allow members from the home state\n\n"
                     f"{theme.membersIcon} **Auto-remove Transfers**\n"
@@ -1043,6 +1044,15 @@ class AllianceHubView(discord.ui.View):
             interaction, self.cog.bot, "AllianceChannels",
             "show_channel_setup_for", self.alliance_id,
             missing_label="Channel Setup",
+        )
+
+    @discord.ui.button(label="Troop Quality", emoji="🛡️",
+                       style=discord.ButtonStyle.success, row=1)
+    async def troop_quality(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _route_to_cog(
+            interaction, self.cog.bot, "TroopQuality",
+            "show_troop_quality_for", self.alliance_id,
+            missing_label="Troop Quality",
         )
 
     # ── Secondary actions (row 2) ──
