@@ -23,13 +23,15 @@ TROOPS = ("infantry", "lancer", "marksman")
 # Integer troop tier and nullable skill are stored independently, with fixed valid combinations.
 OPTIONS = (
     ("Unknown", (None, None)),
-    ("Below T11", (0, None)),
+    ("T10", (10, None)),
     ("T11", (11, None)),
+    ("T12 · Skill 0", (12, 0)),
     ("T12 · Skill 1", (12, 1)),
     ("T12 · Skill 2", (12, 2)),
     ("T12 · Skill 3", (12, 3)),
 )
-CHOICES = {"unknown": (None, None), "below": (0, None), "t11": (11, None),
+CHOICES = {"unknown": (None, None), "below": (0, None), "t10": (10, None), "t11": (11, None),
+           "t12_0": (12, 0),
            "t12_1": (12, 1), "t12_2": (12, 2), "t12_3": (12, 3)}
 PAGE_SIZE = 15
 
@@ -54,14 +56,14 @@ def initialize(path=DB_PATH):
                 marksman_skill INTEGER,
                 updated_at TEXT NOT NULL,
                 updated_by INTEGER NOT NULL,
-                CHECK(infantry_tier IS NULL OR infantry_tier IN (0, 11, 12)),
-                CHECK(lancer_tier IS NULL OR lancer_tier IN (0, 11, 12)),
-                CHECK(marksman_tier IS NULL OR marksman_tier IN (0, 11, 12)),
-                CHECK((infantry_tier = 12 AND infantry_skill BETWEEN 1 AND 3)
+                CHECK(infantry_tier IS NULL OR infantry_tier IN (0, 10, 11, 12)),
+                CHECK(lancer_tier IS NULL OR lancer_tier IN (0, 10, 11, 12)),
+                CHECK(marksman_tier IS NULL OR marksman_tier IN (0, 10, 11, 12)),
+                CHECK((infantry_tier = 12 AND infantry_skill BETWEEN 0 AND 3)
                       OR (infantry_tier IS NOT 12 AND infantry_skill IS NULL)),
-                CHECK((lancer_tier = 12 AND lancer_skill BETWEEN 1 AND 3)
+                CHECK((lancer_tier = 12 AND lancer_skill BETWEEN 0 AND 3)
                       OR (lancer_tier IS NOT 12 AND lancer_skill IS NULL)),
-                CHECK((marksman_tier = 12 AND marksman_skill BETWEEN 1 AND 3)
+                CHECK((marksman_tier = 12 AND marksman_skill BETWEEN 0 AND 3)
                       OR (marksman_tier IS NOT 12 AND marksman_skill IS NULL))
             );
             CREATE TABLE IF NOT EXISTS member_troop_quality_history (
@@ -79,6 +81,101 @@ def initialize(path=DB_PATH):
             CREATE INDEX IF NOT EXISTS idx_troop_quality_history
             ON member_troop_quality_history(fid, changed_at DESC);
         """)
+    ensure_tier_migration(path)
+
+
+def ensure_tier_migration(path=DB_PATH):
+    """Rebuild only legacy CHECK constraints, preserving all existing troop records."""
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        schema = db.execute("SELECT sql FROM sqlite_master "
+                            "WHERE type='table' AND name='member_troop_quality'").fetchone()
+        if not schema or ("BETWEEN 0 AND 3" in schema[0] and "0, 10, 11, 12" in schema[0]):
+            return
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            db.execute("""
+                CREATE TABLE member_troop_quality_migrated (
+                    fid INTEGER PRIMARY KEY,
+                    infantry_tier INTEGER,
+                    infantry_skill INTEGER,
+                    lancer_tier INTEGER,
+                    lancer_skill INTEGER,
+                    marksman_tier INTEGER,
+                    marksman_skill INTEGER,
+                    updated_at TEXT NOT NULL,
+                    updated_by INTEGER NOT NULL,
+                    CHECK(infantry_tier IS NULL OR infantry_tier IN (0,10,11,12)),
+                    CHECK(lancer_tier IS NULL OR lancer_tier IN (0,10,11,12)),
+                    CHECK(marksman_tier IS NULL OR marksman_tier IN (0,10,11,12)),
+                    CHECK((infantry_tier=12 AND infantry_skill BETWEEN 0 AND 3)
+                          OR (infantry_tier IS NOT 12 AND infantry_skill IS NULL)),
+                    CHECK((lancer_tier=12 AND lancer_skill BETWEEN 0 AND 3)
+                          OR (lancer_tier IS NOT 12 AND lancer_skill IS NULL)),
+                    CHECK((marksman_tier=12 AND marksman_skill BETWEEN 0 AND 3)
+                          OR (marksman_tier IS NOT 12 AND marksman_skill IS NULL))
+                )
+            """)
+            db.execute("INSERT INTO member_troop_quality_migrated SELECT * "
+                       "FROM member_troop_quality")
+            db.execute("DROP TABLE member_troop_quality")
+            db.execute("ALTER TABLE member_troop_quality_migrated "
+                       "RENAME TO member_troop_quality")
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+
+def setup_submission_channels(path=ALLIANCE_DB):
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS troop_quality_channels (
+                alliance_id INTEGER PRIMARY KEY,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL UNIQUE,
+                updated_at TEXT NOT NULL,
+                updated_by INTEGER NOT NULL
+            )
+        """)
+
+
+def submission_alliance(guild_id, channel_id, path=ALLIANCE_DB):
+    setup_submission_channels(path)
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        row = db.execute("SELECT alliance_id FROM troop_quality_channels "
+                         "WHERE guild_id=? AND channel_id=?",
+                         (int(guild_id), int(channel_id))).fetchone()
+    return int(row[0]) if row else None
+
+
+def submission_channel(alliance_id, path=ALLIANCE_DB):
+    setup_submission_channels(path)
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        row = db.execute("SELECT channel_id FROM troop_quality_channels "
+                         "WHERE alliance_id=?", (int(alliance_id),)).fetchone()
+    return int(row[0]) if row else None
+
+
+def set_submission_channel(alliance_id, guild_id, channel_id, editor_id, path=ALLIANCE_DB):
+    setup_submission_channels(path)
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
+        other = db.execute("SELECT alliance_id FROM troop_quality_channels "
+                           "WHERE channel_id=? AND alliance_id!=?",
+                           (int(channel_id), int(alliance_id))).fetchone()
+        if other:
+            raise ValueError("This channel is already assigned to another alliance.")
+        db.execute("INSERT INTO troop_quality_channels "
+                   "(alliance_id, guild_id, channel_id, updated_at, updated_by) "
+                   "VALUES (?, ?, ?, ?, ?) ON CONFLICT(alliance_id) DO UPDATE SET "
+                   "guild_id=excluded.guild_id, channel_id=excluded.channel_id, "
+                   "updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+                   (int(alliance_id), int(guild_id), int(channel_id), utc_now(), int(editor_id)))
+
+
+def clear_submission_channel(alliance_id, path=ALLIANCE_DB):
+    setup_submission_channels(path)
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
+        db.execute("DELETE FROM troop_quality_channels WHERE alliance_id=?", (int(alliance_id),))
 
 
 def read_members(alliance_id, path=DB_PATH):
@@ -115,6 +212,8 @@ def format_tier(tier, skill):
         return f"T12 · Skill {skill}/3"
     if tier == 11:
         return "T11"
+    if tier == 10:
+        return "T10"
     if tier == 0:
         return "Below T11"
     return "Unknown"

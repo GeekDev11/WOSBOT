@@ -1,4 +1,4 @@
-"""Per-alliance channel setup: ID Channel, Activity Log, Redemption Log and Sync Log in one view."""
+"""Per-alliance channel setup, including troop screenshot submissions."""
 
 import asyncio
 import discord
@@ -10,6 +10,7 @@ from datetime import datetime
 from .pimp_my_bot import theme, safe_edit_message, menu_timeout
 from .permission_handler import PermissionManager
 from .alliance_api_sync import clear_sync_channel, set_sync_channel
+from . import troop_quality as quality
 
 logger = logging.getLogger('alliance')
 
@@ -47,6 +48,7 @@ class ChannelSetupView(discord.ui.View):
         "log":    ("Activity Log",   "documentIcon", "_set_activity_log", "_clear_activity_log"),
         "redeem": ("Redemption Log", "giftIcon",     "_set_redemption_channel", "_clear_redemption_channel"),
         "sync":   ("Sync Log",       "retryIcon",    "_set_sync_log", "_clear_sync_log"),
+        "troop":  ("Troop Quality",  "shieldIcon",   "_set_troop_channel", "_clear_troop_channel"),
     }
 
     def __init__(self, alliance_id: int, alliance_name: str, cog):
@@ -181,6 +183,12 @@ class ChannelSetupView(discord.ui.View):
     def _clear_sync_log(self, **_):
         clear_sync_channel(self.alliance_id)
 
+    def _set_troop_channel(self, guild_id: int, channel_id: int, user_id: int):
+        quality.set_submission_channel(self.alliance_id, guild_id, channel_id, user_id)
+
+    def _clear_troop_channel(self, **_):
+        quality.clear_submission_channel(self.alliance_id)
+
     def _alliance_setting_channels(self):
         """(redemption, sync log) channel ids, read on one connection."""
         with closing(sqlite3.connect('db/alliance.sqlite', timeout=30.0)) as db:
@@ -194,7 +202,8 @@ class ChannelSetupView(discord.ui.View):
     def _channel_ids(self) -> dict:
         redeem, sync_log = self._alliance_setting_channels()
         return {"id": self._get_id_channel(), "log": self._get_activity_log_channel(),
-                "redeem": redeem, "sync": sync_log}
+                "redeem": redeem, "sync": sync_log,
+                "troop": quality.submission_channel(self.alliance_id)}
 
     # ── Embed / build ─────────────────────────────────────────────────
 
@@ -221,7 +230,10 @@ class ChannelSetupView(discord.ui.View):
                 f"└ Posts gift code redemption progress and summaries\n\n"
                 f"{theme.retryIcon} **Sync Log**\n"
                 f"└ {fmt('sync')}\n"
-                f"└ Posts the changes Player Sync finds\n"
+                f"└ Posts the changes Player Sync finds\n\n"
+                f"{theme.shieldIcon} **Troop Quality Channel**\n"
+                f"└ {fmt('troop')}\n"
+                f"└ Members post Chief ID and troop screenshot for registration\n"
                 f"{theme.lowerDivider}"
             ),
             color=theme.emColor1,
@@ -234,6 +246,7 @@ class ChannelSetupView(discord.ui.View):
             ("log",    theme.documentIcon, 1),
             ("redeem", theme.giftIcon,     2),
             ("sync",   theme.retryIcon,    3),
+            ("troop",  theme.shieldIcon,   4),
         ]
         for kind, icon, row in rows:
             label = self.KINDS[kind][0]

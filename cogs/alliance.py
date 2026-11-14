@@ -858,6 +858,8 @@ class Alliance(commands.Cog):
                         cursor.execute("DELETE FROM alliancesettings WHERE alliance_id = ?", (alliance_id,))
                         admin_settings_count = cursor.rowcount
 
+                        cursor.execute("CREATE TABLE IF NOT EXISTS troop_quality_channels (alliance_id INTEGER PRIMARY KEY, guild_id INTEGER NOT NULL, channel_id INTEGER NOT NULL UNIQUE, updated_at TEXT NOT NULL, updated_by INTEGER NOT NULL)")
+                        cursor.execute("DELETE FROM troop_quality_channels WHERE alliance_id = ?", (alliance_id,))
                         cursor.execute("DELETE FROM alliance_list WHERE alliance_id = ?", (alliance_id,))
                         alliance_count = cursor.rowcount
 
