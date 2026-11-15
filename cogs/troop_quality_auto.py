@@ -142,8 +142,12 @@ def claim_deep_search(fid, now=None, path=REFRESH_DB):
 
 def member_state(fid, path=REFRESH_DB):
     """Return the known game state for scoped live lookup; never guess one."""
-    with closing(sqlite3.connect(path, timeout=30)) as db:
-        row = db.execute("SELECT kid FROM users WHERE fid=?", (int(fid),)).fetchone()
+    try:
+        with closing(sqlite3.connect(path, timeout=30)) as db:
+            row = db.execute("SELECT kid FROM users WHERE fid=?", (int(fid),)).fetchone()
+    except sqlite3.Error as exc:
+        logger.info("Troop Quality: member state unavailable for %s: %s", fid, exc)
+        return None
     if not row or row[0] is None:
         return None
     try:
