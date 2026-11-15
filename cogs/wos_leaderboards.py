@@ -1,5 +1,6 @@
 """Whiteout Stats state leaderboards, using the configured shared API budget."""
 import asyncio
+import logging
 from urllib.parse import urlencode
 
 import aiohttp
@@ -10,50 +11,77 @@ from discord.ext import commands
 from . import alliance_api_sync as sync
 
 API_BASE = "https://api.whiteoutstats.com"
+logger = logging.getLogger("alliance")
 BOARDS = (
     "alliance_power", "alliance_kills", "personal_power", "kills", "furnace",
     "rebel_conquest", "single_hero", "hero_total", "troop_power",
     "building_power", "research_power", "hero_no_equip", "hero_equip",
     "chief_gear", "chief_charm", "pet_power", "island_prosperity",
-    "state_transfer", "labyrinth", "land_of_heroes", "cave_of_monsters",
+    "migrant_score", "labyrinth", "land_of_heroes", "cave_of_monsters",
     "charm_mine", "research_center", "gear_forge", "gaia_heart", "master_power",
 )
 
 
-def parse_board(payload):
-    """Parse rankings without manufacturing scores or identities.
+def leaderboard_rows(data, depth=0):
+    """Locate ranked records through documented-style API wrappers."""
+    if depth > 6:
+        return None
+    if isinstance(data, list):
+        if not data:
+            return []
+        if all(isinstance(x, dict) for x in data) and any(
+            ("rank" in x or "chief_id" in x or "uid" in x or "aid" in x)
+            and ("score" in x or "rank" in x) for x in data
+        ):
+            return data
+        return None
+    if not isinstance(data, dict) or data.get("ok") is False:
+        return None
+    for field in ("rankings", "entries", "players", "alliances", "rows",
+                  "results", "top", "items", "list", "data", "board",
+                  "leaderboard", "result"):
+        child = data.get(field)
+        if isinstance(child, (dict, list)):
+            rows = leaderboard_rows(child, depth + 1)
+            if rows is not None:
+                return rows
+    return None
 
-    Accept both a direct 'rankings' list and the documented 'entries' variant
-    when present. An unexpected wrapper must be surfaced as unavailable.
-    """
-    if not isinstance(payload, dict) or payload.get("ok") is False:
-        raise ValueError("No usable leaderboard returned")
-    entries = payload.get("rankings")
+
+def parse_board(payload):
+    """Parse ranked players and alliances without fabricating data."""
+    entries = leaderboard_rows(payload)
     if entries is None:
-        entries = payload.get("entries")
-    if entries is None:
-        entries = payload.get("players")
-    if entries is None:
-        entries = payload.get("alliances")
-    if not isinstance(entries, list):
         raise ValueError("Leaderboard entries were not present in API response")
     normalized = []
     for i, item in enumerate(entries, 1):
         if not isinstance(item, dict):
             continue
-        chief_id = item.get("chief_id")
-        aid = item.get("aid")
-        rank = item.get("rank", i)
+        chief_id = item.get("chief_id", item.get("uid"))
+        aid = item.get("aid", item.get("alliance_id"))
+        rank = item.get("rank", item.get("position", i))
         name = item.get("nick_name") or item.get("name") or item.get("abbr")
-        score = item.get("score")
+        score = item.get("score", item.get("value"))
         if name is None:
             name = str(chief_id if chief_id is not None else aid) if chief_id is not None or aid is not None else "Unknown"
-        normalized.append({
-            "rank": rank, "name": str(name)[:150], "score": score,
-            "chief_id": chief_id, "alliance_id": aid,
-        })
+        normalized.append({"rank": rank, "name": str(name)[:150],
+                           "score": score, "chief_id": chief_id,
+                           "alliance_id": aid})
     return normalized
 
+
+def leaderboard_shape(data):
+    """Only structural metadata; never log identities or API credentials."""
+    if not isinstance(data, dict):
+        return type(data).__name__
+    parts = ["keys=" + ",".join(sorted(str(k) for k in data)[:25])]
+    for key in ("data", "state", "board", "boards", "rankings", "results"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            parts.append(key + ":keys=" + ",".join(sorted(str(k) for k in value)[:15]))
+        elif isinstance(value, list):
+            parts.append(key + ":list=" + str(len(value)))
+    return " ".join(parts)
 
 def summary_text(entries, max_rows=15):
     out = []
@@ -101,6 +129,7 @@ class WosLeaderboards(commands.Cog):
         try:
             return parse_board(data), None
         except ValueError as exc:
+            logger.info("State Scout: state %s board %s: %s", state_id, board, leaderboard_shape(data))
             return None, str(exc)
 
     @app_commands.command(name="wosrankings", description="View Whiteout Stats state leaderboards")
@@ -163,17 +192,14 @@ def scout_label(board):
 
 
 def parse_state_boards(payload):
-    """Read only supported leaderboard shapes; never fabricate absent boards.
-
-    /v1/states/{kid}?include=boards exposes state boards, though API releases
-    may return a dictionary keyed by slug or a list with board/type entries.
-    """
+    """Extract only recognized boards, leaving unknown formats to fallback."""
     if not isinstance(payload, dict) or payload.get("ok") is False:
         return {}
     containers = [payload]
-    state = payload.get("state")
-    if isinstance(state, dict):
-        containers.append(state)
+    for field in ("state", "data", "result"):
+        obj = payload.get(field)
+        if isinstance(obj, dict):
+            containers.append(obj)
     found = {}
     for container in containers:
         for key in ("boards", "leaderboards", "rankings"):
@@ -183,25 +209,21 @@ def parse_state_boards(payload):
                     if slug not in SCOUT_BOARDS:
                         continue
                     try:
-                        found[slug] = parse_board(
-                            entries if isinstance(entries, dict)
-                            else {"rankings": entries}
-                        )[:SCOUT_LIMIT]
+                        found[slug] = parse_board(entries if isinstance(entries, dict) else {"rankings": entries})[:SCOUT_LIMIT]
                     except ValueError:
-                        continue
+                        pass
             elif isinstance(raw, list):
                 for item in raw:
                     if not isinstance(item, dict):
                         continue
-                    slug = item.get("board", item.get("slug", item.get("type")))
+                    slug = item.get("board", item.get("slug", item.get("key", item.get("type"))))
                     if slug not in SCOUT_BOARDS:
                         continue
                     try:
                         found[slug] = parse_board(item)[:SCOUT_LIMIT]
                     except ValueError:
-                        continue
+                        pass
     return found
-
 
 def scout_description(entries):
     """Render all top-20 entries within Discord's 4096-char embed limit."""
@@ -343,7 +365,10 @@ class WosStateScout(commands.Cog):
                 payload = await response.json(content_type=None)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
             return {}, "Whiteout Stats did not return usable state data."
-        return parse_state_boards(payload), None
+        boards = parse_state_boards(payload)
+        if not boards:
+            logger.info("State Scout: combined state %s: %s", state_id, leaderboard_shape(payload))
+        return boards, None
 
     @app_commands.command(name="scout", description="Scout a state: top 20 across 23 leaderboards")
     @app_commands.allowed_installs(guilds=True, users=True)

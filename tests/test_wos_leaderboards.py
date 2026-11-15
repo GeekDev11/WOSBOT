@@ -110,3 +110,15 @@ def test_scout_registered_for_guild_and_dm_installs():
     assert command.allowed_contexts is not None
     assert command.allowed_contexts.guild is True
     assert command.allowed_contexts.dm_channel is True
+
+
+def test_nested_ranks_response():
+    assert parse_board({"data": {"board": {"rows": [{"rank": 1, "chief_id": 123, "nick_name": "A", "score": 50}]}}})[0]["score"] == 50
+
+def test_combined_nested_state_data():
+    report = parse_state_boards({"data": {"boards": {"pet_power": {"results": [{"rank": 1, "uid": 5, "score": 12}]}}}})
+    assert report["pet_power"][0]["score"] == 12
+
+def test_documented_migrant_slug():
+    assert "migrant_score" in BOARDS
+    assert "state_transfer" not in BOARDS
