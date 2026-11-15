@@ -297,7 +297,7 @@ async def test_worker_resolves_tiers_without_manual_sync(tmp_path, monkeypatch):
     assert old_read([123456789], path)[123456789] == {
         "infantry": (11, None), "lancer": (11, None), "marksman": (10, None)
     }
-    assert auto.pending_due(now=999999, path=path) == []
+    assert original_due(now=999999, path=path) == []
 
 
 def auto_pending(path):
