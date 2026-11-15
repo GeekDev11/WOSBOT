@@ -101,6 +101,69 @@ def claim_refresh(fid, now=None, path=REFRESH_DB):
             raise
 
 
+# Deep website searches scan live state data; keep them rare and state-scoped.
+DEEP_SEARCH_COOLDOWN_SECONDS = 6 * 3600
+
+
+def claim_deep_search(fid, now=None, path=REFRESH_DB):
+    """Atomically limit expensive live searches to one per chief every six hours."""
+    now = time.time() if now is None else float(now)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        db.execute("PRAGMA busy_timeout=30000")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS troop_quality_deep_search_attempts (
+                fid INTEGER PRIMARY KEY,
+                attempted_at REAL NOT NULL
+            )
+        """)
+        db.commit()
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            row = db.execute(
+                "SELECT attempted_at FROM troop_quality_deep_search_attempts WHERE fid=?",
+                (int(fid),),
+            ).fetchone()
+            if row is not None and now - float(row[0]) < DEEP_SEARCH_COOLDOWN_SECONDS:
+                db.commit()
+                return False
+            db.execute(
+                "INSERT INTO troop_quality_deep_search_attempts (fid, attempted_at) "
+                "VALUES (?, ?) ON CONFLICT(fid) DO UPDATE SET attempted_at=excluded.attempted_at",
+                (int(fid), now),
+            )
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            raise
+
+
+def member_state(fid, path=REFRESH_DB):
+    """Return the known game state for scoped live lookup; never guess one."""
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        row = db.execute("SELECT kid FROM users WHERE fid=?", (int(fid),)).fetchone()
+    if not row or row[0] is None:
+        return None
+    try:
+        kid = int(row[0])
+    except (ValueError, TypeError):
+        return None
+    return kid if kid > 0 else None
+
+
+def exact_website_match(search, fid):
+    """Ignore partial-name matches and similarly numbered Chief IDs."""
+    if not isinstance(search, dict):
+        return None
+    for row in search.get("results") or ():
+        if (isinstance(row, dict) and str(row.get("fid")) == str(fid)
+                and type(row.get("uid")) is int and row["uid"] > 0):
+            return row
+    return None
+
+
 async def _json(session, path, *, params=None, method="GET"):
     kwargs = {
         "headers": {"Accept": "application/json"},
@@ -177,18 +240,27 @@ async def fetch_tiers(session, fid):
     if not isinstance(search, dict):
         logger.info("Troop Quality: website search unavailable for Chief ID %s", fid)
         return {}
-    records = search.get("results") or []
-    match = next(
-        (r for r in records if isinstance(r, dict)
-         and str(r.get("fid")) == str(fid) and r.get("uid") is not None), None
-    )
+    match = exact_website_match(search, fid)
     if match is None:
-        logger.info("Troop Quality: no website UID match for Chief ID %s", fid)
-        return {}
+        # Mirror the website's optional deep search, but scope it to the
+        # member's known state and enforce a durable per-chief cooldown.
+        kid = await asyncio.to_thread(member_state, fid)
+        if kid is None:
+            logger.info("Troop Quality: no indexed website UID for %s; cannot live-search without known state", fid)
+            return {}
+        if not await asyncio.to_thread(claim_deep_search, fid):
+            logger.info("Troop Quality: live-search cooldown active for Chief ID %s", fid)
+            return {}
+        logger.info("Troop Quality: trying state-scoped live search for Chief ID %s in state %s", fid, kid)
+        deep = await _json(
+            session, "/api/search",
+            params={"q": str(fid), "limit": "40", "live": "1", "kid": str(kid)},
+        )
+        match = exact_website_match(deep, fid)
+        if match is None:
+            logger.info("Troop Quality: no exact website UID match for Chief ID %s after live search", fid)
+            return {}
     uid = match["uid"]
-    if type(uid) is not int or uid <= 0:
-        logger.info("Troop Quality: invalid website UID for Chief ID %s", fid)
-        return {}
     profile = await _json(session, f"/api/players/{uid}")
     if not isinstance(profile, dict):
         logger.info("Troop Quality: no website profile for Chief ID %s", fid)

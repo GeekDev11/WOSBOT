@@ -306,3 +306,98 @@ def auto_pending(path):
 
 def clear_pending(fid, path):
     return auto.pending_clear(fid, path=path)
+
+
+class LiveSearchSession:
+    def __init__(self, *, exact=True, indexed=False):
+        self.requests = []
+        self.exact, self.indexed = exact, indexed
+
+    def get(self, url, **kwargs):
+        self.requests.append((url, kwargs.get("params")))
+        if url.endswith("/api/search"):
+            live = kwargs["params"]["live"]
+            if live == "0" and not self.indexed:
+                return FakeResponse({"results": []})
+            return FakeResponse({"results": [{
+                "fid": 123456789 if self.exact else 123456780, "uid": 456
+            }]})
+        return FakeResponse({
+            "fid": 123456789,
+            "expedition_troops": [
+                {"kind": "inf", "tier": 11, "star": 10},
+                {"kind": "lan", "tier": 10, "star": 9},
+                {"kind": "mm", "tier": 12, "star": 10}
+            ],
+        })
+
+
+@pytest.mark.asyncio
+async def test_state_scoped_deep_search_recovers_unindexed_member(monkeypatch):
+    monkeypatch.setattr(auto, "member_state", lambda fid: 920)
+    monkeypatch.setattr(auto, "claim_deep_search", lambda fid: True)
+    s = LiveSearchSession()
+    assert await auto.fetch_tiers(s, 123456789) == {
+        "infantry": 11, "lancer": 10, "marksman": 12
+    }
+    assert s.requests[0][1] == {"q": "123456789", "limit": "10", "live": "0"}
+    assert s.requests[1][1] == {
+        "q": "123456789", "limit": "40", "live": "1", "kid": "920"
+    }
+    assert s.requests[2][0].endswith("/api/players/456")
+
+
+@pytest.mark.asyncio
+async def test_deep_search_never_uses_mismatched_fid(monkeypatch):
+    monkeypatch.setattr(auto, "member_state", lambda fid: 920)
+    monkeypatch.setattr(auto, "claim_deep_search", lambda fid: True)
+    s = LiveSearchSession(exact=False)
+    assert await auto.fetch_tiers(s, 123456789) == {}
+    assert len(s.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_deep_search_skipped_without_known_state(monkeypatch):
+    monkeypatch.setattr(auto, "member_state", lambda fid: None)
+    monkeypatch.setattr(auto, "claim_deep_search", lambda fid: (_ for _ in ()).throw(
+        AssertionError("cannot search live globally")))
+    s = LiveSearchSession()
+    assert await auto.fetch_tiers(s, 123456789) == {}
+    assert len(s.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_deep_search_skipped_on_cooldown(monkeypatch):
+    monkeypatch.setattr(auto, "member_state", lambda fid: 920)
+    monkeypatch.setattr(auto, "claim_deep_search", lambda fid: False)
+    s = LiveSearchSession()
+    assert await auto.fetch_tiers(s, 123456789) == {}
+    assert len(s.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_indexed_member_never_invokes_deep_search(monkeypatch):
+    monkeypatch.setattr(auto, "member_state", lambda fid: (_ for _ in ()).throw(
+        AssertionError("no deep search for indexed member")))
+    s = LiveSearchSession(indexed=True)
+    assert await auto.fetch_tiers(s, 123456789) == {
+        "infantry": 11, "lancer": 10, "marksman": 12
+    }
+    assert len(s.requests) == 2
+
+
+def test_deep_search_cooldown_persists(tmp_path):
+    path = tmp_path / "users.sqlite"
+    assert auto.claim_deep_search(22, now=1000, path=path)
+    assert not auto.claim_deep_search(22, now=1001, path=path)
+    assert not auto.claim_deep_search(22, now=1000 + 6*3600 - 1, path=path)
+    assert auto.claim_deep_search(22, now=1000 + 6*3600, path=path)
+
+
+def test_member_state_comes_from_stored_player_not_alliance(tmp_path):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT, kid INTEGER)")
+        db.execute("INSERT INTO users VALUES (123456789, '1501', 920)")
+    assert auto.member_state(123456789, path=path) == 920
+    assert auto.member_state(999, path=path) is None
