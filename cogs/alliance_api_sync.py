@@ -1027,21 +1027,35 @@ class AllianceApiSync(commands.Cog):
         reporter = await asyncio.to_thread(self._sync_log_reporter, names)
         session = self.session()
         from .chief_stalker import with_include
-        rich_profile = with_include(profile, ('base', 'heroes', 'chief_gear'))
+        # Troop data is now an official player section. Reuse the same
+        # authenticated response instead of posting to the website's /refresh.
+        rich_profile = with_include(profile, ('base', 'heroes', 'chief_gear', 'troops'))
+        fallback_profile = with_include(profile, ('base', 'heroes', 'chief_gear'))
+        extended_payloads = {}
 
         async def fetch_extended(fid):
             answer = await fetch_player(session, rich_profile, key, fid)
             if answer.status in (400, 403, 422):
-                # Optional sections can be restricted. Keep basic Player Sync working.
+                # The optional troop section may not be rolled out to every key.
+                # Keep normal Player Sync operational without website scraping.
                 if not await _take_slot(profile):
                     return FetchResult(429)
-                logger.info('Detailed sections unavailable for %s; using basic player data', fid)
-                return await fetch_player(session, profile, key, fid)
+                logger.info('Player Sync: official troop include unavailable for %s (HTTP %s); '
+                            'retrying established player sections', fid, answer.status)
+                answer = await fetch_player(session, fallback_profile, key, fid)
+                if answer.status in (400, 403, 422):
+                    if not await _take_slot(profile):
+                        return FetchResult(429)
+                    answer = await fetch_player(session, profile, key, fid)
+            if answer.status == 200 and isinstance(answer.data, dict):
+                extended_payloads[int(fid)] = answer.data
             return answer
 
-        from .troop_quality_auto import sync_tiers
+        from .troop_quality_auto import sync_tiers, official_tiers
         async def fetch_troops(fid, member_alliance):
-            await sync_tiers(session, fid, member_alliance)
+            payload = extended_payloads.pop(int(fid), {})
+            await sync_tiers(session, fid, member_alliance,
+                             detected=official_tiers(payload))
 
         result = await run_sync(fetch_extended, profile,
                                 alliance_id=alliance_id, queue=queue,

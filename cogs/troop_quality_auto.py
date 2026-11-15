@@ -332,6 +332,66 @@ async def fetch_tiers(session, fid):
     return await _refresh_missing(session, uid, fid, profile)
 
 
+# Official authenticated player response support. Website UID/search/refresh
+# functions above are legacy only and are not called by production Player Sync.
+def official_tiers(payload):
+    """Extract only explicit troop tiers; never treat FC star/count as skill."""
+    if not isinstance(payload, dict):
+        return {}
+    player = payload.get("player")
+    if not isinstance(player, dict):
+        player = {}
+    # The official API may expose troop rows as a named section or nested
+    # in player. Only accept explicit tier fields and recognized troop kinds.
+    for source in (payload, player):
+        for name in ("troops", "expedition_troops"):
+            records = source.get(name)
+            if isinstance(records, dict):
+                records = records.get("expedition_troops", records.get("items", records))
+                if isinstance(records, dict):
+                    records = [
+                        dict(row, kind=kind) for kind, row in records.items()
+                        if isinstance(row, dict)
+                    ]
+            if not isinstance(records, list):
+                continue
+            normalized = []
+            kind_aliases = {"infantry": "inf", "lancer": "lan",
+                            "marksman": "mm", "inf": "inf", "lan": "lan", "mm": "mm"}
+            for row in records:
+                if not isinstance(row, dict):
+                    continue
+                kind = kind_aliases.get(str(row.get("kind", row.get("type", ""))).lower())
+                if kind is None:
+                    continue
+                normalized.append({"kind": kind, "tier": row.get("tier")})
+            result = extract_tiers({"expedition_troops": normalized})
+            if result:
+                return result
+    return {}
+
+
+async def sync_official_pending(session, fid, alliance_id):
+    """Refresh missing tiers through the configured, authenticated public API."""
+    from . import alliance_api_sync as api_sync
+    from .chief_stalker import with_include
+    profile, key = await asyncio.to_thread(api_sync.load_connection)
+    if not key or api_sync.missing_for_sync(profile):
+        logger.info("Troop Quality: official API connection unavailable for %s", fid)
+        return 0
+    if not await api_sync._take_slot(profile):
+        logger.info("Troop Quality: official API quota exhausted; deferring %s", fid)
+        return 0
+    rich = with_include(profile, ("base", "troops"))
+    result = await api_sync.fetch_player(session, rich, key, fid)
+    if result.status == 200:
+        return await sync_tiers(session, fid, alliance_id,
+                                detected=official_tiers(result.data))
+    logger.info("Troop Quality: official troop fetch returned HTTP %s for %s",
+                result.status, fid)
+    return 0
+
+
 # Durable deferred checks: a website refresh may complete long after Player Sync.
 # Retain the FID/alliance pair so the running bot can revisit it without a user
 # opening a web page or launching another manual sync.
@@ -455,14 +515,14 @@ async def process_pending(session, *, limit=3):
     rows = await asyncio.to_thread(pending_due, limit=limit)
     saved = 0
     for fid, alliance_id in rows:
-        saved += await sync_tiers(session, fid, alliance_id)
+        saved += await sync_official_pending(session, fid, alliance_id)
     return saved
 
 
-async def sync_tiers(session, fid, alliance_id):
-    """Best-effort write; never blocks ordinary member sync on website failure."""
+async def sync_tiers(session, fid, alliance_id, *, detected=None):
+    """Write explicit tiers; official payload skips legacy website requests."""
     try:
-        tiers = await fetch_tiers(session, fid)
+        tiers = await fetch_tiers(session, fid) if detected is None else detected
         if not tiers:
             await asyncio.to_thread(pending_schedule, fid, alliance_id)
             return 0

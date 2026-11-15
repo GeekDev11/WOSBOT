@@ -455,3 +455,44 @@ def test_refresh_denial_backoff(tmp_path):
     assert not auto.refresh_denied_active(
         12, now=1000 + auto.REFRESH_DENIED_SECONDS, path=path
     )
+
+
+def test_official_troops_section_parses_without_fc_or_skills():
+    payload = {
+        "ok": True,
+        "player": {"chief_id": 134958026},
+        "troops": [
+            {"kind": "inf", "tier": 12, "star": 10, "count": 3},
+            {"kind": "lan", "tier": 11, "star": 10, "count": 8},
+            {"kind": "mm", "tier": 12, "star": 10, "count": 2},
+        ],
+    }
+    assert auto.official_tiers(payload) == {
+        "infantry": 12, "lancer": 11, "marksman": 12
+    }
+    assert auto.official_tiers({"player": {"troops": {
+        "infantry": {"tier": 11}, "lancer": {"tier": 10},
+        "marksman": {"tier": 12, "star": 9}
+    }}}) == {"infantry": 11, "lancer": 10, "marksman": 12}
+    assert auto.official_tiers({"player": {"furnace_level": 80}}) == {}
+
+
+@pytest.mark.asyncio
+async def test_official_sync_never_touches_website(tmp_path, monkeypatch):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, nickname TEXT, alliance TEXT)")
+        db.execute("INSERT INTO users VALUES (134958026, 'Cori_Y', '9')")
+    old_read, old_save = quality.read_quality, quality.save_quality
+    monkeypatch.setattr(quality, "read_quality", lambda fids: old_read(fids, path))
+    monkeypatch.setattr(quality, "save_quality",
+                        lambda aid, fids, changes, editor:
+                        old_save(aid, fids, changes, editor, path))
+    monkeypatch.setattr(auto, "fetch_tiers", lambda *args:
+                        (_ for _ in ()).throw(AssertionError("website must not be contacted")))
+    original_clear = auto.pending_clear
+    monkeypatch.setattr(auto, "pending_clear", lambda fid: original_clear(fid, path=path))
+    assert await auto.sync_tiers(None, 134958026, 9, detected={
+        "infantry": 12, "lancer": 11, "marksman": 12
+    }) == 3
+    assert old_read([134958026], path)[134958026]["lancer"] == (11, None)
