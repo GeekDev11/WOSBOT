@@ -386,7 +386,7 @@ async def sync_official_pending(session, fid, alliance_id):
     result = await api_sync.fetch_player(session, rich, key, fid)
     if result.status == 200:
         return await sync_tiers(session, fid, alliance_id,
-                                detected=official_tiers(result.data))
+                                detected=official_tiers(result.payload))
     logger.info("Troop Quality: official troop fetch returned HTTP %s for %s",
                 result.status, fid)
     return 0

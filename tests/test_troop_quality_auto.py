@@ -292,7 +292,11 @@ async def test_worker_resolves_tiers_without_manual_sync(tmp_path, monkeypatch):
     monkeypatch.setattr(auto, "pending_clear", lambda fid: original_clear(fid, path=path))
     async def tiers(session, fid):
         return {"infantry": 11, "lancer": 11, "marksman": 10}
-    monkeypatch.setattr(auto, "fetch_tiers", tiers)
+    monkeypatch.setattr(auto, "sync_official_pending",
+                        lambda session, fid, alliance_id:
+                        auto.sync_tiers(session, fid, alliance_id, detected={
+                            "infantry": 11, "lancer": 11, "marksman": 10
+                        }))
     assert await auto.process_pending(None) == 3
     assert old_read([123456789], path)[123456789] == {
         "infantry": (11, None), "lancer": (11, None), "marksman": (10, None)

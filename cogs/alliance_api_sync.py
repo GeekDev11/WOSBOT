@@ -1047,8 +1047,8 @@ class AllianceApiSync(commands.Cog):
                     if not await _take_slot(profile):
                         return FetchResult(429)
                     answer = await fetch_player(session, profile, key, fid)
-            if answer.status == 200 and isinstance(answer.data, dict):
-                extended_payloads[int(fid)] = answer.data
+            if answer.status == 200 and isinstance(answer.payload, dict):
+                extended_payloads[int(fid)] = answer.payload
             return answer
 
         from .troop_quality_auto import sync_tiers, official_tiers
