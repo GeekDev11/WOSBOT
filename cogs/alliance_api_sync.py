@@ -946,6 +946,8 @@ class AllianceApiSync(commands.Cog):
     def _start(self):
         if not self.schedule_loop.is_running():
             self.schedule_loop.start()
+        if not self.troop_pending_loop.is_running():
+            self.troop_pending_loop.start()
         queue = self.bot.get_cog('ProcessQueue')
         if queue:
             self.register_queue_handlers(queue)
@@ -954,6 +956,7 @@ class AllianceApiSync(commands.Cog):
 
     async def cog_unload(self):
         self.schedule_loop.cancel()
+        self.troop_pending_loop.cancel()
         if self._session and not self._session.closed:
             await self._session.close()
 
@@ -977,6 +980,21 @@ class AllianceApiSync(commands.Cog):
         queue.enqueue('api_sync', PLAYER_SYNC, alliance_id=alliance_id, details={'alliance_id': alliance_id})
         save_setting("last_queued", datetime.now(timezone.utc))
         return 'queued'
+
+    @tasks.loop(minutes=1)
+    async def troop_pending_loop(self):
+        """Collect completed website troop refreshes without user-triggered Player Sync."""
+        try:
+            from .troop_quality_auto import process_pending
+            saved = await process_pending(self.session(), limit=3)
+            if saved:
+                logger.info("Troop Quality: background check saved %s tier changes", saved)
+        except Exception:
+            logger.exception("Troop Quality: pending retry worker failed")
+
+    @troop_pending_loop.before_loop
+    async def before_troop_pending_loop(self):
+        await self.bot.wait_until_ready()
 
     @tasks.loop(minutes=1)
     async def schedule_loop(self):

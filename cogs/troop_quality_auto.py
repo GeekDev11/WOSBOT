@@ -207,20 +207,113 @@ async def fetch_tiers(session, fid):
     return await _refresh_missing(session, uid, fid, profile)
 
 
+# Durable deferred checks: a website refresh may complete long after Player Sync.
+# Retain the FID/alliance pair so the running bot can revisit it without a user
+# opening a web page or launching another manual sync.
+PENDING_INTERVALS = (60, 120, 300, 600, 1200, 3600)
+
+
+def _pending_db(path=REFRESH_DB):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=30)
+    db.execute("PRAGMA busy_timeout=30000")
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS troop_quality_pending (
+            fid INTEGER PRIMARY KEY,
+            alliance_id INTEGER NOT NULL,
+            next_check_at REAL NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_reason TEXT
+        )
+    """)
+    db.commit()
+    return db
+
+
+def pending_schedule(fid, alliance_id, *, now=None, path=REFRESH_DB):
+    """Queue without delaying an existing retry; survives restarts."""
+    now = time.time() if now is None else float(now)
+    with closing(_pending_db(path)) as db, db:
+        db.execute(
+            "INSERT INTO troop_quality_pending "
+            "(fid, alliance_id, next_check_at, attempts, last_reason) "
+            "VALUES (?, ?, ?, 0, ?) ON CONFLICT(fid) DO UPDATE SET "
+            "alliance_id=excluded.alliance_id",
+            (int(fid), int(alliance_id), now + PENDING_INTERVALS[0], "awaiting detail"),
+        )
+
+
+def pending_clear(fid, *, path=REFRESH_DB):
+    with closing(_pending_db(path)) as db, db:
+        db.execute("DELETE FROM troop_quality_pending WHERE fid=?", (int(fid),))
+
+
+def pending_due(*, now=None, limit=3, path=REFRESH_DB):
+    """Reserve a small due batch atomically to avoid duplicate processing."""
+    now = time.time() if now is None else float(now)
+    with closing(_pending_db(path)) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            rows = db.execute(
+                "SELECT p.fid, p.alliance_id, p.attempts FROM troop_quality_pending p "
+                "JOIN users u ON u.fid=p.fid AND u.alliance=CAST(p.alliance_id AS TEXT) "
+                "WHERE p.next_check_at <= ? ORDER BY p.next_check_at LIMIT ?",
+                (now, limit),
+            ).fetchall()
+            for fid, alliance_id, attempt in rows:
+                delay = PENDING_INTERVALS[min(attempt + 1, len(PENDING_INTERVALS) - 1)]
+                db.execute(
+                    "UPDATE troop_quality_pending "
+                    "SET attempts=?, next_check_at=?, last_reason='waiting for website' "
+                    "WHERE fid=?",
+                    (attempt + 1, now + delay, fid),
+                )
+            # Discard rows for members no longer registered in this alliance.
+            db.execute(
+                "DELETE FROM troop_quality_pending WHERE NOT EXISTS "
+                "(SELECT 1 FROM users u WHERE u.fid=troop_quality_pending.fid "
+                "AND u.alliance=CAST(troop_quality_pending.alliance_id AS TEXT))"
+            )
+            db.commit()
+            return [(int(fid), int(alliance_id)) for fid, alliance_id, _ in rows]
+        except Exception:
+            db.rollback()
+            raise
+
+
+async def process_pending(session, *, limit=3):
+    """Run a bounded background batch, independent of normal Player Sync."""
+    rows = await asyncio.to_thread(pending_due, limit=limit)
+    saved = 0
+    for fid, alliance_id in rows:
+        saved += await sync_tiers(session, fid, alliance_id)
+    return saved
+
+
 async def sync_tiers(session, fid, alliance_id):
     """Best-effort write; never blocks ordinary member sync on website failure."""
     try:
         tiers = await fetch_tiers(session, fid)
         if not tiers:
+            await asyncio.to_thread(pending_schedule, fid, alliance_id)
             return 0
         existing = await asyncio.to_thread(quality.read_quality, [int(fid)])
         changes = merge_tiers(tiers, existing.get(int(fid), {}))
-        if not changes:
-            return 0
-        # 0 is the system editor ID, distinct from real Discord administrators.
-        return await asyncio.to_thread(
-            quality.save_quality, int(alliance_id), [int(fid)], changes, 0
-        )
+        changed = 0
+        if changes:
+            # System editor 0 is distinct from human Discord administrators.
+            changed = await asyncio.to_thread(
+                quality.save_quality, int(alliance_id), [int(fid)], changes, 0
+            )
+        # A partially populated website result should be revisited; never
+        # manufacture unknown troop types. Drop the task only when all types
+        # were returned and the database update has succeeded.
+        if len(tiers) < len(quality.TROOPS):
+            await asyncio.to_thread(pending_schedule, fid, alliance_id)
+        else:
+            await asyncio.to_thread(pending_clear, fid)
+        return changed
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError) as exc:
         logger.info("Troop Quality: no website tier update for %s: %s", fid, exc)
     except Exception:

@@ -228,3 +228,81 @@ def test_refresh_claim_is_persistent_and_time_bounded(tmp_path):
     assert not auto.claim_refresh(123, now=1599, path=path)
     assert auto.claim_refresh(123, now=1600, path=path)
     assert auto.claim_refresh(124, now=1601, path=path)
+
+
+def test_pending_retry_survives_restart_and_keeps_original_due_time(tmp_path):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT)")
+        conn.executemany("INSERT INTO users (fid, alliance) VALUES (?, ?)",
+                         [(101, "9"), (102, "9")])
+    auto.pending_schedule(101, 9, now=1000, path=path)
+    auto.pending_schedule(101, 9, now=1050, path=path)
+    assert auto.pending_due(now=1059, path=path) == []
+    assert auto.pending_due(now=1060, path=path) == [(101, 9)]
+    assert auto.pending_due(now=1061, path=path) == []
+    assert auto.pending_due(now=1180, path=path) == [(101, 9)]
+    auto.pending_clear(101, path=path)
+    assert auto.pending_due(now=9999, path=path) == []
+
+
+def test_pending_retry_discards_removed_alliance_member(tmp_path):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT)")
+        conn.execute("INSERT INTO users VALUES (101, '10')")
+    auto.pending_schedule(101, 9, now=0, path=path)
+    assert auto.pending_due(now=100, path=path) == []
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM troop_quality_pending").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_no_tiers_queues_background_check(tmp_path, monkeypatch):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT)")
+        conn.execute("INSERT INTO users VALUES (123456789, '9')")
+    monkeypatch.setattr(auto, "fetch_tiers", lambda session, fid: _no_tiers())
+    old_pending = auto.pending_schedule
+    monkeypatch.setattr(auto, "pending_schedule",
+                        lambda fid, alliance_id: old_pending(fid, alliance_id, now=1000, path=path))
+    assert await auto.sync_tiers(None, 123456789, 9) == 0
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT fid, alliance_id FROM troop_quality_pending").fetchone() == (123456789, 9)
+
+
+async def _no_tiers():
+    return {}
+
+
+@pytest.mark.asyncio
+async def test_worker_resolves_tiers_without_manual_sync(tmp_path, monkeypatch):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, nickname TEXT, alliance TEXT)")
+        db.execute("INSERT INTO users VALUES (123456789, 'Cake', '9')")
+    auto.pending_schedule(123456789, 9, now=0, path=path)
+    original_due = auto.pending_due
+    monkeypatch.setattr(auto, "pending_due", lambda limit=3: original_due(now=100, limit=limit, path=path))
+    old_read, old_save = quality.read_quality, quality.save_quality
+    monkeypatch.setattr(quality, "read_quality", lambda fids: old_read(fids, path))
+    monkeypatch.setattr(quality, "save_quality", lambda aid, fids, changes, editor: old_save(aid, fids, changes, editor, path))
+    original_clear = auto.pending_clear
+    monkeypatch.setattr(auto, "pending_clear", lambda fid: original_clear(fid, path=path))
+    async def tiers(session, fid):
+        return {"infantry": 11, "lancer": 11, "marksman": 10}
+    monkeypatch.setattr(auto, "fetch_tiers", tiers)
+    assert await auto.process_pending(None) == 3
+    assert old_read([123456789], path)[123456789] == {
+        "infantry": (11, None), "lancer": (11, None), "marksman": (10, None)
+    }
+    assert auto.pending_due(now=999999, path=path) == []
+
+
+def auto_pending(path):
+    return auto.pending_due(now=100, path=path)
+
+
+def clear_pending(fid, path):
+    return auto.pending_clear(fid, path=path)
