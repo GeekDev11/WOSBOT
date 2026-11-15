@@ -618,7 +618,7 @@ class AllianceIDChannel(commands.Cog):
                 await message.add_reaction(theme.warnIcon)
                 await message.reply(f"This ID ({fid}) was added by another process!", delete_after=delete_after)
                 return
-            await store_new_member(member, fid)
+            await store_new_member(member, fid, bot=self.bot, alliance_id=alliance_id)
 
             await message.add_reaction(theme.verifiedIcon)
             success_embed = discord.Embed(

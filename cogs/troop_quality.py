@@ -59,11 +59,11 @@ def initialize(path=DB_PATH):
                 CHECK(infantry_tier IS NULL OR infantry_tier IN (0, 10, 11, 12)),
                 CHECK(lancer_tier IS NULL OR lancer_tier IN (0, 10, 11, 12)),
                 CHECK(marksman_tier IS NULL OR marksman_tier IN (0, 10, 11, 12)),
-                CHECK((infantry_tier = 12 AND infantry_skill BETWEEN 0 AND 3)
+                CHECK((infantry_tier = 12 AND (infantry_skill IS NULL OR infantry_skill BETWEEN 0 AND 3))
                       OR (infantry_tier IS NOT 12 AND infantry_skill IS NULL)),
-                CHECK((lancer_tier = 12 AND lancer_skill BETWEEN 0 AND 3)
+                CHECK((lancer_tier = 12 AND (lancer_skill IS NULL OR lancer_skill BETWEEN 0 AND 3))
                       OR (lancer_tier IS NOT 12 AND lancer_skill IS NULL)),
-                CHECK((marksman_tier = 12 AND marksman_skill BETWEEN 0 AND 3)
+                CHECK((marksman_tier = 12 AND (marksman_skill IS NULL OR marksman_skill BETWEEN 0 AND 3))
                       OR (marksman_tier IS NOT 12 AND marksman_skill IS NULL))
             );
             CREATE TABLE IF NOT EXISTS member_troop_quality_history (
@@ -89,7 +89,8 @@ def ensure_tier_migration(path=DB_PATH):
     with closing(sqlite3.connect(path, timeout=30)) as db:
         schema = db.execute("SELECT sql FROM sqlite_master "
                             "WHERE type='table' AND name='member_troop_quality'").fetchone()
-        if not schema or ("BETWEEN 0 AND 3" in schema[0] and "0, 10, 11, 12" in schema[0]):
+        if not schema or ("BETWEEN 0 AND 3" in schema[0] and "0, 10, 11, 12" in schema[0]
+                          and "infantry_skill IS NULL OR" in schema[0]):
             return
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -107,11 +108,11 @@ def ensure_tier_migration(path=DB_PATH):
                     CHECK(infantry_tier IS NULL OR infantry_tier IN (0,10,11,12)),
                     CHECK(lancer_tier IS NULL OR lancer_tier IN (0,10,11,12)),
                     CHECK(marksman_tier IS NULL OR marksman_tier IN (0,10,11,12)),
-                    CHECK((infantry_tier=12 AND infantry_skill BETWEEN 0 AND 3)
+                    CHECK((infantry_tier=12 AND (infantry_skill IS NULL OR infantry_skill BETWEEN 0 AND 3))
                           OR (infantry_tier IS NOT 12 AND infantry_skill IS NULL)),
-                    CHECK((lancer_tier=12 AND lancer_skill BETWEEN 0 AND 3)
+                    CHECK((lancer_tier=12 AND (lancer_skill IS NULL OR lancer_skill BETWEEN 0 AND 3))
                           OR (lancer_tier IS NOT 12 AND lancer_skill IS NULL)),
-                    CHECK((marksman_tier=12 AND marksman_skill BETWEEN 0 AND 3)
+                    CHECK((marksman_tier=12 AND (marksman_skill IS NULL OR marksman_skill BETWEEN 0 AND 3))
                           OR (marksman_tier IS NOT 12 AND marksman_skill IS NULL))
                 )
             """)
@@ -208,8 +209,8 @@ def read_quality(fids, path=DB_PATH):
 
 
 def format_tier(tier, skill):
-    if tier == 12 and skill in (0, 1, 2, 3):
-        return f"T12 · Skill {skill}/3"
+    if tier == 12:
+        return f"T12 · Skill {skill}/3" if skill in (0, 1, 2, 3) else "T12 · Skill Unknown"
     if tier == 11:
         return "T11"
     if tier == 10:
@@ -234,7 +235,7 @@ def save_quality(alliance_id, fids, changes, editor_id, path=DB_PATH):
     if set(changes) - set(TROOPS):
         raise ValueError("Unknown troop type.")
     for pair in changes.values():
-        if pair not in CHOICES.values():
+        if pair not in CHOICES.values() and pair != (12, None):
             raise ValueError("Invalid troop tier or T12 skill.")
     initialize(path)
     when = utc_now()

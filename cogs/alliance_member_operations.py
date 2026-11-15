@@ -2037,7 +2037,7 @@ class AllianceMemberOperations(commands.Cog):
                     combat_power = parse_power(csv_combat_power)
                     try:  # Pre-filtered, so this ID should not already exist.
                         self._insert_member(fid, nickname, member.furnace_lv, kid, alliance_id, power, combat_power)
-                        await store_new_member(member, fid)
+                        await store_new_member(member, fid, bot=self.bot, alliance_id=alliance_id)
 
                         with open(self.log_file, 'a', encoding='utf-8') as f:
                             f.write(f"[{timestamp}] Successfully added member - ID: {fid}, State: {kid}\n")

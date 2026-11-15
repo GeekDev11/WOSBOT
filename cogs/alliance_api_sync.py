@@ -555,7 +555,7 @@ def _apply(fid, alliance, values, result):
         conn.commit()
 
 
-async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, queue) -> bool:
+async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, queue, troop_fetch=None) -> bool:
     """False when the run has to end."""
     answer = await _fetch(fetch, fid, take_slot, sleep, result, queue)
     if answer is None:
@@ -577,6 +577,11 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
             await asyncio.to_thread(save_observation, fid, answer.payload)
         except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
             logger.error("Player Sync: cannot save full observation %s: %s", fid, exc)
+        if troop_fetch is not None:
+            try:
+                await troop_fetch(fid, alliance)
+            except Exception as exc:
+                logger.warning("Player Sync: optional troop retrieval failed for %s: %s", fid, exc)
     else:
         logger.info(f"Player Sync: API has no data for {fid} (HTTP {answer.status})")
         await asyncio.to_thread(mark_synced, fid, utc_now())
@@ -585,7 +590,7 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
 
 
 async def run_sync(fetch, profile, *, alliance_id=None, queue=None, started_at=None, reporter=None,
-                   sleep=asyncio.sleep, today=utc_today) -> RunResult:
+                   sleep=asyncio.sleep, today=utc_today, troop_fetch=None) -> RunResult:
     result = RunResult()
     missing = missing_for_sync(profile)
     if missing:
@@ -599,7 +604,7 @@ async def run_sync(fetch, profile, *, alliance_id=None, queue=None, started_at=N
             break
         try:
             if not await _sync_member(fetch, profile, fid, alliance, lambda: _take_slot(profile, today),
-                                      sleep, result, queue):
+                                      sleep, result, queue, troop_fetch=troop_fetch):
                 break
         except Exception as e:
             logger.warning(f"Player Sync: {fid} failed, skipped: {e}")
@@ -743,14 +748,19 @@ def _store_api_values(member: NewMember, fid):
         conn.commit()
 
 
-async def store_new_member(member: NewMember, fid) -> None:
-    """Writes the API's power and picture for a member just inserted, and marks them synced."""
-    if not member.from_api:
-        return
-    try:
-        await asyncio.to_thread(_store_api_values, member, fid)
-    except Exception as e:
-        logger.warning(f"Player Sync: could not store the API values for new member {fid}: {e}")
+async def store_new_member(member: NewMember, fid, *, bot=None, alliance_id=None) -> None:
+    """Store initial profile, then best-effort import troop tiers immediately after add."""
+    if member.from_api:
+        try:
+            await asyncio.to_thread(_store_api_values, member, fid)
+        except Exception as e:
+            logger.warning("Player Sync: could not store API values for new member %s: %s", fid, e)
+    if bot is not None and alliance_id is not None:
+        sync_cog = bot.get_cog("AllianceApiSync")
+        if sync_cog is not None:
+            from .troop_quality_auto import sync_tiers
+            await sync_tiers(sync_cog.session(), fid, alliance_id)
+
 
 
 def summary(result: RunResult, scope: str) -> dict:
@@ -989,7 +999,7 @@ class AllianceApiSync(commands.Cog):
         names = dict(await asyncio.to_thread(PermissionManager.list_alliances))
         reporter = await asyncio.to_thread(self._sync_log_reporter, names)
         session = self.session()
-        from .wos_intelligence import with_include
+        from .chief_stalker import with_include
         rich_profile = with_include(profile, ('base', 'heroes', 'chief_gear'))
 
         async def fetch_extended(fid):
@@ -1002,8 +1012,14 @@ class AllianceApiSync(commands.Cog):
                 return await fetch_player(session, profile, key, fid)
             return answer
 
+        from .troop_quality_auto import sync_tiers
+        async def fetch_troops(fid, member_alliance):
+            await sync_tiers(session, fid, member_alliance)
+
         result = await run_sync(fetch_extended, profile,
-                                alliance_id=alliance_id, queue=queue, started_at=started_at, reporter=reporter)
+                                alliance_id=alliance_id, queue=queue,
+                                started_at=started_at, reporter=reporter,
+                                troop_fetch=fetch_troops)
         scope = names.get(alliance_id, f"Alliance {alliance_id}") if alliance_id else "All alliances"
         await asyncio.to_thread(save_setting, "last_run", summary(result, scope))
         removed = await self._remove_transfers(result)
