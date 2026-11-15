@@ -324,7 +324,8 @@ def test_hub_guide_lines_follow_the_button_order(dbs):
     _, embed = _build()
     text = embed.description
     order = ["**Daily schedule**", "**Connection**", "**API Key**", "**Fields**", "**Limits**", "**Channels**", "**Test**"]
-    assert [text.index(name) for name in order] == sorted(text.index(name) for name in order)
+    guide = text[text.index("**Daily schedule**"):]
+    assert [guide.index(name) for name in order] == sorted(guide.index(name) for name in order)
 
 
 # --- Channels: the Sync Log per alliance, auto-delete and how long results stay -----------
