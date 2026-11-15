@@ -429,3 +429,29 @@ def test_troop_progress_before_tables_exist(tmp_path):
         db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT)")
         db.execute("INSERT INTO users VALUES (101, '9')")
     assert auto.troop_progress(9, path=path)["9"]["unknown"] == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_post_uses_same_origin_headers():
+    class CapturingSession:
+        def __init__(self):
+            self.headers = None
+        def post(self, url, **kwargs):
+            self.headers = kwargs["headers"]
+            return FakeResponse({"accepted": False})
+    s = CapturingSession()
+    await auto._json(s, "/api/players/33747502/refresh",
+                     params={"force": "0"}, method="POST")
+    assert s.headers["Origin"] == "https://whiteoutstats.com"
+    assert s.headers["Referer"] == "https://whiteoutstats.com/player/33747502"
+    assert "Cookie" not in s.headers
+
+
+def test_refresh_denial_backoff(tmp_path):
+    path = tmp_path / "users.sqlite"
+    assert not auto.refresh_denied_active(12, now=1000, path=path)
+    auto.mark_refresh_denied(12, now=1000, path=path)
+    assert auto.refresh_denied_active(12, now=1001, path=path)
+    assert not auto.refresh_denied_active(
+        12, now=1000 + auto.REFRESH_DENIED_SECONDS, path=path
+    )

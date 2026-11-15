@@ -61,6 +61,7 @@ def merge_tiers(detected, existing):
 # The website profile uses a separate refresh queue; the button has a ~10-minute
 # cooldown. Persist the cooldown in SQLite across restarts and concurrent jobs.
 REFRESH_COOLDOWN_SECONDS = 600
+REFRESH_DENIED_SECONDS = 6 * 3600  # Avoid repeated denied POST requests
 REFRESH_POLL_SECONDS = 2.0
 REFRESH_POLL_ATTEMPTS = 6
 REFRESH_DB = Path("db/users.sqlite")
@@ -99,6 +100,38 @@ def claim_refresh(fid, now=None, path=REFRESH_DB):
         except Exception:
             db.rollback()
             raise
+
+
+def mark_refresh_denied(fid, *, now=None, path=REFRESH_DB):
+    """Persist a suppression interval when the website explicitly refuses refresh."""
+    now = time.time() if now is None else float(now)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS troop_quality_refresh_denied (
+                fid INTEGER PRIMARY KEY, denied_at REAL NOT NULL
+            )
+        """)
+        db.execute(
+            "INSERT INTO troop_quality_refresh_denied (fid, denied_at) VALUES (?, ?) "
+            "ON CONFLICT(fid) DO UPDATE SET denied_at=excluded.denied_at",
+            (int(fid), now),
+        )
+
+
+def refresh_denied_active(fid, *, now=None, path=REFRESH_DB):
+    """Denials suppress POSTs, never public cached-profile reads."""
+    now = time.time() if now is None else float(now)
+    try:
+        with closing(sqlite3.connect(path, timeout=30)) as db:
+            row = db.execute(
+                "SELECT denied_at FROM troop_quality_refresh_denied WHERE fid=?",
+                (int(fid),),
+            ).fetchone()
+        return bool(row and now - float(row[0]) < REFRESH_DENIED_SECONDS)
+    except sqlite3.OperationalError:
+        return False
 
 
 # Deep website searches scan live state data; keep them rare and state-scoped.
@@ -169,16 +202,23 @@ def exact_website_match(search, fid):
 
 
 async def _json(session, path, *, params=None, method="GET"):
-    kwargs = {
-        "headers": {"Accept": "application/json"},
-        "timeout": TIMEOUT,
-    }
+    headers = {"Accept": "application/json"}
+    if method == "POST":
+        # Use the website's normal same-origin context, without client cookies.
+        uid = path.split("/")[3] if path.startswith("/api/players/") else None
+        headers.update({
+            "Origin": BASE,
+            "Referer": f"{BASE}/player/{uid}" if uid else BASE + "/",
+        })
+    kwargs = {"headers": headers, "timeout": TIMEOUT}
     if params is not None:
         kwargs["params"] = params
     call = session.post if method == "POST" else session.get
     async with call(BASE + path, **kwargs) as response:
         if response.status not in (200, 202):
             logger.info("Troop Quality: website %s returned HTTP %s", path, response.status)
+            if response.status == 403 and method == "POST":
+                return {"_refresh_forbidden": True}
             return None
         return await response.json(content_type=None)
 
@@ -189,6 +229,10 @@ async def _refresh_missing(session, uid, fid, initial_profile, *, sleep=asyncio.
     Do not force-refresh, bypass cooldowns, or keep polling indefinitely.
     A worker that takes longer can be picked up on the next Player Sync.
     """
+    if await asyncio.to_thread(refresh_denied_active, fid):
+        logger.info("Troop Quality: website refresh denied earlier for Chief ID %s; "
+                    "checking cached profile only", fid)
+        return {}
     if not await asyncio.to_thread(claim_refresh, fid):
         logger.info("Troop Quality: refresh cooldown active for Chief ID %s", fid)
         return {}
@@ -196,6 +240,11 @@ async def _refresh_missing(session, uid, fid, initial_profile, *, sleep=asyncio.
     logger.info("Troop Quality: requesting non-forced detailed profile refresh for Chief ID %s", fid)
     refresh = await _json(session, path + "/refresh", params={"force": "0"}, method="POST")
     if not isinstance(refresh, dict):
+        return {}
+    if refresh.get("_refresh_forbidden"):
+        await asyncio.to_thread(mark_refresh_denied, fid)
+        logger.info("Troop Quality: refresh forbidden for Chief ID %s; "
+                    "suppressing refresh POSTs for six hours", fid)
         return {}
     player = refresh.get("player")
     if isinstance(player, dict) and (not player.get("fid") or str(player["fid"]) == str(fid)):
