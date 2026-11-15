@@ -179,7 +179,7 @@ def _last_run_line(last_run) -> str:
 
 
 def _turned_on_text(last_daily_date=None, interval_hours=None) -> str:
-    return "Automatic sync is on. It runs daily at 00:00 UTC (03:00 Saudi time)."
+    return "Automatic sync is on. It runs daily at 00:00 UTC"
 
 
 def _fields_status(profile):
