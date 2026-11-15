@@ -1055,7 +1055,7 @@ class AllianceApiSync(commands.Cog):
         async def fetch_troops(fid, member_alliance):
             payload = extended_payloads.pop(int(fid), {})
             await sync_tiers(session, fid, member_alliance,
-                             detected=official_tiers(payload))
+                             detected=official_tiers(payload), stale=payload)
 
         result = await run_sync(fetch_extended, profile,
                                 alliance_id=alliance_id, queue=queue,

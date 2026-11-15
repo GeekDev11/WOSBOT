@@ -386,7 +386,8 @@ async def sync_official_pending(session, fid, alliance_id):
     result = await api_sync.fetch_player(session, rich, key, fid)
     if result.status == 200:
         return await sync_tiers(session, fid, alliance_id,
-                                detected=official_tiers(result.payload))
+                                detected=official_tiers(result.payload),
+                                stale=result.payload if isinstance(result.payload, dict) else None)
     logger.info("Troop Quality: official troop fetch returned HTTP %s for %s",
                 result.status, fid)
     return 0
@@ -426,6 +427,26 @@ def pending_schedule(fid, alliance_id, *, now=None, path=REFRESH_DB):
             "VALUES (?, ?, ?, 0, ?) ON CONFLICT(fid) DO UPDATE SET "
             "alliance_id=excluded.alliance_id",
             (int(fid), int(alliance_id), now + PENDING_INTERVALS[0], "awaiting detail"),
+        )
+
+
+def schedule_official_retry(fid, alliance_id, retry_after, *, now=None, path=REFRESH_DB):
+    """Honor API retry_after for stale player responses, without busy polling."""
+    try:
+        delay = float(retry_after)
+    except (TypeError, ValueError):
+        delay = 60.0
+    if not (0 < delay <= 86400):
+        delay = 60.0
+    now = time.time() if now is None else float(now)
+    with closing(_pending_db(path)) as db, db:
+        db.execute(
+            "INSERT INTO troop_quality_pending "
+            "(fid, alliance_id, next_check_at, attempts, last_reason) "
+            "VALUES (?, ?, ?, 0, 'official API stale') "
+            "ON CONFLICT(fid) DO UPDATE SET alliance_id=excluded.alliance_id, "
+            "next_check_at=excluded.next_check_at, last_reason='official API stale'",
+            (int(fid), int(alliance_id), now + delay),
         )
 
 
@@ -519,10 +540,13 @@ async def process_pending(session, *, limit=3):
     return saved
 
 
-async def sync_tiers(session, fid, alliance_id, *, detected=None):
+async def sync_tiers(session, fid, alliance_id, *, detected=None, stale=None):
     """Write explicit tiers; official payload skips legacy website requests."""
     try:
         tiers = await fetch_tiers(session, fid) if detected is None else detected
+        if isinstance(stale, dict) and stale.get("fresh") is False:
+            await asyncio.to_thread(schedule_official_retry, fid, alliance_id,
+                                    stale.get("retry_after"))
         if not tiers:
             await asyncio.to_thread(pending_schedule, fid, alliance_id)
             return 0
@@ -537,7 +561,8 @@ async def sync_tiers(session, fid, alliance_id, *, detected=None):
         # A partially populated website result should be revisited; never
         # manufacture unknown troop types. Drop the task only when all types
         # were returned and the database update has succeeded.
-        if len(tiers) < len(quality.TROOPS):
+        if (len(tiers) < len(quality.TROOPS)
+                or (isinstance(stale, dict) and stale.get("fresh") is False)):
             await asyncio.to_thread(pending_schedule, fid, alliance_id)
         else:
             await asyncio.to_thread(pending_clear, fid)

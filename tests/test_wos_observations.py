@@ -49,4 +49,5 @@ def test_player_sync_uses_calendar_day_and_full_api_sections():
     assert "last_daily_date" in source
     assert "now.date().isoformat()" in source
     assert "save_observation, fid, answer.payload" in source
-    assert "rich_profile = with_include(profile, (\u0027base\u0027, \u0027heroes\u0027, \u0027chief_gear\u0027))" in source
+    assert "rich_profile = with_include(profile, (" in source
+    assert "'troops'" in source

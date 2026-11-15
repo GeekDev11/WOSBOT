@@ -500,3 +500,13 @@ async def test_official_sync_never_touches_website(tmp_path, monkeypatch):
         "infantry": 12, "lancer": 11, "marksman": 12
     }) == 3
     assert old_read([134958026], path)[134958026]["lancer"] == (11, None)
+
+
+def test_official_retry_schedule_uses_api_retry_after(tmp_path):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT)")
+        db.execute("INSERT INTO users VALUES (77, '9')")
+    auto.schedule_official_retry(77, 9, 45, now=1000, path=path)
+    assert auto.pending_due(now=1044, path=path) == []
+    assert auto.pending_due(now=1045, path=path) == [(77, 9)]
