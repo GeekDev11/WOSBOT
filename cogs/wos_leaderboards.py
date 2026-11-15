@@ -37,7 +37,7 @@ def leaderboard_rows(data, depth=0):
         return None
     if not isinstance(data, dict) or data.get("ok") is False:
         return None
-    for field in ("rankings", "entries", "players", "alliances", "rows",
+    for field in ("ranks", "rankings", "entries", "players", "alliances", "rows",
                   "results", "top", "items", "list", "data", "board",
                   "leaderboard", "result"):
         child = data.get(field)
@@ -202,7 +202,7 @@ def parse_state_boards(payload):
             containers.append(obj)
     found = {}
     for container in containers:
-        for key in ("boards", "leaderboards", "rankings"):
+        for key in ("boards", "leaderboards", "rankings", "ranks"):
             raw = container.get(key)
             if isinstance(raw, dict):
                 for slug, entries in raw.items():

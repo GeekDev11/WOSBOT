@@ -122,3 +122,8 @@ def test_combined_nested_state_data():
 def test_documented_migrant_slug():
     assert "migrant_score" in BOARDS
     assert "state_transfer" not in BOARDS
+
+
+def test_rankings_ranks_key():
+    rows = parse_board({"ok": True, "ranks": [{"rank": 1, "aid": 12, "abbr": "ABC", "score": 400}]})
+    assert rows[0]["alliance_id"] == 12
