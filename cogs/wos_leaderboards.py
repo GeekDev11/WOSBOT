@@ -50,6 +50,8 @@ def leaderboard_rows(data, depth=0):
 
 def parse_board(payload):
     """Parse ranked players and alliances without fabricating data."""
+    if not isinstance(payload, dict):
+        raise ValueError("No usable leaderboard returned")
     entries = leaderboard_rows(payload)
     if entries is None:
         raise ValueError("Leaderboard entries were not present in API response")
