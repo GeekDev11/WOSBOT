@@ -1441,3 +1441,13 @@ def test_first_value_reads_set_to_and_changed_value_keeps_arrow():
     assert sync._change_line(10001, "Frosty", "Power", "power", None, 12345678) == "`10001` Frosty: Power set to 12,345,678"
     assert sync._change_line(10001, "Frosty", "State", "kid", None, 172) == "`10001` Frosty: State set to 172"
     assert sync._change_line(10001, "Frosty", "Power", "power", 5, 12345678) == "`10001` Frosty: Power 5 → 12,345,678"
+
+
+def test_no_data_result_tracks_member_without_creating_a_change(monkeypatch):
+    from cogs.alliance_api_sync import RunResult, record_no_data
+    monkeypatch.setattr(sync, "member_snapshot",
+                        lambda fid: {"nickname": "Unavailable Chief"})
+    report = RunResult()
+    record_no_data(123456789, "9", report)
+    assert report.no_data["9"] == [(123456789, "Unavailable Chief")]
+    assert report.changes == {}

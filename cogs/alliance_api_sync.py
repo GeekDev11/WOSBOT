@@ -423,6 +423,7 @@ class RunResult:
     changes: dict = field(default_factory=dict)
     kingdom_changed: list = field(default_factory=list)
     transfers: list = field(default_factory=list)
+    no_data: dict = field(default_factory=dict)
     error: str | None = None
     stopped: str | None = None
     preempted: bool = False
@@ -555,6 +556,16 @@ def _apply(fid, alliance, values, result):
         conn.commit()
 
 
+def record_no_data(fid, alliance, result):
+    """Track unavailable API profiles in Sync Log without changing member data."""
+    try:
+        before = member_snapshot(fid)
+        name = str((before and before["nickname"]) or fid)[:NAME_LENGTH]
+    except sqlite3.Error:
+        name = str(fid)
+    result.no_data.setdefault(str(alliance), []).append((int(fid), name))
+
+
 async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, queue, troop_fetch=None) -> bool:
     """False when the run has to end."""
     answer = await _fetch(fetch, fid, take_slot, sleep, result, queue)
@@ -585,6 +596,7 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
     else:
         logger.info(f"Player Sync: API has no data for {fid} (HTTP {answer.status})")
         await asyncio.to_thread(mark_synced, fid, utc_now())
+        await asyncio.to_thread(record_no_data, fid, alliance, result)
     result.checked += 1
     return True
 
@@ -816,6 +828,12 @@ def results_embed(name, done, total, lines, result: RunResult, alliance=None) ->
         text += [""] + change_lines(lines)
     elif done and not result.error:
         text += ["", "Main player profile data: no changes."]
+    missing = result.no_data.get(str(alliance), [])
+    if missing:
+        shown = [f"• `{fid}` {discord.utils.escape_markdown(name)}" for fid, name in missing[:15]]
+        text.extend(["", f"{theme.warnIcon} **No Data from API ({len(missing)})**", *shown])
+        if len(missing) > len(shown):
+            text.append(f"...and {len(missing) - len(shown)} more.")
     troop = result.troop_summaries.get(str(alliance))
     if troop:
         text.extend([

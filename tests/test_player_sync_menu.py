@@ -482,3 +482,12 @@ def test_hub_edit_name_renames_off_the_event_loop(dbs, monkeypatch):
         await modal.on_submit(types.SimpleNamespace(response=types.SimpleNamespace(edit_message=edit_message)))
     asyncio.run(run())
     assert renamed == [(10, "New", False)]
+
+
+def test_player_sync_fields_status_lists_enabled_fields():
+    from cogs.alliance_api_menu import _fields_status
+    assert "None yet" in _fields_status({"fields": {}})
+    assert _fields_status({"fields": {
+        "name": "player.nick_name", "level": "", "kingdom": "",
+        "power": "player.power", "avatar": "",
+    }}) == "Name and Power"

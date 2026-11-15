@@ -77,6 +77,10 @@ def test_report(answer, profile) -> str:
             shown = format_furnace_level(value)
         elif field == "power":
             shown = f"{value:,}"
+        elif field == "avatar":
+            # Full image URL is useful for confirming API field mappings.
+            lines.append(f"• {label}: {value}")
+            continue
         else:
             shown = _clip(value)
         lines.append(f"• {label}: `{_clip(raw)}` → {shown}")
@@ -178,6 +182,16 @@ def _turned_on_text(last_daily_date=None, interval_hours=None) -> str:
     return "Automatic sync is on. It runs daily at 00:00 UTC (03:00 Saudi time)."
 
 
+def _fields_status(profile):
+    chosen = [label for field, label in FIELD_LABELS.items()
+              if profile.get("fields", {}).get(field)]
+    if not chosen:
+        return "None yet. Press **Fields** to configure Player Sync."
+    if len(chosen) == 1:
+        return chosen[0]
+    return ", ".join(chosen[:-1]) + " and " + chosen[-1]
+
+
 class PlayerSyncView(_SyncView):
     async def build_embed(self):
         state = await asyncio.to_thread(_hub_state)
@@ -212,6 +226,7 @@ class PlayerSyncView(_SyncView):
             "Set the connection, API key and fields, then turn on Auto Sync.\n",
             f"{theme.upperDivider}",
             f"{theme.settingsIcon} **Setup:** {setup}",
+            f"{theme.editListIcon} **Fields:** {_fields_status(profile)}",
             f"{theme.retryIcon} **Automatic sync:** {auto}",
             f"{theme.shieldIcon} **API key:** {key}",
             f"{theme.chartIcon} **Requests today:** `{state['used']}` of `{profile['per_day']}`",
