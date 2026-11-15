@@ -510,3 +510,25 @@ def test_official_retry_schedule_uses_api_retry_after(tmp_path):
     auto.schedule_official_retry(77, 9, 45, now=1000, path=path)
     assert auto.pending_due(now=1044, path=path) == []
     assert auto.pending_due(now=1045, path=path) == [(77, 9)]
+
+
+@pytest.mark.asyncio
+async def test_complete_official_tiers_clear_pending_even_when_profile_stale(tmp_path, monkeypatch):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, nickname TEXT, alliance TEXT)")
+        db.execute("INSERT INTO users VALUES (134958026, 'Cori_Y', '9')")
+    original_read, original_save = quality.read_quality, quality.save_quality
+    monkeypatch.setattr(quality, "read_quality", lambda fids: original_read(fids, path))
+    monkeypatch.setattr(quality, "save_quality", lambda aid, fids, changes, editor:
+                        original_save(aid, fids, changes, editor, path))
+    original_clear = auto.pending_clear
+    monkeypatch.setattr(auto, "pending_clear", lambda fid: original_clear(fid, path=path))
+    auto.pending_schedule(134958026, 9, now=0, path=path)
+    assert await auto.sync_tiers(None, 134958026, 9,
+        detected={"infantry": 12, "lancer": 11, "marksman": 12},
+        stale={"fresh": False, "retry_after": 60}) == 3
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM troop_quality_pending WHERE fid=134958026"
+        ).fetchone()[0] == 0

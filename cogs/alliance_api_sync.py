@@ -822,7 +822,7 @@ def results_embed(name, done, total, lines, result: RunResult, alliance=None) ->
             "",
             (f"Troop Quality: {troop['complete']}/{troop['total']} members have all three tiers recorded; "
              f"{troop['partial']} partially recorded; {troop['unknown']} still Unknown."),
-            (f"Pending website checks: {troop['pending']}. "
+            (f"Pending official API troop checks: {troop['pending']}. "
              "These may finish after Player Sync; completion here does not confirm troop data."),
         ])
     reason = result.error or result.stopped

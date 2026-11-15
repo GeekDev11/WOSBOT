@@ -544,11 +544,20 @@ async def sync_tiers(session, fid, alliance_id, *, detected=None, stale=None):
     """Write explicit tiers; official payload skips legacy website requests."""
     try:
         tiers = await fetch_tiers(session, fid) if detected is None else detected
-        if isinstance(stale, dict) and stale.get("fresh") is False:
-            await asyncio.to_thread(schedule_official_retry, fid, alliance_id,
-                                    stale.get("retry_after"))
         if not tiers:
-            await asyncio.to_thread(pending_schedule, fid, alliance_id)
+            if isinstance(stale, dict):
+                player = stale.get("player") if isinstance(stale.get("player"), dict) else {}
+                logger.info("Troop Quality: official API returned no tiers for %s "
+                            "(fresh=%s, checked_at=%s, top_troops=%s, player_troops=%s)",
+                            fid, stale.get("fresh"),
+                            stale.get("troops_checked_at", player.get("troops_checked_at")),
+                            type(stale.get("troops")).__name__,
+                            type(player.get("troops")).__name__)
+            if isinstance(stale, dict) and stale.get("fresh") is False:
+                await asyncio.to_thread(schedule_official_retry, fid, alliance_id,
+                                        stale.get("retry_after"))
+            else:
+                await asyncio.to_thread(pending_schedule, fid, alliance_id)
             return 0
         existing = await asyncio.to_thread(quality.read_quality, [int(fid)])
         changes = merge_tiers(tiers, existing.get(int(fid), {}))
@@ -561,9 +570,12 @@ async def sync_tiers(session, fid, alliance_id, *, detected=None, stale=None):
         # A partially populated website result should be revisited; never
         # manufacture unknown troop types. Drop the task only when all types
         # were returned and the database update has succeeded.
-        if (len(tiers) < len(quality.TROOPS)
-                or (isinstance(stale, dict) and stale.get("fresh") is False)):
-            await asyncio.to_thread(pending_schedule, fid, alliance_id)
+        if len(tiers) < len(quality.TROOPS):
+            if isinstance(stale, dict) and stale.get("fresh") is False:
+                await asyncio.to_thread(schedule_official_retry, fid, alliance_id,
+                                        stale.get("retry_after"))
+            else:
+                await asyncio.to_thread(pending_schedule, fid, alliance_id)
         else:
             await asyncio.to_thread(pending_clear, fid)
         return changed
