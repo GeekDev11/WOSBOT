@@ -98,3 +98,15 @@ def test_scout_ui_has_23_options_and_navigation():
     assert all(opt.value not in SCOUT_EXCLUDE for opt in view.category_selector.options)
     assert view.next_button.disabled is False
     assert view.prev_button.disabled is False
+
+
+def test_scout_registered_for_guild_and_dm_installs():
+    from cogs.wos_leaderboards import WosStateScout
+    import discord
+    command = WosStateScout.scout
+    assert command.allowed_installs is not None
+    assert command.allowed_installs.guild is True
+    assert command.allowed_installs.user is True
+    assert command.allowed_contexts is not None
+    assert command.allowed_contexts.guild is True
+    assert command.allowed_contexts.dm_channel is True

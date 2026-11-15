@@ -346,6 +346,8 @@ class WosStateScout(commands.Cog):
         return parse_state_boards(payload), None
 
     @app_commands.command(name="scout", description="Scout a state: top 20 across 23 leaderboards")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.describe(state="State number to scout")
     async def scout(self, interaction: discord.Interaction, state: int):
         if state < 1:
