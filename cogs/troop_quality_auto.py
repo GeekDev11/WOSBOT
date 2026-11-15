@@ -6,6 +6,10 @@ website search route for an exact FID match, then read expedition_troops from
 """
 import asyncio
 import logging
+import sqlite3
+import time
+from contextlib import closing
+from pathlib import Path
 
 import aiohttp
 from . import troop_quality as quality
@@ -54,27 +58,124 @@ def merge_tiers(detected, existing):
     return changes
 
 
-async def _json(session, path, *, params=None):
-    async with session.get(
-        BASE + path,
-        params=params,
-        headers={"Accept": "application/json"},
-        timeout=TIMEOUT,
-    ) as response:
-        if response.status != 200:
+# The website profile uses a separate refresh queue; the button has a ~10-minute
+# cooldown. Persist the cooldown in SQLite across restarts and concurrent jobs.
+REFRESH_COOLDOWN_SECONDS = 600
+REFRESH_POLL_SECONDS = 2.0
+REFRESH_POLL_ATTEMPTS = 6
+REFRESH_DB = Path("db/users.sqlite")
+
+
+def claim_refresh(fid, now=None, path=REFRESH_DB):
+    """Atomically claim a non-forced refresh for one chief, at most once/10 min."""
+    now = time.time() if now is None else now
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        db.execute("PRAGMA busy_timeout=30000")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS troop_quality_refresh_attempts (
+                fid INTEGER PRIMARY KEY,
+                attempted_at REAL NOT NULL
+            )
+        """)
+        db.commit()
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            row = db.execute(
+                "SELECT attempted_at FROM troop_quality_refresh_attempts WHERE fid=?",
+                (int(fid),),
+            ).fetchone()
+            if row is not None and now - float(row[0]) < REFRESH_COOLDOWN_SECONDS:
+                db.commit()
+                return False
+            db.execute(
+                "INSERT INTO troop_quality_refresh_attempts (fid, attempted_at) "
+                "VALUES (?, ?) ON CONFLICT(fid) DO UPDATE SET attempted_at=excluded.attempted_at",
+                (int(fid), float(now)),
+            )
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            raise
+
+
+async def _json(session, path, *, params=None, method="GET"):
+    kwargs = {
+        "headers": {"Accept": "application/json"},
+        "timeout": TIMEOUT,
+    }
+    if params is not None:
+        kwargs["params"] = params
+    call = session.post if method == "POST" else session.get
+    async with call(BASE + path, **kwargs) as response:
+        if response.status not in (200, 202):
             logger.info("Troop Quality: website %s returned HTTP %s", path, response.status)
             return None
         return await response.json(content_type=None)
 
 
+async def _refresh_missing(session, uid, fid, initial_profile, *, sleep=asyncio.sleep):
+    """Request only a permitted refresh, then briefly inspect queue and cached profile.
+
+    Do not force-refresh, bypass cooldowns, or keep polling indefinitely.
+    A worker that takes longer can be picked up on the next Player Sync.
+    """
+    if not await asyncio.to_thread(claim_refresh, fid):
+        logger.info("Troop Quality: refresh cooldown active for Chief ID %s", fid)
+        return {}
+    path = f"/api/players/{uid}"
+    logger.info("Troop Quality: requesting non-forced detailed profile refresh for Chief ID %s", fid)
+    refresh = await _json(session, path + "/refresh", params={"force": "0"}, method="POST")
+    if not isinstance(refresh, dict):
+        return {}
+    player = refresh.get("player")
+    if isinstance(player, dict) and (not player.get("fid") or str(player["fid"]) == str(fid)):
+        direct = extract_tiers(player)
+        if direct:
+            return direct
+    if not refresh.get("accepted"):
+        logger.info("Troop Quality: website did not queue a refresh for Chief ID %s (cached=%s)",
+                    fid, bool(refresh.get("cached")))
+        return {}
+    stamp = initial_profile.get("expedition_troops_at")
+    for attempt in range(REFRESH_POLL_ATTEMPTS):
+        await sleep(REFRESH_POLL_SECONDS)
+        status = await _json(session, path + "/refresh/status")
+        if not isinstance(status, dict):
+            break
+        if status.get("queued") or status.get("started"):
+            # The worker can finish before status is updated. Re-read periodically.
+            if attempt not in (2, 5):
+                continue
+        updated = await _json(session, path)
+        if not isinstance(updated, dict):
+            break
+        if updated.get("fid") is not None and str(updated["fid"]) != str(fid):
+            logger.warning("Troop Quality: refreshed profile UID/FID mismatch for %s", fid)
+            return {}
+        if updated.get("expedition_troops_at") != stamp or not (status.get("queued") or status.get("started")):
+            found = extract_tiers(updated)
+            if found:
+                logger.info("Troop Quality: detailed refresh imported %s tier(s) for Chief ID %s",
+                            len(found), fid)
+                return found
+            if not (status.get("queued") or status.get("started")):
+                break
+    logger.info("Troop Quality: detailed refresh still unavailable for Chief ID %s; keeping Unknown", fid)
+    return {}
+
+
 async def fetch_tiers(session, fid):
-    """Return detected tier mapping or {}, never mark unavailable data as T10."""
+    """Resolve FID -> website UID and fetch tiers; refresh missing deep data safely."""
     fid = int(fid)
     search = await _json(
         session, "/api/search",
         params={"q": str(fid), "limit": "10", "live": "0"}
     )
     if not isinstance(search, dict):
+        logger.info("Troop Quality: website search unavailable for Chief ID %s", fid)
         return {}
     records = search.get("results") or []
     match = next(
@@ -82,17 +183,28 @@ async def fetch_tiers(session, fid):
          and str(r.get("fid")) == str(fid) and r.get("uid") is not None), None
     )
     if match is None:
+        logger.info("Troop Quality: no website UID match for Chief ID %s", fid)
         return {}
     uid = match["uid"]
     if type(uid) is not int or uid <= 0:
+        logger.info("Troop Quality: invalid website UID for Chief ID %s", fid)
         return {}
     profile = await _json(session, f"/api/players/{uid}")
     if not isinstance(profile, dict):
+        logger.info("Troop Quality: no website profile for Chief ID %s", fid)
         return {}
-    # Guard against a mismatched or stale website UID.
-    if str(profile.get("fid", fid)) != str(fid):
+    if profile.get("fid") is not None and str(profile["fid"]) != str(fid):
+        logger.warning("Troop Quality: mismatched website profile for Chief ID %s", fid)
         return {}
-    return extract_tiers(profile)
+    found = extract_tiers(profile)
+    if found:
+        return found
+    # A recorded deep read with zero supported tiers is not permission to
+    # overwrite records or keep triggering the website refresh queue.
+    if profile.get("expedition_troops_at") is not None:
+        logger.info("Troop Quality: detailed profile has no T10–T12 records for Chief ID %s", fid)
+        return {}
+    return await _refresh_missing(session, uid, fid, profile)
 
 
 async def sync_tiers(session, fid, alliance_id):

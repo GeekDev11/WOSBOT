@@ -129,3 +129,102 @@ def test_t12_unknown_migration_preserves_old_skill(tmp_path):
     assert quality.read_quality([42], path)[42]["infantry"] == (12, 2)
     assert quality.save_quality(1, [42], {"lancer": (12, None)}, 0, path) == 1
     assert quality.read_quality([42], path)[42]["lancer"] == (12, None)
+
+
+class RefreshSession:
+    """Website deep profile gets populated only after a queued refresh."""
+    def __init__(self, *, accepted=True, missing=False):
+        self.requests = []
+        self.accepted = accepted
+        self.missing = missing
+        self.polls = 0
+
+    def get(self, url, **kwargs):
+        self.requests.append(("GET", url))
+        if url.endswith("/api/search"):
+            return FakeResponse({"results": [{"uid": 313, "fid": 123456789}]})
+        if url.endswith("/refresh/status"):
+            self.polls += 1
+            return FakeResponse({"queued": self.polls <= 1, "started": False})
+        if self.missing or self.polls == 0:
+            return FakeResponse({"fid": 123456789, "expedition_troops": [],
+                                 "expedition_troops_at": None})
+        return FakeResponse({
+            "fid": 123456789, "expedition_troops_at": 1794701128,
+            "expedition_troops": [
+                {"kind": "inf", "tier": 12, "star": 9, "count": 15},
+                {"kind": "mm", "tier": 11, "star": 10, "count": 1},
+            ],
+        })
+
+    def post(self, url, **kwargs):
+        self.requests.append(("POST", url))
+        assert kwargs["params"] == {"force": "0"}
+        return FakeResponse({"accepted": self.accepted, "cached": not self.accepted})
+
+
+@pytest.mark.asyncio
+async def test_refresh_missing_profile_then_import(monkeypatch):
+    monkeypatch.setattr(auto, "claim_refresh", lambda fid: True)
+
+    async def no_delay(seconds):
+        assert seconds == auto.REFRESH_POLL_SECONDS
+
+    monkeypatch.setattr(auto.asyncio, "sleep", no_delay)
+    session = RefreshSession()
+    assert await auto.fetch_tiers(session, 123456789) == {
+        "infantry": 12, "marksman": 11
+    }
+    assert len([x for x in session.requests if x[0] == "POST"]) == 1
+    assert session.polls >= 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_cooldown_prevents_post(monkeypatch):
+    monkeypatch.setattr(auto, "claim_refresh", lambda fid: False)
+    session = RefreshSession()
+    assert await auto.fetch_tiers(session, 123456789) == {}
+    assert not any(method == "POST" for method, _ in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_refresh_denied_returns_unknown(monkeypatch):
+    monkeypatch.setattr(auto, "claim_refresh", lambda fid: True)
+    session = RefreshSession(accepted=False)
+    assert await auto.fetch_tiers(session, 123456789) == {}
+    assert sum(method == "POST" for method, _ in session.requests) == 1
+    assert session.polls == 0
+
+
+@pytest.mark.asyncio
+async def test_refresh_completed_without_troops_stays_unknown(monkeypatch):
+    monkeypatch.setattr(auto, "claim_refresh", lambda fid: True)
+    monkeypatch.setattr(auto, "REFRESH_POLL_ATTEMPTS", 2)
+
+    async def no_delay(seconds):
+        return None
+
+    monkeypatch.setattr(auto.asyncio, "sleep", no_delay)
+    session = RefreshSession(missing=True)
+    assert await auto.fetch_tiers(session, 123456789) == {}
+    assert session.polls == 2
+
+
+@pytest.mark.asyncio
+async def test_existing_deep_data_does_not_refresh(monkeypatch):
+    monkeypatch.setattr(auto, "claim_refresh", lambda fid: (_ for _ in ()).throw(
+        AssertionError("should not refresh an already checked profile")))
+    session = RefreshSession()
+    session.polls = 1
+    assert await auto.fetch_tiers(session, 123456789) == {
+        "infantry": 12, "marksman": 11
+    }
+
+
+def test_refresh_claim_is_persistent_and_time_bounded(tmp_path):
+    path = tmp_path / "refresh.sqlite"
+    assert auto.claim_refresh(123, now=1000, path=path)
+    assert not auto.claim_refresh(123, now=1001, path=path)
+    assert not auto.claim_refresh(123, now=1599, path=path)
+    assert auto.claim_refresh(123, now=1600, path=path)
+    assert auto.claim_refresh(124, now=1601, path=path)

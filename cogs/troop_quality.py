@@ -593,7 +593,7 @@ class Preview(QualityView):
                              or "No members found.")
         embed=discord.Embed(title=f"🛡️ Troop Quality Preview · {self.name}",
                             description=description[:4000])
-        embed.set_footer(text="T12 skill 1–3 · Unrecorded tiers show Unknown · Stored times use UTC")
+        embed.set_footer(text="T12 skill 0–3 · Unrecorded tiers show Unknown · Stored times use UTC")
         return embed
 
     def rebuild(self):
