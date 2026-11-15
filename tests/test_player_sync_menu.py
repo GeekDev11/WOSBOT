@@ -36,7 +36,7 @@ def _rows(view):
 def test_hub_rows_are_even(dbs):
     view, _ = _build()
     assert _rows(view) == [
-        ["Auto Sync: Off", "Sync Now", "Sync Alliance", "Interval"],
+        ["Auto Sync: Off", "Sync Now", "Sync Alliance", "Daily: 00:00 UTC"],
         ["Connection", "API Key", "Fields", "Limits", "Channels"],
         ["Test", "Import", "Export", "Back"],
     ]
@@ -59,7 +59,7 @@ def test_actions_enabled_once_set_up(dbs):
 def test_hub_text_names_no_site_and_mentions_backups(dbs):
     _, embed = _build()
     text = embed.description
-    assert "from a player-data API" in text and "backups include your API key" in text
+    assert "where the API provides them" in text and "backups include your API key" in text
     for button in ("**Connection**", "**API Key**", "**Fields**", "**Channels**", "**Test**", "**Import**",
                    "**Export**"):
         assert button in text
@@ -232,14 +232,14 @@ def _toggle_text(last_queued):
 
 
 def test_toggle_on_says_first_run_soon_when_due(dbs):
-    assert "within 5 minutes" in _toggle_text(None)
+    assert "daily at 00:00 UTC" in _toggle_text(None)
 
 
 def test_toggle_on_names_next_due_time(dbs):
     last = datetime.now(timezone.utc).replace(microsecond=0)
     text = _toggle_text(last)
     due = int(last.timestamp()) + 24 * 3600
-    assert "within 5 minutes" not in text and f"<t:{due}:R>" in text
+    assert "daily at 00:00 UTC" in text
 
 
 def test_modal_errors_are_reported(monkeypatch):
@@ -323,7 +323,7 @@ def test_export_reply_has_a_title_and_no_key(dbs):
 def test_hub_guide_lines_follow_the_button_order(dbs):
     _, embed = _build()
     text = embed.description
-    order = ["**Interval**", "**Connection**", "**API Key**", "**Fields**", "**Limits**", "**Channels**", "**Test**"]
+    order = ["**Daily schedule**", "**Connection**", "**API Key**", "**Fields**", "**Limits**", "**Channels**", "**Test**"]
     assert [text.index(name) for name in order] == sorted(text.index(name) for name in order)
 
 
@@ -451,7 +451,7 @@ def test_channel_setup_has_a_sync_log_row(dbs):
     for item in view.children:
         rows.setdefault(item.row, []).append(item.label)
     assert rows == {0: ["Set ID Channel", "Clear"], 1: ["Set Activity Log", "Clear"],
-                    2: ["Set Redemption Log", "Clear"], 3: ["Set Sync Log", "Clear"], 4: ["Back"]}
+                    2: ["Set Redemption Log", "Clear"], 3: ["Set Sync Log", "Clear"], 4: ["Set Troop Quality", "Clear", "Back"]}
 
 
 def test_channel_setup_sync_log_shares_the_player_sync_setting(dbs, monkeypatch):

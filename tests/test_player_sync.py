@@ -772,7 +772,7 @@ def test_results_without_changes_say_so(run_dbs):
     asyncio.run(reporter.start({"20": 1}))
     asyncio.run(reporter.advance("20"))
     asyncio.run(reporter.finish(sync.RunResult(checked=1)))
-    assert found[555].sent[0].text == f"Checked `1` of 1 member.\n\n{sync.NO_CHANGES}"
+    assert found[555].sent[0].text == "Checked `1` of 1 member.\n\nMain player profile data: no changes."
 
 
 def test_results_cap_change_lines():
