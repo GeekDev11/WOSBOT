@@ -424,6 +424,7 @@ class RunResult:
     kingdom_changed: list = field(default_factory=list)
     transfers: list = field(default_factory=list)
     no_data: dict = field(default_factory=dict)
+    troop_summaries: dict = field(default_factory=dict)
     error: str | None = None
     stopped: str | None = None
     preempted: bool = False
