@@ -810,12 +810,21 @@ def paused_embed(name, done, total, lines) -> discord.Embed:
     return _sync_log_embed(name, "\n".join(text), theme.emColor1)
 
 
-def results_embed(name, done, total, lines, result: RunResult) -> discord.Embed:
+def results_embed(name, done, total, lines, result: RunResult, alliance=None) -> discord.Embed:
     text = [f"Checked `{done}` of {count_text(total, 'member')}."]
     if lines:
         text += [""] + change_lines(lines)
     elif done and not result.error:
-        text += ["", NO_CHANGES]
+        text += ["", "Main player profile data: no changes."]
+    troop = result.troop_summaries.get(str(alliance))
+    if troop:
+        text.extend([
+            "",
+            (f"Troop Quality: {troop['complete']}/{troop['total']} members have all three tiers recorded; "
+             f"{troop['partial']} partially recorded; {troop['unknown']} still Unknown."),
+            (f"Pending website checks: {troop['pending']}. "
+             "These may finish after Player Sync; completion here does not confirm troop data."),
+        ])
     reason = result.error or result.stopped
     if reason:
         text.append(f"\n{theme.warnIcon} {reason}")
@@ -878,7 +887,7 @@ class SyncLogReporter:
             if result.preempted:
                 embed = paused_embed(post.name, post.done, post.total, lines)
             else:
-                embed = results_embed(post.name, post.done, post.total, lines, result)
+                embed = results_embed(post.name, post.done, post.total, lines, result, alliance=alliance)
             if self.keep_minutes:
                 embed.set_footer(text=removal_note(self.keep_minutes))
             if await self._edit(alliance, embed) and self.keep_minutes:
@@ -1044,6 +1053,16 @@ class AllianceApiSync(commands.Cog):
         catchups = [fid for fid in result.kingdom_changed if fid not in removed]
         if catchups:
             enqueue_catchups(self.bot, catchups)
+        try:
+            from .troop_quality_auto import troop_progress
+            result.troop_summaries = await asyncio.to_thread(troop_progress, alliance_id)
+            for group, stats in result.troop_summaries.items():
+                logger.info(
+                    "Troop Quality: alliance %s coverage: complete=%s partial=%s unknown=%s pending=%s",
+                    group, stats["complete"], stats["partial"], stats["unknown"], stats["pending"],
+                )
+        except Exception:
+            logger.exception("Troop Quality: couldn't summarize tier coverage")
         try:
             await reporter.finish(result)
         except Exception as e:

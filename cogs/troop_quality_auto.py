@@ -358,6 +358,49 @@ def pending_due(*, now=None, limit=3, path=REFRESH_DB):
             raise
 
 
+def troop_progress(alliance_id=None, path=REFRESH_DB):
+    """Read-only member coverage for Sync Log; a green API sync is not troop success."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with closing(sqlite3.connect(path, timeout=30)) as db:
+        db.row_factory = sqlite3.Row
+        tables = {row["name"] for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        if "users" not in tables:
+            return {}
+        has_tiers = "member_troop_quality" in tables
+        has_pending = "troop_quality_pending" in tables
+        where = "WHERE u.alliance=? " if alliance_id is not None else "WHERE u.alliance IS NOT NULL AND u.alliance!='' "
+        params = (str(alliance_id),) if alliance_id is not None else ()
+        join = ("LEFT JOIN member_troop_quality t ON t.fid=u.fid " if has_tiers else "")
+        join += ("LEFT JOIN troop_quality_pending p ON p.fid=u.fid " if has_pending else "")
+        cols = ("t.infantry_tier,t.lancer_tier,t.marksman_tier" if has_tiers
+                else "NULL AS infantry_tier,NULL AS lancer_tier,NULL AS marksman_tier")
+        pending_col = "p.fid AS pending_fid" if has_pending else "NULL AS pending_fid"
+        rows = db.execute(
+            f"SELECT u.alliance, {cols}, {pending_col} FROM users u {join} {where}",
+            params,
+        ).fetchall()
+    stats = {}
+    for row in rows:
+        alliance = str(row["alliance"])
+        info = stats.setdefault(alliance, {"total": 0, "complete": 0, "partial": 0,
+                                           "unknown": 0, "pending": 0})
+        info["total"] += 1
+        count = sum(row[k] in VALID_TIERS for k in ("infantry_tier", "lancer_tier", "marksman_tier"))
+        if count == 3:
+            info["complete"] += 1
+        elif count:
+            info["partial"] += 1
+        else:
+            info["unknown"] += 1
+        if row["pending_fid"] is not None:
+            info["pending"] += 1
+    return stats
+
+
 async def process_pending(session, *, limit=3):
     """Run a bounded background batch, independent of normal Player Sync."""
     rows = await asyncio.to_thread(pending_due, limit=limit)

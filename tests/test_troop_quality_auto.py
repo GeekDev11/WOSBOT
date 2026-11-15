@@ -401,3 +401,31 @@ def test_member_state_comes_from_stored_player_not_alliance(tmp_path):
         db.execute("INSERT INTO users VALUES (123456789, '1501', 920)")
     assert auto.member_state(123456789, path=path) == 920
     assert auto.member_state(999, path=path) is None
+
+
+def test_troop_progress_reports_complete_partial_unknown_and_pending(tmp_path):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, nickname TEXT, alliance TEXT)")
+        db.executemany("INSERT INTO users VALUES (?, ?, ?)", [
+            (101, "Complete", "9"), (102, "Partial", "9"), (103, "Waiting", "9")
+        ])
+    quality.initialize(path)
+    quality.save_quality(9, [101], {
+        "infantry": (11, None), "lancer": (11, None), "marksman": (10, None)
+    }, 0, path)
+    quality.save_quality(9, [102], {"infantry": (12, None)}, 0, path)
+    auto.pending_schedule(102, 9, now=0, path=path)
+    auto.pending_schedule(103, 9, now=0, path=path)
+    summary = auto.troop_progress(9, path=path)
+    assert summary["9"] == {
+        "total": 3, "complete": 1, "partial": 1, "unknown": 1, "pending": 2
+    }
+
+
+def test_troop_progress_before_tables_exist(tmp_path):
+    path = tmp_path / "users.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT)")
+        db.execute("INSERT INTO users VALUES (101, '9')")
+    assert auto.troop_progress(9, path=path)["9"]["unknown"] == 1
