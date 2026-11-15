@@ -45,3 +45,56 @@ def test_empty_list_is_valid_board():
 def test_summary_limits_to_15_rows():
     entries = [{"rank": i + 1, "name": f"Player {i}", "score": i} for i in range(30)]
     assert len(summary_text(entries).splitlines()) == 15
+
+
+from cogs.wos_leaderboards import (
+    SCOUT_BOARDS, SCOUT_EXCLUDE, SCOUT_LIMIT, parse_state_boards,
+    scout_description, StateScoutView,
+)
+
+
+def test_scout_excludes_furnace_and_both_kills():
+    assert len(SCOUT_BOARDS) == 23
+    assert SCOUT_EXCLUDE == {"furnace", "kills", "alliance_kills"}
+    assert not (set(SCOUT_BOARDS) & SCOUT_EXCLUDE)
+    assert SCOUT_LIMIT == 20
+
+
+def test_scout_combined_dict_only_recognized_boards():
+    payload = {"ok": True, "state": {"boards": {
+        "personal_power": [{"rank": 1, "chief_id": 42, "nick_name": "Chief", "score": 100}],
+        "alliance_power": {"entries": [{"rank": 1, "aid": 7, "abbr": "VEN", "score": 50}]},
+        "kills": [{"rank": 1, "chief_id": 2, "score": 1000}],
+    }}}
+    found = parse_state_boards(payload)
+    assert set(found) == {"personal_power", "alliance_power"}
+    assert found["personal_power"][0]["chief_id"] == 42
+    assert found["alliance_power"][0]["alliance_id"] == 7
+
+
+def test_scout_combined_list_and_missing_response_are_safe():
+    data = {"boards": [
+        {"board": "pet_power", "entries": [{"rank": 1, "chief_id": 7, "score": 123}]},
+        {"board": "furnace", "entries": [{"rank": 1, "chief_id": 7, "score": 80}]},
+    ]}
+    assert set(parse_state_boards(data)) == {"pet_power"}
+    assert parse_state_boards({"state": {"boards": []}}) == {}
+    assert parse_state_boards({"ok": False, "boards": {"pet_power": []}}) == {}
+
+
+def test_scout_displays_all_20_rows():
+    entries = [{"rank": i, "name": f"Chief{i}", "score": 100000-i}
+               for i in range(1, 25)]
+    out = scout_description(entries)
+    assert "#20" in out
+    assert "#21" not in out
+
+
+def test_scout_ui_has_23_options_and_navigation():
+    class Dummy:
+        pass
+    view = StateScoutView(Dummy(), 1501, 1234)
+    assert len(view.category_selector.options) == 23
+    assert all(opt.value not in SCOUT_EXCLUDE for opt in view.category_selector.options)
+    assert view.next_button.disabled is False
+    assert view.prev_button.disabled is False

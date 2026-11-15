@@ -125,5 +125,260 @@ class WosLeaderboards(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+
+# State Scout: 23 permitted rankings, 20 positions each. Keep legacy
+# /wosrankings unchanged for administrators who use the individual boards.
+import time
+
+SCOUT_EXCLUDE = frozenset({"kills", "alliance_kills", "furnace"})
+SCOUT_BOARDS = tuple(board for board in BOARDS if board not in SCOUT_EXCLUDE)
+SCOUT_LIMIT = 20
+SCOUT_CACHE_SECONDS = 300
+
+SCOUT_LABELS = {
+    "alliance_power": "Alliance Power",
+    "personal_power": "Chief Power",
+    "rebel_conquest": "Rebel Conquest",
+    "single_hero": "Single Hero Power",
+    "hero_total": "Hero Total Power",
+    "hero_no_equip": "Hero Without Gear",
+    "hero_equip": "Hero Equipment",
+    "pet_power": "Pet Power",
+    "island_prosperity": "Island Prosperity",
+    "master_power": "Expert Power",
+    "chief_gear": "Chief Gear",
+    "chief_charm": "Chief Charm",
+    "migrant_score": "State Transfer Score",
+    "labyrinth": "The Labyrinth",
+    "land_of_heroes": "Land of Heroes",
+    "cave_of_monsters": "Cave of Monsters",
+    "charm_mine": "Charm Mine",
+    "research_center": "Research Center",
+    "gear_forge": "Gear Forge",
+    "gaia_heart": "Gaia Heart",
+}
+
+def scout_label(board):
+    return SCOUT_LABELS.get(board, board.replace("_", " ").title())
+
+
+def parse_state_boards(payload):
+    """Read only supported leaderboard shapes; never fabricate absent boards.
+
+    /v1/states/{kid}?include=boards exposes state boards, though API releases
+    may return a dictionary keyed by slug or a list with board/type entries.
+    """
+    if not isinstance(payload, dict) or payload.get("ok") is False:
+        return {}
+    containers = [payload]
+    state = payload.get("state")
+    if isinstance(state, dict):
+        containers.append(state)
+    found = {}
+    for container in containers:
+        for key in ("boards", "leaderboards", "rankings"):
+            raw = container.get(key)
+            if isinstance(raw, dict):
+                for slug, entries in raw.items():
+                    if slug not in SCOUT_BOARDS:
+                        continue
+                    try:
+                        found[slug] = parse_board(
+                            entries if isinstance(entries, dict)
+                            else {"rankings": entries}
+                        )[:SCOUT_LIMIT]
+                    except ValueError:
+                        continue
+            elif isinstance(raw, list):
+                for item in raw:
+                    if not isinstance(item, dict):
+                        continue
+                    slug = item.get("board", item.get("slug", item.get("type")))
+                    if slug not in SCOUT_BOARDS:
+                        continue
+                    try:
+                        found[slug] = parse_board(item)[:SCOUT_LIMIT]
+                    except ValueError:
+                        continue
+    return found
+
+
+def scout_description(entries):
+    """Render all top-20 entries within Discord's 4096-char embed limit."""
+    rows = summary_text(entries[:SCOUT_LIMIT], max_rows=SCOUT_LIMIT)
+    return rows[:4000] if rows else "No results reported."
+
+
+def scout_embed(state_id, board, entries, *, available=None, error=None):
+    title = f"State Scout · #{state_id}"
+    description = (f"**{scout_label(board)} · Top {SCOUT_LIMIT}**\n\n"
+                   + (error if error else scout_description(entries)))
+    embed = discord.Embed(title=title, description=description[:4096])
+    embed.set_footer(text=(
+        f"Category {SCOUT_BOARDS.index(board)+1}/{len(SCOUT_BOARDS)}"
+        f" · {min(SCOUT_LIMIT, len(entries))} returned · API snapshot, not live"
+    ))
+    return embed
+
+
+class StateScoutView(discord.ui.View):
+    def __init__(self, cog, state_id, requester_id, boards=None, start="personal_power"):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.state_id = state_id
+        self.requester_id = requester_id
+        self.cache = dict(boards or {})
+        self.errors = {}
+        self.board = start
+        self.lock = asyncio.Lock()
+
+        selector = discord.ui.Select(
+            placeholder="Choose leaderboard category",
+            min_values=1, max_values=1, row=0,
+            options=[
+                discord.SelectOption(
+                    label=scout_label(slug)[:100], value=slug,
+                    default=(slug == start),
+                ) for slug in SCOUT_BOARDS
+            ],
+        )
+        selector.callback = self.select_category
+        self.category_selector = selector
+        self.add_item(selector)
+
+        prev = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary,
+                                 emoji="◀️", row=1)
+        nxt = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary,
+                                emoji="▶️", row=1)
+        prev.callback = self.previous_category
+        nxt.callback = self.next_category
+        self.add_item(prev)
+        self.add_item(nxt)
+        self.prev_button = prev
+        self.next_button = nxt
+        self.paint_controls()
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "Run /scout yourself to open your own State Scout report.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def paint_controls(self):
+        idx = SCOUT_BOARDS.index(self.board)
+        self.prev_button.disabled = idx == 0
+        self.next_button.disabled = idx == len(SCOUT_BOARDS)-1
+        for option in self.category_selector.options:
+            option.default = option.value == self.board
+
+    async def ensure_board(self, board):
+        if board in self.cache:
+            return self.cache[board], None
+        if board in self.errors:
+            return [], self.errors[board]
+        entries, error = await self.cog.fetch_board(self.state_id, board, SCOUT_LIMIT)
+        if error:
+            # Don't cache transient API errors; a later button click can retry.
+            return [], error
+        self.cache[board] = entries[:SCOUT_LIMIT]
+        return self.cache[board], None
+
+    async def change(self, interaction, board):
+        if self.lock.locked():
+            await interaction.response.send_message(
+                "A scout request is already running.", ephemeral=True)
+            return
+        async with self.lock:
+            await interaction.response.defer()
+            self.board = board
+            entries, error = await self.ensure_board(board)
+            self.paint_controls()
+            await interaction.edit_original_response(
+                embed=scout_embed(self.state_id, board, entries, error=error),
+                view=self,
+            )
+
+    async def select_category(self, interaction):
+        await self.change(interaction, self.category_selector.values[0])
+
+    async def previous_category(self, interaction):
+        idx = SCOUT_BOARDS.index(self.board)
+        await self.change(interaction, SCOUT_BOARDS[max(0, idx-1)])
+
+    async def next_category(self, interaction):
+        idx = SCOUT_BOARDS.index(self.board)
+        await self.change(interaction, SCOUT_BOARDS[min(len(SCOUT_BOARDS)-1, idx+1)])
+
+
+class WosStateScout(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self._state_cache = {}
+
+    def board_client(self):
+        return self.bot.get_cog("WosLeaderboards")
+
+    async def fetch_combined(self, state_id):
+        """Prefer one public state request for all boards; use shared API budget."""
+        profile, key = await asyncio.to_thread(sync.load_connection)
+        if not key or not sync.api_available(profile):
+            return {}, "Configure Whiteout Stats under Player Sync first."
+        if not await sync._take_slot(profile):
+            return {}, "Configured API request budget exhausted."
+        main_cog = self.bot.get_cog("AllianceApiSync")
+        if main_cog is None:
+            return {}, "Player Sync is not loaded."
+        url = f"{API_BASE}/v1/states/{state_id}?include=boards&limit={SCOUT_LIMIT}"
+        try:
+            async with main_cog.session().get(
+                url,
+                headers={"Accept": "application/json", profile["auth_header"]: key},
+                timeout=sync.REQUEST_TIMEOUT,
+            ) as response:
+                if response.status != 200:
+                    return {}, f"Whiteout Stats returned HTTP {response.status}."
+                payload = await response.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            return {}, "Whiteout Stats did not return usable state data."
+        return parse_state_boards(payload), None
+
+    @app_commands.command(name="scout", description="Scout a state: top 20 across 23 leaderboards")
+    @app_commands.describe(state="State number to scout")
+    async def scout(self, interaction: discord.Interaction, state: int):
+        if state < 1:
+            await interaction.response.send_message(
+                "Enter a positive state number.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        client = self.board_client()
+        if client is None:
+            await interaction.followup.send(
+                "Whiteout Stats leaderboards are not loaded.", ephemeral=True)
+            return
+        now = time.monotonic()
+        cached = self._state_cache.get(state)
+        if cached and now - cached[0] < SCOUT_CACHE_SECONDS:
+            boards = dict(cached[1])
+        else:
+            boards, error = await self.fetch_combined(state)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
+                return
+            self._state_cache[state] = (now, dict(boards))
+            # Avoid unbounded long-lived state caches.
+            if len(self._state_cache) > 30:
+                self._state_cache = {k: v for k, v in self._state_cache.items()
+                                     if now - v[0] < SCOUT_CACHE_SECONDS}
+        view = StateScoutView(client, state, interaction.user.id, boards=boards)
+        entries, error = await view.ensure_board(view.board)
+        await interaction.followup.send(
+            embed=scout_embed(state, view.board, entries, error=error),
+            view=view, ephemeral=True,
+        )
+
 async def setup(bot):
     await bot.add_cog(WosLeaderboards(bot))
+    await bot.add_cog(WosStateScout(bot))
