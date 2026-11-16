@@ -44,10 +44,10 @@ def test_workspace_has_real_management_actions():
     class Fake: pass
     view = AllianceWorkspaceView(Fake(), 1, [(100, "EXA")], 100)
     labels = {getattr(x, "label", "") for x in view.children}
-    assert {"Members & Imports", "Troop Quality", "Export Members",
-            "Alliance Configuration", "Rankings & History",
-            "Manage Alliances"} <= labels
-    assert "Attendance & OCR" not in labels
+    assert {"Alliance Configuration", "Manage Alliances",
+            "Back to Alliances", "Home"} <= labels
+    assert not ({"Members & Imports", "Troop Quality", "Export Members",
+                 "Rankings & History", "Attendance & OCR"} & labels)
 
 
 def test_existing_main_menu_hub_and_permissions_not_removed():
