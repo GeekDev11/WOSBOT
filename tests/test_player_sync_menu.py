@@ -112,8 +112,10 @@ def test_alliances_entry_has_player_sync_and_even_rows():
     rows = {}
     for row, label in asyncio.run(build()):
         rows.setdefault(row, []).append(label)
-    assert rows[2] == ["Add Alliance", "Self-Registration", "Transfer Members", "Export Members"]
-    assert rows[3] == ["Member States", "Player Sync", "Main Menu"]
+    # Export and Player Sync now have dedicated command-center entries.
+    assert rows[2] == ["Add Alliance", "Self-Registration", "Transfer Members"]
+    assert rows[3] == ["Member States", "Main Menu"]
+    assert rows[4] == ["Back to Alliances"]
 
 
 def _apply(make_modal, **values):
