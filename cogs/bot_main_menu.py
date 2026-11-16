@@ -448,9 +448,10 @@ class MainMenu(commands.Cog):
             embed = discord.Embed(
                 title=f"{theme.robotIcon} Administration · Maintenance Tools",
                 description=(
-                    "Choose a maintenance action below: updates, backups, "
-                    "Bot Health, appearance, support or server management.\n\n"
-                    "**Main Menu** returns to the five-center layout."
+                    "Check updates, manage bot presence, configure external OCR, "
+                    "or find support and project information.\n\n"
+                    "Backup, Health, Profile and Server Settings have their own "
+                    "Administration entries."
                 ),
                 color=theme.emColor1,
             )
@@ -2660,6 +2661,14 @@ class MaintenanceView(discord.ui.View):
             if isinstance(child, discord.ui.Button) and child.custom_id == "leave_server":
                 child.disabled = not is_owner
 
+        # The Administration center has dedicated Health, Backup, Profile and
+        # Server Settings entries. Hide only these duplicate navigation buttons;
+        # the handlers and older command routes remain available.
+        duplicates = {"backup_system", "bot_health", "bot_profile", "leave_server"}
+        for child in tuple(self.children):
+            if isinstance(child, discord.ui.Button) and child.custom_id in duplicates:
+                self.remove_item(child)
+
         # Reflect current External OCR state on its toggle (dynamic label/style).
         try:
             from .bear_track import remote_ocr_url
@@ -2834,6 +2843,12 @@ class MaintenanceView(discord.ui.View):
     )
     async def leave_server_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _route_to_cog(interaction, self.cog.bot, "BotHealth", "show_servers", missing_label="Bot Health")
+
+    @discord.ui.button(label="Back to Administration", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=3)
+    async def back_to_admin(self, interaction, button):
+        from .command_center import open_section
+        await open_section(self.cog, interaction, "admin")
 
     @discord.ui.button(
         label="Main Menu",
