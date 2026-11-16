@@ -238,3 +238,58 @@ def test_legacy_alliance_admin_tools_remain_available():
     from cogs.bot_main_menu import MainMenu
     assert "AllianceManagementEntryView" in inspect.getsource(MainMenu.show_alliance_admin_tools)
     assert "show_alliance_admin_tools" in inspect.getsource(AllianceWorkspaceView.manage_alliances)
+
+
+@pytest.mark.asyncio
+async def test_legacy_alliance_hub_calls_new_workspace(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.bot_main_menu import MainMenu
+    import cogs.command_center as nav
+    called = []
+    async def workspace(cog, interaction, aid):
+        called.append(aid)
+    monkeypatch.setattr(nav, "show_alliance_workspace", workspace)
+    menu = MainMenu(SimpleNamespace())
+    await menu.show_alliance_hub(SimpleNamespace(), 1501)
+    assert called == [1501]
+
+
+@pytest.mark.asyncio
+async def test_legacy_alliance_list_calls_new_center(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.bot_main_menu import MainMenu
+    import cogs.command_center as nav
+    called = []
+    async def section(cog, interaction, key):
+        called.append(key)
+    monkeypatch.setattr(nav, "open_section", section)
+    menu = MainMenu(SimpleNamespace())
+    await menu.show_alliance_management(SimpleNamespace())
+    assert called == ["alliance"]
+
+
+@pytest.mark.asyncio
+async def test_old_maintenance_back_calls_new_admin_center(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.bot_main_menu import MainMenu
+    import cogs.command_center as nav
+    called = []
+    async def section(cog, interaction, key):
+        called.append(key)
+    monkeypatch.setattr(nav, "open_section", section)
+    menu = MainMenu(SimpleNamespace())
+    await menu.show_maintenance(SimpleNamespace())
+    assert called == ["admin"]
+
+
+@pytest.mark.asyncio
+async def test_old_alliance_settings_back_goes_to_workspace():
+    from types import SimpleNamespace
+    from cogs.bot_main_menu import AllianceHubView
+    called = []
+    async def hub(interaction, alliance_id):
+        called.append(alliance_id)
+    cog = SimpleNamespace(show_alliance_hub=hub)
+    view = AllianceHubView(cog, 25, "VEN", "alliance", [(25, "VEN", 71)])
+    await view.back(SimpleNamespace(), None)
+    assert called == [25]
