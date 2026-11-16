@@ -177,7 +177,7 @@ def test_profile_resolves_guild_id_when_guild_object_is_missing():
     selected = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
     scope = {}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(PROFILE), "exec"), scope)
-    guild = SimpleNamespace(id=123, name="VEN")
+    guild = SimpleNamespace(id=123, name="EXA")
     bot = SimpleNamespace(
         get_guild=lambda guild_id: guild if guild_id == 123 else None,
         guilds=[guild],
