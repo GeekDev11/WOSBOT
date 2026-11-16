@@ -83,21 +83,22 @@ class WosSvs(commands.Cog):
 
     @app_commands.command(name="wossvs", description="View an SvS matchup from Whiteout Stats (Frosty)")
     @app_commands.describe(state_id="State number")
-    async def wossvs(self, interaction: discord.Interaction, state_id: int):
+    async def wossvs(
+        from .command_center import intelligence_result_viewself, interaction: discord.Interaction, state_id: int):
         await interaction.response.defer(ephemeral=True, thinking=True)
         if state_id <= 0:
-            await interaction.followup.send("Enter a positive state number.", ephemeral=True)
+            await interaction.followup.send("Enter a positive state number.", ephemeral=True, view=intelligence_result_view(interaction))
             return
         info, error = await self.fetch(state_id)
         if error:
-            await interaction.followup.send(error, ephemeral=True)
+            await interaction.followup.send(error, ephemeral=True, view=intelligence_result_view(interaction))
             return
         embed = discord.Embed(title=f"SvS matchup · State {state_id}")
         embed.add_field(name="Season", value=str(info["season"] or "Not reported"))
         embed.add_field(name="Stage", value=str(info["stage"] or "Not reported"))
         embed.add_field(name="Opponent", value="Bye" if info["bye"] else str(info["opponent"] or "Not announced"))
         embed.set_footer(text="Whiteout Stats · Frosty API")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True, view=intelligence_result_view(interaction))
 
     @app_commands.command(name="wossvsscores", description="View preparation scores from Whiteout Stats (Frosty)")
     @app_commands.describe(state_id="State number")
