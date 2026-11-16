@@ -198,6 +198,8 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     monkeypatch.setattr(module, "show_alliance_history_entry", fake_direct)
     monkeypatch.setattr(module, "show_import_export_entry", fake_direct)
     monkeypatch.setattr(module, "open_gift_redemption", fake_direct)
+    monkeypatch.setattr(module, "show_event_reports_entry", fake_direct)
+    monkeypatch.setattr(module, "show_appearance_entry", fake_direct)
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
@@ -330,3 +332,17 @@ async def test_coordinates_are_not_redirected_to_player_inspector(monkeypatch):
                 "intel", "coordinates")
     assert len(opened) == 1
     assert isinstance(opened[0], CoordinatesLookupModal)
+
+
+def test_scoped_workflows_and_profile_exposure():
+    import inspect
+    from cogs.command_center import route, AppearanceView, ImportExportView
+    source = inspect.getsource(route)
+    assert 'show_event_reports_entry(cog, interaction)' in source
+    assert 'show_appearance_entry(cog, interaction)' in source
+    assert 'open_alliance_scoped_tool' in inspect.getsource(ImportExportView.imports.callback) or (
+        'open_alliance_scoped_tool' in inspect.getsource(ImportExportView)
+    )
+    assert 'BotProfile' in inspect.getsource(AppearanceView.profile.callback) or (
+        'BotProfile' in inspect.getsource(AppearanceView)
+    )
