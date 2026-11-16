@@ -271,6 +271,7 @@ class CenterSectionView(discord.ui.View):
             for key, name, desc in SECTIONS[section][2]
         ]
         selector = discord.ui.Select(placeholder="Choose a tool", options=choices, row=0)
+        self.tool_selector = selector
         selector.callback = self.select_tool
         self.add_item(selector)
 
@@ -278,7 +279,7 @@ class CenterSectionView(discord.ui.View):
         return await authorized(interaction, self.user_id)
 
     async def select_tool(self, interaction):
-        await route(self.cog, interaction, self.section, self.children[0].values[0])
+        await route(self.cog, interaction, self.section, self.tool_selector.values[0])
 
     @discord.ui.button(label="Back to Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=1)
     async def home(self, interaction, button):
@@ -299,6 +300,7 @@ class AllianceWorkspaceView(discord.ui.View):
                      for aid, name in alliances[:25]],
             row=0,
         )
+        self.alliance_selector = selector
         selector.callback = self.switch_alliance
         self.add_item(selector)
 
@@ -312,7 +314,7 @@ class AllianceWorkspaceView(discord.ui.View):
         return True
 
     async def switch_alliance(self, interaction):
-        selected = int(self.children[0].values[0])
+        selected = int(self.alliance_selector.values[0])
         await show_alliance_workspace(self.cog, interaction, selected)
 
     @discord.ui.button(label="Manage Members / Import", emoji="👥", style=discord.ButtonStyle.primary, row=1)

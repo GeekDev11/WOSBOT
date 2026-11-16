@@ -109,3 +109,34 @@ def test_center_direct_entry_registered_for_servers_and_dms():
     assert cmd.allowed_installs.guild is True
     assert cmd.allowed_contexts.guild is True
     assert cmd.allowed_contexts.dm_channel is True
+
+
+@pytest.mark.asyncio
+async def test_section_dropdown_reads_select_not_home_button(monkeypatch):
+    from types import SimpleNamespace
+    import cogs.command_center as module
+    routed = []
+    async def fake_route(cog, interaction, section, choice):
+        routed.append((section, choice))
+    monkeypatch.setattr(module, "route", fake_route)
+    view = CenterSectionView(object(), 11, "intel")
+    # discord.py registers decorated buttons before dynamic selects.
+    assert view.children[0] is not view.tool_selector
+    view.tool_selector._values = ["scout"]
+    await view.select_tool(SimpleNamespace())
+    assert routed == [("intel", "scout")]
+
+
+@pytest.mark.asyncio
+async def test_alliance_switch_reads_select_not_action_button(monkeypatch):
+    from types import SimpleNamespace
+    import cogs.command_center as module
+    opened = []
+    async def fake_open(cog, interaction, alliance_id):
+        opened.append(alliance_id)
+    monkeypatch.setattr(module, "show_alliance_workspace", fake_open)
+    view = AllianceWorkspaceView(object(), 11, [(100, "VEN"), (200, "ABC")], 100)
+    assert view.children[0] is not view.alliance_selector
+    view.alliance_selector._values = ["200"]
+    await view.switch_alliance(SimpleNamespace())
+    assert opened == [200]
