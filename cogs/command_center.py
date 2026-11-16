@@ -254,9 +254,9 @@ async def open_section(cog, interaction, section):
         await missing(interaction, "Navigation")
         return
     title, emoji, items = SECTIONS[section]
-    lines = [f"Select a tool below. All existing editing, upload and export workflows remain available.", ""]
-    lines += [f"**{i[1]}** — {i[2]}" for i in items]
-    embed = discord.Embed(title=f"{emoji} {title}", description="\n".join(lines),
+    embed = discord.Embed(
+        title=f"{emoji} {title}",
+        description="Choose a tool from the dropdown. Its description appears in the selection list.\nUse **Back to Home** to switch centers.",
                           color=theme.emColor1)
     await safe_edit_message(interaction, embed=embed,
                             view=CenterSectionView(cog, interaction.user.id, section), content=None)
@@ -279,7 +279,30 @@ class CenterSectionView(discord.ui.View):
         return await authorized(interaction, self.user_id)
 
     async def select_tool(self, interaction):
-        await route(self.cog, interaction, self.section, self.tool_selector.values[0])
+        try:
+            await route(self.cog, interaction, self.section, self.tool_selector.values[0])
+        except Exception:
+            logger.exception("Command Center dropdown failed: %s", self.section)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Unable to open this tool. Check Bot Health logs.", ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "Unable to open this tool. Check Bot Health logs.", ephemeral=True,
+                )
+
+    async def on_error(self, interaction, error, item):
+        logger.error("Command Center section interaction failed: %s", self.section,
+                     exc_info=(type(error), error, error.__traceback__))
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "Menu action failed. Check Bot Health logs.", ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "Menu action failed. Check Bot Health logs.", ephemeral=True,
+            )
 
     @discord.ui.button(label="Back to Home", emoji="🏠", style=discord.ButtonStyle.secondary, row=1)
     async def home(self, interaction, button):
@@ -316,6 +339,18 @@ class AllianceWorkspaceView(discord.ui.View):
     async def switch_alliance(self, interaction):
         selected = int(self.alliance_selector.values[0])
         await show_alliance_workspace(self.cog, interaction, selected)
+
+    async def on_error(self, interaction, error, item):
+        logger.error("Alliance workspace interaction failed: %s", self.alliance_id,
+                     exc_info=(type(error), error, error.__traceback__))
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "Alliance menu action failed. Check Bot Health logs.", ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "Alliance menu action failed. Check Bot Health logs.", ephemeral=True,
+            )
 
     @discord.ui.button(label="Manage Members / Import", emoji="👥", style=discord.ButtonStyle.primary, row=1)
     async def members(self, interaction, button):

@@ -140,3 +140,34 @@ async def test_alliance_switch_reads_select_not_action_button(monkeypatch):
     view.alliance_selector._values = ["200"]
     await view.switch_alliance(SimpleNamespace())
     assert opened == [200]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section,choice", [
+    (section, item[0]) for section, (_, _, items) in SECTIONS.items() for item in items
+])
+async def test_every_submenu_selection_routes_without_indexing_children(monkeypatch, section, choice):
+    import cogs.command_center as module
+    from types import SimpleNamespace
+    forwarded = []
+    async def fake_route(cog, interaction, name, tool):
+        forwarded.append((name, tool))
+    monkeypatch.setattr(module, "route", fake_route)
+    view = CenterSectionView(object(), 123, section)
+    view.tool_selector._values = [choice]
+    interaction = SimpleNamespace()
+    await view.select_tool(interaction)
+    assert forwarded == [(section, choice)]
+
+
+def test_selection_view_and_alliance_view_have_error_handlers():
+    assert callable(CenterSectionView.on_error)
+    assert callable(AllianceWorkspaceView.on_error)
+
+
+def test_selection_descriptions_not_repeated_in_embed():
+    import inspect
+    from cogs.command_center import open_section
+    source = inspect.getsource(open_section)
+    assert "lines +=" not in source
+    assert "dropdown" in source
