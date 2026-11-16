@@ -340,9 +340,5 @@ def test_scoped_workflows_and_profile_exposure():
     source = inspect.getsource(route)
     assert 'show_event_reports_entry(cog, interaction)' in source
     assert 'show_appearance_entry(cog, interaction)' in source
-    assert 'open_alliance_scoped_tool' in inspect.getsource(ImportExportView.imports.callback) or (
-        'open_alliance_scoped_tool' in inspect.getsource(ImportExportView)
-    )
-    assert 'BotProfile' in inspect.getsource(AppearanceView.profile.callback) or (
-        'BotProfile' in inspect.getsource(AppearanceView)
-    )
+    assert 'open_alliance_scoped_tool' in inspect.getsource(ImportExportView)
+    assert 'BotProfile' in inspect.getsource(AppearanceView)
