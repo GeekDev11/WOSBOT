@@ -1062,4 +1062,16 @@ class SettingsMenuView(discord.ui.View):
     async def back_to_main_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await check_interaction_user(interaction, self.original_user_id):
             return
-        await self.cog.show_gift_menu(interaction)
+        from .command_center import open_section
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await open_section(parent, interaction, "gifts")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=3)
+    async def home(self, interaction, button):
+        if not await check_interaction_user(interaction, self.original_user_id):
+            return
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await parent.show_main_menu(interaction)
