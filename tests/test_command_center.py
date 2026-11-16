@@ -44,12 +44,10 @@ def test_workspace_has_real_management_actions():
     class Fake: pass
     view = AllianceWorkspaceView(Fake(), 1, [(100, "EXA")], 100)
     labels = {getattr(x, "label", "") for x in view.children}
-    assert "Manage Members / Import" in labels
-    assert "Troop Quality" in labels
-    assert "Attendance & OCR" in labels
-    assert "Export Members" in labels
-    assert "Alliance Settings / History" in labels
-    assert "Manage Alliances" in labels
+    assert {"Members & Imports", "Troop Quality", "Export Members",
+            "Alliance Configuration", "Rankings & History",
+            "Manage Alliances"} <= labels
+    assert "Attendance & OCR" not in labels
 
 
 def test_existing_main_menu_hub_and_permissions_not_removed():
@@ -196,6 +194,8 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     monkeypatch.setattr(module, "show_alliance_workspace", fake_workspace)
     monkeypatch.setattr(module, "show_alliance_settings_entry", fake_direct)
     monkeypatch.setattr(module, "show_alliance_history_entry", fake_direct)
+    monkeypatch.setattr(module, "open_alliance_scoped_tool", fake_direct)
+    monkeypatch.setattr(module, "show_gift_code_management", fake_direct)
     monkeypatch.setattr(module, "show_import_export_entry", fake_direct)
     monkeypatch.setattr(module, "open_gift_redemption", fake_direct)
     monkeypatch.setattr(module, "show_event_reports_entry", fake_direct)
@@ -205,6 +205,7 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
         show_maintenance=fake_direct,
         show_maintenance_tools=fake_direct,
         show_alliance_management=fake_direct,
+        show_alliance_admin_tools=fake_direct,
         show_alliance_settings=fake_direct,
     )
     interaction = SimpleNamespace(response=SimpleNamespace(send_modal=fake_modal))
@@ -219,7 +220,7 @@ def test_back_navigation_uses_new_command_center():
     assert "open_section" in inspect.getsource(MainMenu.show_alliance_management)
     assert "show_alliance_settings" in inspect.getsource(MainMenu)
     assert "show_alliance_hub" in inspect.getsource(AllianceHubView.back)
-    assert "show_alliance_settings" in inspect.getsource(AllianceWorkspaceView.settings)
+    assert "show_alliance_settings" in inspect.getsource(AllianceWorkspaceView.configuration)
 
 
 def test_settings_and_history_have_explicit_navigation():
@@ -229,7 +230,7 @@ def test_settings_and_history_have_explicit_navigation():
     assert 'if key == "settings":' in code
     assert 'if key == "history":' in code
     assert "show_alliance_settings_entry" in code
-    assert "show_alliance_history_entry" in code
+    assert '"AllianceInsights", "show_alliance_insights"' in code
 
 
 def test_maintenance_back_returns_to_new_admin_center():
@@ -317,7 +318,7 @@ def test_distinct_modified_routes_and_direct_backup():
     assert 'CoordinatesLookupModal(cog)' in source
     assert '"NotificationSchedule", "show_main_menu"' in source
     assert '"BackupOperations", "show_backup_menu"' in source
-    assert 'show_import_export_entry' in source
+    assert '"AllianceMemberOperations", "show_export_members"' in source
     assert 'open_gift_redemption' in source
 
 
@@ -439,3 +440,58 @@ def test_state_comparison_embed_displays_real_line_breaks():
     assert r"\n" not in embed.description
     assert "State 101:" in embed.description
     assert "State 102:" in embed.description
+
+
+def test_alliance_settings_is_configuration_only_and_preserves_handlers():
+    from cogs.bot_main_menu import AllianceHubView
+    import inspect
+    class Stub: pass
+    view = AllianceHubView(Stub(), 10, "Example", "alliance",
+                           [(10, "Example", 4)])
+    labels = {getattr(item, "label", "") for item in view.children}
+    assert {"Channel Setup", "Edit Name", "Set State", "Delete Alliance",
+            "Back to Command Center", "Main Menu"} <= labels
+    assert not ({"Manage Members", "Troop Quality", "Power Rankings", "History"} & labels)
+    assert "show_manage_members_for" in inspect.getsource(AllianceHubView.manage_members)
+    assert "show_power_rankings_for" in inspect.getsource(AllianceHubView.power_rankings)
+
+
+def test_alliance_catalog_is_direct_and_attendance_belongs_to_events():
+    alliance = {key: label for key, label, _ in SECTIONS["alliance"][2]}
+    assert "attendance" not in alliance
+    assert alliance["members"] == "Members & Imports"
+    assert alliance["history"] == "Rankings & History"
+    assert "management" in alliance
+    assert "attendance" in {key for key, _, _ in SECTIONS["events"][2]}
+
+
+def test_manage_gift_codes_is_not_duplicate_gift_dashboard():
+    from cogs.command_center import GiftCodeManagementView
+    view = GiftCodeManagementView(object(), 123)
+    labels = {getattr(item, "label", None) for item in view.children}
+    assert {"Add Gift Code", "List Gift Codes", "Delete Gift Code",
+            "Back to Gift Center", "Main Menu"} <= labels
+    assert "Redeem Gift Code" not in labels
+
+
+def test_maintenance_has_no_duplicate_admin_entries():
+    from cogs.bot_main_menu import MaintenanceView
+    import discord
+    view = MaintenanceView(object(), is_global=True, is_owner=True)
+    ids = {x.custom_id for x in view.children if isinstance(x, discord.ui.Button)}
+    assert not {"backup_system", "bot_health", "bot_profile", "leave_server"} & ids
+    assert "check_updates" in ids
+    assert any(getattr(x, "label", "") == "Back to Administration" for x in view.children)
+
+
+def test_event_hubs_offer_back_to_events_and_home():
+    import inspect
+    from cogs.attendance import AttendanceHubView
+    from cogs.bear_track import BearMenuView
+    from cogs.minister_menu import MinisterChannelView
+    from cogs.notification_system import BearTrapView
+    from cogs.notification_schedule import ScheduleBoardMainView
+    for view in (AttendanceHubView, BearMenuView, MinisterChannelView,
+                 BearTrapView, ScheduleBoardMainView):
+        assert "Back to Events" in inspect.getsource(view)
+        assert "Main Menu" in inspect.getsource(view)
