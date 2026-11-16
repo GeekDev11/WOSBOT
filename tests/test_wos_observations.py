@@ -6,15 +6,15 @@ from cogs.wos_observations import save_observation, fetch_changes
 
 def test_location_state_and_nested_hero_gear_history(tmp_path):
     db = str(tmp_path / "observations.sqlite")
-    old = {"player": {"kid": 1501, "x": 517, "y": 444, "nick_name": "A"},
+    old = {"player": {"kid": 101, "x": 517, "y": 444, "nick_name": "A"},
            "heroes": [{"name": "Gregory", "gear": [{"plus": 79, "mastery": 19}]}]}
-    new = {"player": {"kid": 1502, "x": 10, "y": 21, "nick_name": "B"},
+    new = {"player": {"kid": 102, "x": 10, "y": 21, "nick_name": "B"},
            "heroes": [{"name": "Gregory", "gear": [{"plus": 100, "mastery": 20}]}]}
-    assert save_observation(137940156, old, path=db) == 0
-    assert save_observation(137940156, new, path=db) == 6
+    assert save_observation(123456789, old, path=db) == 0
+    assert save_observation(123456789, new, path=db) == 6
     history = {field: (json.loads(before), json.loads(after))
-               for _, field, before, after in fetch_changes(137940156, path=db)}
-    assert history["player.kid"] == (1501, 1502)
+               for _, field, before, after in fetch_changes(123456789, path=db)}
+    assert history["player.kid"] == (101, 102)
     assert history["player.x"] == (517, 10)
     assert history["player.y"] == (444, 21)
     assert history["player.nick_name"] == ("A", "B")
@@ -24,7 +24,7 @@ def test_location_state_and_nested_hero_gear_history(tmp_path):
 
 def test_omitted_sections_and_coordinates_do_not_erase_last_seen(tmp_path):
     db = str(tmp_path / "observations.sqlite")
-    first = {"player": {"kid": 1501, "x": 517, "y": 444, "power": 100},
+    first = {"player": {"kid": 101, "x": 517, "y": 444, "power": 100},
              "heroes": [{"gear": [{"plus": 50}]}]}
     save_observation(11, first, path=db)
     assert save_observation(11, {"player": {"power": 200}}, path=db) == 1
@@ -33,14 +33,14 @@ def test_omitted_sections_and_coordinates_do_not_erase_last_seen(tmp_path):
         stored = json.loads(conn.execute(
             "SELECT payload_json FROM observations ORDER BY id DESC LIMIT 1").fetchone()[0])
     assert stored["player"]["x"] == 517
-    assert stored["player"]["kid"] == 1501
+    assert stored["player"]["kid"] == 101
     assert stored["heroes"][0]["gear"][0]["plus"] == 50
 
 
 def test_volatile_cache_age_is_not_logged_as_game_change(tmp_path):
     db = str(tmp_path / "observations.sqlite")
-    save_observation(33, {"player": {"kid": 1501}, "age_seconds": 100}, path=db)
-    assert save_observation(33, {"player": {"kid": 1501}, "age_seconds": 130}, path=db) == 0
+    save_observation(33, {"player": {"kid": 101}, "age_seconds": 100}, path=db)
+    assert save_observation(33, {"player": {"kid": 101}, "age_seconds": 130}, path=db) == 0
 
 
 def test_player_sync_uses_calendar_day_and_full_api_sections():
