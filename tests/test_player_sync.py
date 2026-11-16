@@ -1482,7 +1482,7 @@ async def test_frosty_limits_are_verified_from_free_provider_usage(monkeypatch):
     monkeypatch.setattr(sync, "load_setting", lambda name:
                         "example-key" if name == "key" else dict(stored))
     monkeypatch.setattr(sync, "save_setting", lambda name, val: stored.update(val))
-    monkeypatch.setattr(sync, "_VERIFIED_USAGE_AT", 0.0)
+    monkeypatch.setattr(sync, "_VERIFIED_USAGE_AT", None)
     await sync._refresh_official_limits(profile)
     assert profile["per_minute"] == 120 and profile["per_day"] == 10000
     assert stored["per_day"] == 10000
