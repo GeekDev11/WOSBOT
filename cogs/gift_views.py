@@ -1053,7 +1053,7 @@ class SettingsMenuView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=ClearCacheConfirmView(self.cog), ephemeral=True)
 
     @discord.ui.button(
-        label="Back",
+        label="Back to Gift Center",
         style=discord.ButtonStyle.secondary,
         custom_id="back_to_main",
         emoji=f"{theme.backIcon}",
