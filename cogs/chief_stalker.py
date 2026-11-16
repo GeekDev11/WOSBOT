@@ -260,18 +260,19 @@ class ChiefStalker(commands.Cog):
 
     @app_commands.command(name="wosplayer", description="Inspect a Whiteout Survival player using Whiteout Stats")
     @app_commands.describe(chief_id="In-game Chief ID")
-    async def wosplayer(self, interaction: discord.Interaction, chief_id: str):
-        await interaction.response.defer(thinking=True, ephemeral=True)
+    async def wosplayer(
+        from .command_center import intelligence_result_viewself, interaction: discord.Interaction, chief_id: str):
+        await interaction.response.defer(thinking=True, ephemeral=True, view=intelligence_result_view(interaction))
         if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
-            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True)
+            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True, view=intelligence_result_view(interaction))
             return
         payload, error = await self.get_player(int(chief_id))
         if error:
-            await interaction.followup.send(error, ephemeral=True)
+            await interaction.followup.send(error, ephemeral=True, view=intelligence_result_view(interaction))
             return
         data = basic_fields(payload)
         if not data:
-            await interaction.followup.send("No player object was found in the API response.", ephemeral=True)
+            await interaction.followup.send("No player object was found in the API response.", ephemeral=True, view=intelligence_result_view(interaction))
             return
         from .wos_player_history import store_player
         await asyncio.to_thread(store_player, int(chief_id), payload)
@@ -298,7 +299,7 @@ class ChiefStalker(commands.Cog):
             embed.add_field(name="Map coordinates", value="Not reported", inline=False)
         embed.add_field(name="Shield", value=format_shield(data["shield"]), inline=False)
         embed.set_footer(text=f"Whiteout Stats · {freshness(payload)} · Not live data")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True, view=intelligence_result_view(interaction))
 
     @app_commands.command(name="wosshield", description="Display the last reported shield expiration")
     @app_commands.describe(chief_id="In-game Chief ID")
