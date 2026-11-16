@@ -193,14 +193,15 @@ class WosAllianceIntel(commands.Cog):
 
     @app_commands.command(name="wosalliance", description="Inspect an alliance roster using Whiteout Stats")
     @app_commands.describe(state_id="State number", tag="Case-sensitive alliance tag")
-    async def wosalliance(self, interaction: discord.Interaction, state_id: int, tag: str):
+    async def wosalliance(
+        from .command_center import intelligence_result_viewself, interaction: discord.Interaction, state_id: int, tag: str):
         await interaction.response.defer(ephemeral=True, thinking=True)
         if state_id <= 0 or not tag or len(tag) > 32:
-            await interaction.followup.send("Enter a positive state number and valid alliance tag.", ephemeral=True)
+            await interaction.followup.send("Enter a positive state number and valid alliance tag.", ephemeral=True, view=intelligence_result_view(interaction))
             return
         found, error = await self.fetch_roster(state_id, tag)
         if error:
-            await interaction.followup.send(error, ephemeral=True)
+            await interaction.followup.send(error, ephemeral=True, view=intelligence_result_view(interaction))
             return
         payload, alliance, roster = found
         result = await asyncio.to_thread(
@@ -221,7 +222,7 @@ class WosAllianceIntel(commands.Cog):
                             value=f"Joined: {len(delta['joined'])} · Left: {len(delta['left'])} · Rank changes: {len(delta['rank_changed'])}",
                             inline=False)
         embed.set_footer(text="API observation only · Missing members are not confirmed state transfers")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True, view=intelligence_result_view(interaction))
 
     @app_commands.command(name="wosalliancechanges", description="See observed roster changes from saved API snapshots")
     @app_commands.describe(state_id="State number", alliance_id="Internal alliance ID from Whiteout Stats")
