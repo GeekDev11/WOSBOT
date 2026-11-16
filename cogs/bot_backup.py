@@ -516,6 +516,14 @@ class BackupView(discord.ui.View):
         if main_menu_cog:
             await main_menu_cog.show_maintenance(interaction)
 
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def home(self, interaction, button):
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await parent.show_main_menu(interaction)
+
+
 class BackupChoiceView(discord.ui.View):
     def __init__(self, cog, user_id):
         super().__init__(timeout=confirm_timeout())
