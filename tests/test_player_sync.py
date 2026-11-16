@@ -1453,38 +1453,61 @@ def test_no_data_result_tracks_member_without_creating_a_change(monkeypatch):
     assert report.changes == {}
 
 
-def test_legacy_official_quota_migration_is_once_and_preserves_custom(monkeypatch):
-    from copy import deepcopy
-    saved = {}
-    flags = {}
-    profiles = [
-        _profile(base_url="https://api.whiteoutstats.com", per_minute=30, per_day=1000),
-        _profile(base_url="https://api.whiteoutstats.com", per_minute=20, per_day=700),
-        _profile(base_url="https://another.example.com", per_minute=30, per_day=1000),
-    ]
-    def read(*names):
-        return {"profile": deepcopy(profiles[0]), "key": "fake-key"}
-    monkeypatch.setattr(sync, "load_settings", read)
-    monkeypatch.setattr(sync, "_settings", lambda *names: flags)
-    monkeypatch.setattr(sync, "_put_setting", lambda k, v: flags.__setitem__(k, v))
-    monkeypatch.setattr(sync, "save_setting", lambda k, v: saved.__setitem__(k, v))
-    profile, key = sync.load_connection()
-    assert profile["per_minute"] == 60 and profile["per_day"] == 5000
-    assert saved["profile"]["per_day"] == 5000
-    assert flags[sync._OFFICIAL_LIMIT_MIGRATION] == "1"
-    saved.clear()
-    profile, _ = sync.load_connection()
-    assert "profile" not in saved
-    assert profile["per_day"] == 1000  # mocked storage remains old
+@pytest.mark.asyncio
+async def test_frosty_limits_are_verified_from_free_provider_usage(monkeypatch):
+    profile = _profile(
+        base_url="https://api.whiteoutstats.com", auth_header="X-Api-Key",
+        per_minute=60, per_day=5000,
+    )
+    stored = dict(profile)
+    calls = []
+    class Reply:
+        status = 200
+        async def json(self, content_type=None):
+            return {"ok": True, "frosty": True,
+                    "minute": {"limit": 120}, "daily": {"limit": 10000}}
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+    class Session:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs["headers"]))
+            return Reply()
+    monkeypatch.setattr(sync.aiohttp, "ClientSession", Session)
+    monkeypatch.setattr(sync, "load_setting", lambda name:
+                        "example-key" if name == "key" else dict(stored))
+    monkeypatch.setattr(sync, "save_setting", lambda name, val: stored.update(val))
+    monkeypatch.setattr(sync, "_VERIFIED_USAGE_AT", 0.0)
+    await sync._refresh_official_limits(profile)
+    assert profile["per_minute"] == 120 and profile["per_day"] == 10000
+    assert stored["per_day"] == 10000
+    assert calls == [("https://api.whiteoutstats.com/v1/usage",
+                      {"X-Api-Key": "example-key"})]
 
-    flags.clear()
-    saved.clear()
-    monkeypatch.setattr(sync, "load_settings", lambda *names: {"profile": deepcopy(profiles[1]), "key": "fake"})
-    profile, _ = sync.load_connection()
-    assert profile["per_day"] == 700 and "profile" not in saved
-    assert flags[sync._OFFICIAL_LIMIT_MIGRATION] == "1"
 
-    flags.clear()
-    monkeypatch.setattr(sync, "load_settings", lambda *names: {"profile": deepcopy(profiles[2]), "key": "fake"})
-    profile, _ = sync.load_connection()
-    assert profile["per_day"] == 1000 and not flags
+@pytest.mark.asyncio
+async def test_frosty_verification_preserves_custom_limits(monkeypatch):
+    profile = _profile(
+        base_url="https://api.whiteoutstats.com",
+        per_minute=20, per_day=700,
+    )
+    called = []
+    monkeypatch.setattr(sync.aiohttp, "ClientSession", lambda: called.append(1))
+    await sync._refresh_official_limits(profile)
+    assert profile["per_day"] == 700
+    assert not called
+
+
+def test_load_connection_does_not_guess_paid_or_standard_plan(monkeypatch):
+    profile = _profile(base_url="https://api.whiteoutstats.com",
+                       per_minute=30, per_day=1000)
+    monkeypatch.setattr(sync, "load_settings", lambda *names:
+                        {"profile": dict(profile), "key": "example-key"})
+    read, key = sync.load_connection()
+    assert read["per_minute"] == 30 and read["per_day"] == 1000
+    assert key == "example-key"
