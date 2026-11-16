@@ -188,71 +188,48 @@ class StateLookupModal(discord.ui.Modal):
 
 
 class StateCompareModal(discord.ui.Modal):
-    """Top-20 comparison for one supported category; no inferred data."""
-    first = discord.ui.TextInput(label="First state", placeholder="Enter first state number", max_length=8)
-    second = discord.ui.TextInput(label="Second state", placeholder="Enter second state number", max_length=8)
-    def __init__(self, cog, board):
+    """Collect the state pair once; category changes do not reopen a form."""
+    def __init__(self, cog, first=None, second=None):
         super().__init__(title="Compare State Rankings")
         self.cog = cog
-        self.board = board
+        self.first = discord.ui.TextInput(
+            label="First state", placeholder="Enter first state number",
+            max_length=8, default=str(first) if first is not None else None,
+        )
+        self.second = discord.ui.TextInput(
+            label="Second state", placeholder="Enter second state number",
+            max_length=8, default=str(second) if second is not None else None,
+        )
+        self.add_item(self.first)
+        self.add_item(self.second)
 
     async def on_submit(self, interaction):
-        from .wos_leaderboards import SCOUT_BOARDS, scout_label
         one, two = str(self.first.value).strip(), str(self.second.value).strip()
-        board = self.board
-        if not one.isdigit() or not two.isdigit() or min(int(one), int(two)) < 1:
-            await interaction.response.send_message("Enter two positive state numbers.", ephemeral=True)
+        if not one.isascii() or not one.isdecimal() or not two.isascii() or not two.isdecimal():
+            await interaction.response.send_message("Enter two positive numeric state numbers.", ephemeral=True)
             return
-        if board not in SCOUT_BOARDS:
-            await interaction.response.send_message(
-                "Unsupported category. Try personal_power, pet_power or alliance_power.",
-                ephemeral=True,
-            )
+        if min(int(one), int(two)) < 1:
+            await interaction.response.send_message("State numbers must be positive.", ephemeral=True)
             return
-        client = self.cog.bot.get_cog("WosLeaderboards")
-        if not client:
-            await missing(interaction, "Whiteout Stats leaderboards")
-            return
-        await interaction.response.defer(thinking=True, ephemeral=True)
-        left, right = await asyncio.gather(
-            client.fetch_board(int(one), board, 20),
-            client.fetch_board(int(two), board, 20),
+        view = StateComparisonCategoryView(self.cog, interaction.user.id, int(one), int(two))
+        await safe_edit_message(
+            interaction, embed=view.build_embed(), view=view, content=None,
         )
-        lines = []
-        for sid, (entries, error) in ((one, left), (two, right)):
-            if error:
-                lines.append(f"**State {sid}:** {error}")
-                continue
-            numeric = [
-                row["score"] for row in entries[:20]
-                if isinstance(row.get("score"), (int, float))
-                and not isinstance(row["score"], bool)
-            ]
-            lines.append(f"**State {sid}** · {len(entries[:20])} entries")
-            if numeric:
-                lines.append(f"Highest recorded score: {max(numeric):,.0f}")
-            if len(numeric) == 20 and len(entries) >= 20:
-                lines.append(f"Sum of top 20 recorded scores: {sum(numeric):,.0f}")
-            else:
-                lines.append("Full top-20 numeric comparison unavailable")
-        embed = discord.Embed(
-            title=f"State {one} vs State {two} · {scout_label(board)}",
-            description="\n".join(lines) or "No comparable data returned.",
-            color=theme.emColor1,
-        )
-        embed.set_footer(text="Whiteout Stats snapshots · compare identical ranking categories")
-        await send_lookup_result(self.cog, interaction, embed=embed)
-
 
 
 class StateComparisonCategoryView(discord.ui.View):
-    """Choose a readable category before entering the two states."""
-    def __init__(self, cog, user_id):
+    """Keep the selected states while browsing available leaderboard categories."""
+    def __init__(self, cog, user_id, first, second):
         super().__init__(timeout=menu_timeout())
         from .wos_leaderboards import SCOUT_BOARDS, scout_label
         self.cog, self.user_id = cog, user_id
+        self.first, self.second = int(first), int(second)
+        self.board = None
+        self.cache = {}
+        self.lock = asyncio.Lock()
         select = discord.ui.Select(
-            placeholder="Choose ranking category",
+            placeholder="Choose a ranking category",
+            row=0,
             options=[discord.SelectOption(label=scout_label(slug)[:100], value=slug)
                      for slug in SCOUT_BOARDS],
         )
@@ -260,12 +237,77 @@ class StateComparisonCategoryView(discord.ui.View):
         select.callback = self.select_category
         self.add_item(select)
 
+    def build_embed(self, lines=None):
+        from .wos_leaderboards import scout_label
+        heading = (f"State {self.first} vs State {self.second}"
+                   + (f" · {scout_label(self.board)}" if self.board else ""))
+        description = (f"**States:** {self.first} and {self.second}\\n"
+                       "Choose a ranking category below to compare their top 20 entries. "
+                       "Switch categories without entering the states again.")
+        if lines:
+            description += "\\n\\n" + "\\n".join(lines)
+        embed = discord.Embed(title=heading, description=description, color=theme.emColor1)
+        embed.set_footer(text="Whiteout Stats snapshots · API usage is limited by your configured budget")
+        return embed
+
     async def interaction_check(self, interaction):
         return await authorized(interaction, self.user_id)
 
     async def select_category(self, interaction):
+        if self.lock.locked():
+            await interaction.response.send_message("A comparison is already running.", ephemeral=True)
+            return
+        from .wos_leaderboards import SCOUT_BOARDS
+        board = self.category_selector.values[0]
+        if board not in SCOUT_BOARDS:
+            await interaction.response.send_message("Unsupported ranking category.", ephemeral=True)
+            return
+        async with self.lock:
+            await interaction.response.defer()
+            self.board = board
+            if board in self.cache:
+                lines = self.cache[board]
+            else:
+                client = self.cog.bot.get_cog("WosLeaderboards")
+                if client is None:
+                    lines = ["Whiteout Stats leaderboards are not loaded."]
+                else:
+                    try:
+                        results = await asyncio.gather(
+                            client.fetch_board(self.first, board, 20),
+                            client.fetch_board(self.second, board, 20),
+                        )
+                        lines = []
+                        for state, (entries, error) in zip((self.first, self.second), results):
+                            if error:
+                                lines.append(f"**State {state}:** {error}")
+                                continue
+                            entries = (entries or [])[:20]
+                            numeric = [row["score"] for row in entries
+                                       if isinstance(row.get("score"), (int, float))
+                                       and not isinstance(row["score"], bool)]
+                            lines.append(f"**State {state}** · {len(entries)} entries")
+                            if numeric:
+                                lines.append(f"Highest recorded score: {max(numeric):,.0f}")
+                            if len(numeric) == 20 and len(entries) == 20:
+                                lines.append(f"Sum of top 20 recorded scores: {sum(numeric):,.0f}")
+                            else:
+                                lines.append("Full top-20 numeric comparison unavailable")
+                        if not any(error for _, error in results):
+                            self.cache[board] = lines
+                    except Exception:
+                        logger.exception("State comparison failed")
+                        lines = ["Unable to fetch rankings. Check Bot Health logs and try again."]
+            for option in self.category_selector.options:
+                option.default = option.value == board
+            await interaction.edit_original_response(embed=self.build_embed(lines), view=self)
+
+    @discord.ui.button(label="Change States", emoji="✏️",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def change_states(self, interaction, button):
         await interaction.response.send_modal(
-            StateCompareModal(self.cog, self.category_selector.values[0]))
+            StateCompareModal(self.cog, self.first, self.second),
+        )
 
     @discord.ui.button(label="Back to Intelligence", emoji="↩️",
                        style=discord.ButtonStyle.secondary, row=1)
@@ -276,19 +318,6 @@ class StateComparisonCategoryView(discord.ui.View):
                        style=discord.ButtonStyle.secondary, row=1)
     async def home(self, interaction, button):
         await self.cog.show_main_menu(interaction)
-
-
-async def show_state_comparison_categories(cog, interaction):
-    embed = discord.Embed(
-        title="Compare State Rankings",
-        description="Select a ranking category by name, then enter the two state numbers. Both states will be compared using the same top-20 ranking.",
-        color=theme.emColor1,
-    )
-    await safe_edit_message(
-        interaction, embed=embed,
-        view=StateComparisonCategoryView(cog, interaction.user.id), content=None,
-    )
-
 
 
 class AllianceIntelModal(discord.ui.Modal):
@@ -818,7 +847,7 @@ async def route(cog, interaction, section, key):
         if key in ("scout", "svs"):
             return await interaction.response.send_modal(StateLookupModal(cog, key))
         if key == "statecompare":
-            return await show_state_comparison_categories(cog, interaction)
+            return await interaction.response.send_modal(StateCompareModal(cog))
         if key == "allianceintel":
             return await interaction.response.send_modal(AllianceIntelModal(cog))
 
