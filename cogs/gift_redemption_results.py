@@ -274,10 +274,13 @@ class RedeemHistoryView(discord.ui.View):
         next_btn.callback = self._next
         self.add_item(next_btn)
 
-        # Row 4: Back only (returns to the gift menu).
-        back_btn = discord.ui.Button(label="Back", emoji=f"{theme.backIcon}", style=discord.ButtonStyle.secondary, row=4)
+        # Row 4: return to the new Gift Code Center, never the legacy dashboard.
+        back_btn = discord.ui.Button(label="Back to Gift Center", emoji=f"{theme.backIcon}", style=discord.ButtonStyle.secondary, row=4)
         back_btn.callback = self._back
         self.add_item(back_btn)
+        home_btn = discord.ui.Button(label="Main Menu", emoji="🏠", style=discord.ButtonStyle.secondary, row=4)
+        home_btn.callback = self._home
+        self.add_item(home_btn)
 
     async def _refresh(self, interaction: discord.Interaction):
         self._build_components()
@@ -328,4 +331,22 @@ class RedeemHistoryView(discord.ui.View):
         await self._refresh(interaction)
 
     async def _back(self, interaction: discord.Interaction):
-        await self.cog.show_gift_menu(interaction)
+        from .command_center import open_section
+        main = self.cog.bot.get_cog("MainMenu")
+        if main is None:
+            await interaction.response.send_message(
+                "Gift Code Center is unavailable. Use /settings to reopen it.",
+                ephemeral=True,
+            )
+            return
+        await open_section(main, interaction, "gifts")
+
+    async def _home(self, interaction: discord.Interaction):
+        main = self.cog.bot.get_cog("MainMenu")
+        if main is None:
+            await interaction.response.send_message(
+                "Main Menu is unavailable. Use /settings to reopen it.",
+                ephemeral=True,
+            )
+            return
+        await main.show_main_menu(interaction)
