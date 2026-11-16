@@ -495,3 +495,36 @@ def test_event_hubs_offer_back_to_events_and_home():
                  BearTrapView, ScheduleBoardMainView):
         assert "Back to Events" in inspect.getsource(view)
         assert "Main Menu" in inspect.getsource(view)
+
+
+@pytest.mark.asyncio
+async def test_redemption_history_back_uses_new_gift_center(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.gift_redemption_results import RedeemHistoryView
+    import cogs.command_center as nav
+    sections = []
+    async def open_gifts(cog, interaction, section):
+        sections.append(section)
+    monkeypatch.setattr(nav, "open_section", open_gifts)
+    parent = object()
+    gift_cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: parent))
+    view = RedeemHistoryView(gift_cog, 17, [], [], None)
+    labels = {getattr(child, "label", None) for child in view.children}
+    assert {"Back to Gift Center", "Main Menu"} <= labels
+    await view._back(SimpleNamespace())
+    assert sections == ["gifts"]
+
+
+@pytest.mark.asyncio
+async def test_redemption_history_home_uses_main_menu():
+    from types import SimpleNamespace
+    from cogs.gift_redemption_results import RedeemHistoryView
+    calls = []
+    class Main:
+        async def show_main_menu(self, interaction):
+            calls.append(interaction)
+    gift_cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: Main()))
+    view = RedeemHistoryView(gift_cog, 17, [], [], None)
+    interaction = SimpleNamespace()
+    await view._home(interaction)
+    assert calls == [interaction]
