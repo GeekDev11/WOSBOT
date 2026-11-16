@@ -653,6 +653,40 @@ async def open_gift_redemption(cog, interaction):
 
 
 
+
+class AppearanceView(discord.ui.View):
+    """Expose both appearance settings previously hidden behind different menus."""
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id = cog, user_id
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    @discord.ui.button(label="Themes & Colors", emoji="🎨", style=discord.ButtonStyle.primary)
+    async def themes(self, interaction, button):
+        await open_cog(self.cog, interaction, "Theme", "show_theme_menu")
+
+    @discord.ui.button(label="Bot Profile & Name Style", emoji="🤖", style=discord.ButtonStyle.secondary)
+    async def profile(self, interaction, button):
+        await open_cog(self.cog, interaction, "BotProfile", "show_profile")
+
+    @discord.ui.button(label="Back to Administration", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "admin")
+
+
+async def show_appearance_entry(cog, interaction):
+    embed = discord.Embed(
+        title="Appearance & Bot Profile",
+        description="Customize the theme, colors, bot avatar, profile, or display-name style.",
+        color=theme.emColor1,
+    )
+    await safe_edit_message(interaction, embed=embed,
+                            view=AppearanceView(cog, interaction.user.id), content=None)
+
+
+
 async def route(cog, interaction, section, key):
     """Every menu entry routes to a real existing workflow or a truthful alternative."""
     if section == "alliance":
@@ -711,7 +745,7 @@ async def route(cog, interaction, section, key):
         if key == "sync":
             return await open_cog(cog, interaction, "AllianceApiSync", "show_player_sync")
         if key == "appearance":
-            return await open_cog(cog, interaction, "Theme", "show_theme_menu")
+            return await show_appearance_entry(cog, interaction)
         if key == "health":
             return await open_cog(cog, interaction, "BotHealth", "show_health_menu")
         if key == "backup":
