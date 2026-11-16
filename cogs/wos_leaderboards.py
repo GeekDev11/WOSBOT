@@ -280,7 +280,30 @@ class StateScoutView(discord.ui.View):
         self.add_item(nxt)
         self.prev_button = prev
         self.next_button = nxt
+        back = discord.ui.Button(label="Back to Intelligence", emoji="↩️",
+                                 style=discord.ButtonStyle.secondary, row=2)
+        home = discord.ui.Button(label="Main Menu", emoji="🏠",
+                                 style=discord.ButtonStyle.secondary, row=2)
+        back.callback = self.back_to_intelligence
+        home.callback = self.return_home
+        self.add_item(back)
+        self.add_item(home)
         self.paint_controls()
+
+    async def back_to_intelligence(self, interaction):
+        from .command_center import open_section
+        center = interaction.client.get_cog("MainMenu")
+        if center is None:
+            await interaction.response.send_message("Open /settings to return to Intelligence.", ephemeral=True)
+            return
+        await open_section(center, interaction, "intel")
+
+    async def return_home(self, interaction):
+        center = interaction.client.get_cog("MainMenu")
+        if center is None:
+            await interaction.response.send_message("Open /settings to return to the main menu.", ephemeral=True)
+            return
+        await center.show_main_menu(interaction)
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.requester_id:
@@ -377,6 +400,7 @@ class WosStateScout(commands.Cog):
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.describe(state="State number to scout")
     async def scout(self, interaction: discord.Interaction, state: int):
+        from .command_center import intelligence_result_view
         if state < 1:
             await interaction.response.send_message(
                 "Enter a positive state number.", ephemeral=True)
@@ -385,7 +409,8 @@ class WosStateScout(commands.Cog):
         client = self.board_client()
         if client is None:
             await interaction.followup.send(
-                "Whiteout Stats leaderboards are not loaded.", ephemeral=True)
+                "Whiteout Stats leaderboards are not loaded.", ephemeral=True,
+                view=intelligence_result_view(interaction))
             return
         now = time.monotonic()
         cached = self._state_cache.get(state)
@@ -394,7 +419,7 @@ class WosStateScout(commands.Cog):
         else:
             boards, error = await self.fetch_combined(state)
             if error:
-                await interaction.followup.send(error, ephemeral=True)
+                await interaction.followup.send(error, ephemeral=True, view=intelligence_result_view(interaction))
                 return
             self._state_cache[state] = (now, dict(boards))
             # Avoid unbounded long-lived state caches.
