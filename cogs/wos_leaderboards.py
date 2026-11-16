@@ -1,6 +1,11 @@
 """Whiteout Stats state leaderboards, using the configured shared API budget."""
 import asyncio
+import json
 import logging
+import os
+import sqlite3
+import time
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import aiohttp
@@ -103,9 +108,65 @@ async def BOARD_AUTOCOMPLETE(interaction: discord.Interaction, current: str):
     ][:25]
 
 
+
+# Local snapshots are reused only when they contain real, previously returned API data.
+# They never override the configured request budget or fabricate rankings.
+RANKING_CACHE_DB = os.path.join("db", "wos_ranking_snapshots.sqlite3")
+RANKING_CACHE_FRESH_SECONDS = 3600
+RANKING_CACHE_MAX_AGE_SECONDS = 7 * 86400
+
+
+def save_ranking_snapshot(state_id, board, entries, *, captured_at=None):
+    if board not in BOARDS or not isinstance(entries, list):
+        return
+    try:
+        os.makedirs(os.path.dirname(RANKING_CACHE_DB), exist_ok=True)
+        with sqlite3.connect(RANKING_CACHE_DB, timeout=10) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS ranking_snapshots "
+                "(state_id INTEGER NOT NULL, category TEXT NOT NULL, "
+                "captured_at REAL NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY (state_id, category))"
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO ranking_snapshots "
+                "(state_id, category, captured_at, payload) VALUES (?, ?, ?, ?)",
+                (int(state_id), board, float(captured_at if captured_at is not None else time.time()),
+                 json.dumps(entries[:100])),
+            )
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        logger.warning("Unable to store ranking snapshot for state %s, board %s", state_id, board)
+
+
+def read_ranking_snapshot(state_id, board, *, max_age=RANKING_CACHE_MAX_AGE_SECONDS):
+    if board not in BOARDS:
+        return None
+    try:
+        with sqlite3.connect(RANKING_CACHE_DB, timeout=10) as db:
+            row = db.execute(
+                "SELECT captured_at, payload FROM ranking_snapshots "
+                "WHERE state_id = ? AND category = ?", (int(state_id), board)
+            ).fetchone()
+        if not row or time.time() - float(row[0]) > max_age:
+            return None
+        entries = json.loads(row[1])
+        if not isinstance(entries, list):
+            return None
+        return entries, float(row[0])
+    except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def ranking_snapshot_label(captured_at):
+    return "Saved API snapshot (" + datetime.fromtimestamp(
+        captured_at, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + ")"
+
+
 class WosLeaderboards(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._combined_comparison_cache = {}
+        self._combined_comparison_lock = asyncio.Lock()
 
     async def fetch_board(self, state_id, board, limit):
         profile, key = await asyncio.to_thread(sync.load_connection)
@@ -129,10 +190,55 @@ class WosLeaderboards(commands.Cog):
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
             return None, "The API did not return usable JSON."
         try:
-            return parse_board(data), None
+            entries = parse_board(data)
+            await asyncio.to_thread(save_ranking_snapshot, state_id, board, entries)
+            return entries, None
         except ValueError as exc:
             logger.info("State Scout: state %s board %s: %s", state_id, board, leaderboard_shape(data))
             return None, str(exc)
+
+
+    async def comparison_board(self, state_id, board):
+        """Return real leaderboard rows, preferring shared snapshots over new requests.
+
+        Results include a source label; old snapshots are explicitly identified.
+        """
+        cached = await asyncio.to_thread(read_ranking_snapshot, state_id, board)
+        if cached and time.time() - cached[1] <= RANKING_CACHE_FRESH_SECONDS:
+            return cached[0][:20], None, ranking_snapshot_label(cached[1])
+
+        scout = self.bot.get_cog("WosStateScout")
+        if scout is not None:
+            # One combined request per state can populate many category snapshots.
+            async with self._combined_comparison_lock:
+                record = self._combined_comparison_cache.get(int(state_id))
+                if record and time.monotonic() - record[0] < 300:
+                    boards, combined_error = record[1], record[2]
+                else:
+                    boards, combined_error = await scout.fetch_combined(int(state_id))
+                    self._combined_comparison_cache[int(state_id)] = (
+                        time.monotonic(), dict(boards), combined_error
+                    )
+                    if len(self._combined_comparison_cache) > 30:
+                        self._combined_comparison_cache = {
+                            key: value for key, value in self._combined_comparison_cache.items()
+                            if time.monotonic() - value[0] < 300
+                        }
+                    for slug, entries in boards.items():
+                        await asyncio.to_thread(save_ranking_snapshot, state_id, slug, entries)
+            if board in boards:
+                return boards[board][:20], None, "Whiteout Stats API snapshot"
+            if combined_error and "budget exhausted" in combined_error.lower():
+                if cached:
+                    return cached[0][:20], None, ranking_snapshot_label(cached[1])
+                return None, "No saved ranking available; " + combined_error, None
+
+        entries, error = await self.fetch_board(int(state_id), board, 20)
+        if not error:
+            return entries, None, "Whiteout Stats API snapshot"
+        if cached:
+            return cached[0][:20], None, ranking_snapshot_label(cached[1])
+        return None, error, None
 
     @app_commands.command(name="wosrankings", description="View Whiteout Stats state leaderboards")
     @app_commands.describe(state_id="State number", board="Leaderboard category", limit="Maximum results, 1 to 100")
@@ -391,6 +497,8 @@ class WosStateScout(commands.Cog):
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
             return {}, "Whiteout Stats did not return usable state data."
         boards = parse_state_boards(payload)
+        for slug, entries in boards.items():
+            await asyncio.to_thread(save_ranking_snapshot, state_id, slug, entries)
         if not boards:
             logger.info("State Scout: combined state %s: %s", state_id, leaderboard_shape(payload))
         return boards, None
