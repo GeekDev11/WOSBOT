@@ -56,21 +56,21 @@ async def test_fetch_website_uid_mapping_is_exact():
     s = FakeSession(
         {"results": [
             {"uid": 123, "fid": 555},
-            {"uid": 33763165, "fid": 137940156},
+            {"uid": 33763165, "fid": 123456789},
         ]},
-        {"fid": 137940156, "expedition_troops": [
+        {"fid": 123456789, "expedition_troops": [
             {"kind": "inf", "tier": 12, "star": 9, "count": 1}
         ]},
     )
-    assert await auto.fetch_tiers(s, 137940156) == {"infantry": 12}
-    assert s.urls[0][1] == {"q": "137940156", "limit": "10", "live": "0"}
+    assert await auto.fetch_tiers(s, 123456789) == {"infantry": 12}
+    assert s.urls[0][1] == {"q": "123456789", "limit": "10", "live": "0"}
     assert s.urls[1][0].endswith("/api/players/33763165")
 
 
 @pytest.mark.asyncio
 async def test_unknown_fid_does_not_request_another_players_profile():
     s = FakeSession({"results": [{"uid": 33763165, "fid": 777}]}, {})
-    assert await auto.fetch_tiers(s, 137940156) == {}
+    assert await auto.fetch_tiers(s, 123456789) == {}
     assert len(s.urls) == 1
 
 
@@ -79,21 +79,21 @@ async def test_synchronized_t12_without_skill_stored_unknown(tmp_path, monkeypat
     path = tmp_path / "users.sqlite"
     with sqlite3.connect(path) as db:
         db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, nickname TEXT, alliance TEXT)")
-        db.execute("INSERT INTO users VALUES (137940156, 'FUTURE', '1501')")
+        db.execute("INSERT INTO users VALUES (123456789, 'EXAMPLE', '101')")
     monkeypatch.setattr(quality, "DB_PATH", path)
     # quality.read_quality uses its DB_PATH default at definition time; pass through a wrapper.
     old_read, old_save = quality.read_quality, quality.save_quality
     monkeypatch.setattr(quality, "read_quality", lambda fids: old_read(fids, path))
     monkeypatch.setattr(quality, "save_quality", lambda aid,fids,changes,editor: old_save(aid,fids,changes,editor,path))
     session = FakeSession(
-        {"results": [{"fid": 137940156, "uid": 33763165}]},
-        {"fid": 137940156, "expedition_troops": [
+        {"results": [{"fid": 123456789, "uid": 33763165}]},
+        {"fid": 123456789, "expedition_troops": [
             {"kind": "inf", "tier": 12, "star": 9},
             {"kind": "lan", "tier": 12, "star": 10},
         ]}
     )
-    assert await auto.sync_tiers(session, 137940156, 1501) == 2
-    record = old_read([137940156], path)[137940156]
+    assert await auto.sync_tiers(session, 123456789, 101) == 2
+    record = old_read([123456789], path)[123456789]
     assert record["infantry"] == (12, None)
     assert record["lancer"] == (12, None)
     assert quality.format_tier(*record["infantry"]) == "T12 · Skill Unknown"
@@ -402,7 +402,7 @@ def test_member_state_comes_from_stored_player_not_alliance(tmp_path):
     path = tmp_path / "users.sqlite"
     with sqlite3.connect(path) as db:
         db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY, alliance TEXT, kid INTEGER)")
-        db.execute("INSERT INTO users VALUES (123456789, '1501', 920)")
+        db.execute("INSERT INTO users VALUES (123456789, '101', 920)")
     assert auto.member_state(123456789, path=path) == 920
     assert auto.member_state(999, path=path) is None
 
