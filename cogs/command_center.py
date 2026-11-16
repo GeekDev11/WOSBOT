@@ -116,8 +116,37 @@ async def invoke_slash(cog, interaction, cog_name, command_name, **values):
             await interaction.followup.send("Unable to open this tool. Check Bot Health.", ephemeral=True)
 
 
+
+class ResultNavigationView(discord.ui.View):
+    """Return from a lookup result to its immediate center or the Command Center."""
+    def __init__(self, cog, user_id, section="intel"):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id, self.section = cog, user_id, section
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    @discord.ui.button(label="Back to Intelligence", emoji="↩️",
+                       style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, self.section)
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
+
+async def send_lookup_result(cog, interaction, *, embed=None, content=None):
+    """Always attach working navigation, including empty/API-limit results."""
+    await interaction.followup.send(
+        content=content, embed=embed, ephemeral=True,
+        view=ResultNavigationView(cog, interaction.user.id),
+    )
+
+
 class ChiefLookupModal(discord.ui.Modal):
-    chief_id = discord.ui.TextInput(label="Chief ID", placeholder="137940156", max_length=24)
+    chief_id = discord.ui.TextInput(label="Chief ID", placeholder="Enter Chief ID", max_length=24)
 
     def __init__(self, cog, route):
         super().__init__(title="Find Chief")
@@ -135,7 +164,7 @@ class ChiefLookupModal(discord.ui.Modal):
 
 
 class StateLookupModal(discord.ui.Modal):
-    state_id = discord.ui.TextInput(label="State number", placeholder="1501", max_length=8)
+    state_id = discord.ui.TextInput(label="State number", placeholder="Enter state number", max_length=8)
 
     def __init__(self, cog, route):
         super().__init__(title="State Intelligence")
@@ -154,10 +183,9 @@ class StateLookupModal(discord.ui.Modal):
 
 class StateCompareModal(discord.ui.Modal):
     """Top-20 comparison for one supported category; no inferred data."""
-    first = discord.ui.TextInput(label="First state", placeholder="1501", max_length=8)
-    second = discord.ui.TextInput(label="Second state", placeholder="1502", max_length=8)
-    board = discord.ui.TextInput(label="Ranking category", default="personal_power",
-                                 placeholder="personal_power / pet_power", max_length=40)
+    first = discord.ui.TextInput(label="First state", placeholder="Enter first state number", max_length=8)
+    second = discord.ui.TextInput(label="Second state", placeholder="Enter second state number", max_length=8)
+    board = discord.ui.TextInput(label="Ranking category", placeholder="Enter ranking category", max_length=40)
 
     def __init__(self, cog):
         super().__init__(title="Compare State Rankings")
@@ -208,12 +236,12 @@ class StateCompareModal(discord.ui.Modal):
             color=theme.emColor1,
         )
         embed.set_footer(text="Whiteout Stats snapshots · compare identical ranking categories")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_lookup_result(self.cog, interaction, embed=embed)
 
 
 class AllianceIntelModal(discord.ui.Modal):
-    state_id = discord.ui.TextInput(label="State number", placeholder="1501", max_length=8)
-    tag = discord.ui.TextInput(label="Alliance tag", placeholder="VEN", max_length=30)
+    state_id = discord.ui.TextInput(label="State number", placeholder="Enter state number", max_length=8)
+    tag = discord.ui.TextInput(label="Alliance tag", placeholder="Enter alliance tag", max_length=30)
 
     def __init__(self, cog):
         super().__init__(title="Alliance Intelligence")
@@ -481,7 +509,7 @@ async def show_alliance_settings_entry(cog, interaction):
 
 class CoordinatesLookupModal(discord.ui.Modal):
     """Coordinates reported by Whiteout Stats, not inferred live positions."""
-    chief_id = discord.ui.TextInput(label="Chief ID", placeholder="137940156", max_length=24)
+    chief_id = discord.ui.TextInput(label="Chief ID", placeholder="Enter Chief ID", max_length=24)
 
     def __init__(self, cog):
         super().__init__(title="Map & Coordinates")
@@ -500,10 +528,10 @@ class CoordinatesLookupModal(discord.ui.Modal):
             from .chief_stalker import basic_fields, freshness
             payload, error = await client.get_player(int(fid))
             if error:
-                return await interaction.followup.send(error, ephemeral=True)
+                return await send_lookup_result(self.cog, interaction, content=error)
             data = basic_fields(payload)
             if not data:
-                return await interaction.followup.send("No player data was reported.", ephemeral=True)
+                return await send_lookup_result(self.cog, interaction, content="No player data was reported.")
             embed = discord.Embed(
                 title="📍 Last reported coordinates",
                 description=f"Chief ID: `{fid}`",
@@ -516,10 +544,10 @@ class CoordinatesLookupModal(discord.ui.Modal):
                 embed.add_field(name="Y", value=str(data["y"]), inline=True)
             embed.add_field(name="State", value=str(data["state"]) if data.get("state") is not None else "Not reported")
             embed.set_footer(text=f"Whiteout Stats · {freshness(payload)} · Snapshot, not live location")
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await send_lookup_result(self.cog, interaction, embed=embed)
         except Exception:
             logger.exception("Command Center coordinates lookup failed")
-            await interaction.followup.send("Unable to retrieve coordinates. Check Bot Health logs.", ephemeral=True)
+            await send_lookup_result(self.cog, interaction, content="Unable to retrieve coordinates. Check Bot Health logs.")
 
 
 class AllianceHistoryPickView(discord.ui.View):
