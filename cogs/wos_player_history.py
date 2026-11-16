@@ -96,19 +96,20 @@ class WosPlayerHistory(commands.Cog):
 
     @app_commands.command(name="woshistory", description="Compare previously saved Whiteout Stats player snapshots")
     @app_commands.describe(chief_id="In-game Chief ID", observations="Most recent observations to compare")
-    async def woshistory(self, interaction: discord.Interaction, chief_id: str, observations: int = 30):
+    async def woshistory(
+        from .command_center import intelligence_result_viewself, interaction: discord.Interaction, chief_id: str, observations: int = 30):
         await interaction.response.defer(ephemeral=True, thinking=True)
         if not chief_id.isascii() or not chief_id.isdecimal() or not 1 <= len(chief_id) <= 16:
-            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True)
+            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True, view=intelligence_result_view(interaction))
             return
         if not 2 <= observations <= 90:
-            await interaction.followup.send("Observations must be between 2 and 90.", ephemeral=True)
+            await interaction.followup.send("Observations must be between 2 and 90.", ephemeral=True, view=intelligence_result_view(interaction))
             return
         rows = await asyncio.to_thread(load_history, int(chief_id), observations)
         embed = discord.Embed(title=f"Player history · {chief_id}", description=delta_text(rows))
         embed.add_field(name="Saved observations", value=str(len(rows)))
         embed.set_footer(text="Historical changes reflect source snapshots, not actual login times")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True, view=intelligence_result_view(interaction))
 
 
 async def setup(bot):
