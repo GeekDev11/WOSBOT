@@ -4250,6 +4250,16 @@ class BearTrapView(discord.ui.View):
                 ephemeral=True
             )
 
+    @discord.ui.button(label="Back to Events", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def back_to_events(self, interaction, button):
+        if not await self.cog.check_admin(interaction):
+            return
+        from .command_center import open_section
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await open_section(parent, interaction, "events")
+
     @discord.ui.button(
         label="Main Menu",
         emoji=f"{theme.homeIcon}",
