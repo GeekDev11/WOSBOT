@@ -212,7 +212,7 @@ def test_view_constructor_calls_use_standard_timeouts():
     assert not bad, "view constructions with a non-standard timeout:\n  " + "\n  ".join(sorted(bad))
 
 
-# ── Navigation: a view offers Back or Main Menu, never both ──
+# ── Navigation: migrated views offer both parent Back and Main Menu ──
 def _button_texts(cls: ast.ClassDef) -> list[str]:
     texts = []
     for node in _walk_own(cls):
@@ -235,7 +235,12 @@ def _is_back(text: str) -> bool:
 def test_legacy_views_do_not_mix_back_and_home():
     # Command Center navigation deliberately offers both, as users requested:
     # Back preserves the current center; Main Menu exits to the five-center home.
-    new_navigation_files = {"command_center.py", "wos_leaderboards.py"}
+    new_navigation_files = {
+        "command_center.py", "wos_leaderboards.py", "bot_main_menu.py",
+        "attendance.py", "bear_track.py", "minister_menu.py",
+        "gift_views.py", "notification_system.py", "notification_schedule.py",
+        "bot_backup.py",
+    }
     bad = []
     for f, cls in VIEWS:
         if f.name in new_navigation_files:
