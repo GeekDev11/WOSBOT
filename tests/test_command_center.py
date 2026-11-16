@@ -100,3 +100,12 @@ def test_alliance_summary_includes_troop_coverage(tmp_path, monkeypatch):
 def test_top_menu_requires_administrator():
     import inspect
     assert "is_admin" in inspect.getsource(MainMenuView.interaction_check)
+
+
+def test_center_direct_entry_registered_for_servers_and_dms():
+    from cogs.bot_main_menu import MainMenu
+    cmd = MainMenu.center
+    assert cmd.name == "center"
+    assert cmd.allowed_installs.guild is True
+    assert cmd.allowed_contexts.guild is True
+    assert cmd.allowed_contexts.dm_channel is True

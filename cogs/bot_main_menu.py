@@ -4,6 +4,7 @@ Centralized menu system that handles all main menu logic and routing.
 
 import discord
 from discord.ext import commands
+from discord import app_commands
 from datetime import datetime
 import logging
 import sqlite3
@@ -154,6 +155,18 @@ class MainMenu(commands.Cog):
                 "_Existing slash commands and specialized menus are preserved._"
             ),
             color=theme.emColor1,
+        )
+
+    @app_commands.command(name="center", description="Open the WOSBOT Command Center")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
+    async def center(self, interaction: discord.Interaction):
+        is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+        if not is_admin:
+            await interaction.response.send_message("Administrator permission required.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            embed=self.build_main_menu_embed(), view=MainMenuView(self), ephemeral=True,
         )
 
     async def show_main_menu(self, interaction: discord.Interaction):
