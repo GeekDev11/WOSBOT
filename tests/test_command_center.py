@@ -72,7 +72,7 @@ def test_state_comparison_is_real_modal_not_scout_redirect():
     import inspect
     from cogs.command_center import StateCompareModal, route
     assert "fetch_board" in inspect.getsource(StateCompareModal.on_submit)
-    assert "StateCompareModal" in inspect.getsource(route)
+    assert "show_state_comparison_categories" in inspect.getsource(route)
 
 
 def test_alliance_summary_includes_troop_coverage(tmp_path, monkeypatch):
@@ -200,6 +200,7 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     monkeypatch.setattr(module, "open_gift_redemption", fake_direct)
     monkeypatch.setattr(module, "show_event_reports_entry", fake_direct)
     monkeypatch.setattr(module, "show_appearance_entry", fake_direct)
+    monkeypatch.setattr(module, "show_state_comparison_categories", fake_direct)
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
@@ -354,8 +355,8 @@ def test_lookup_forms_use_instructions_not_personal_examples():
     assert StateLookupModal.state_id.placeholder == "Enter state number"
     assert StateCompareModal.first.placeholder == "Enter first state number"
     assert StateCompareModal.second.placeholder == "Enter second state number"
-    assert StateCompareModal.board.placeholder == "Enter ranking category"
-    assert StateCompareModal.board.default is None
+    import inspect
+    assert "board" in inspect.signature(StateCompareModal).parameters
     assert AllianceIntelModal.state_id.placeholder == "Enter state number"
     assert AllianceIntelModal.tag.placeholder == "Enter alliance tag"
 
@@ -385,3 +386,28 @@ def test_comparison_response_retains_navigation():
     from cogs.command_center import StateCompareModal, CoordinatesLookupModal
     assert "send_lookup_result" in inspect.getsource(StateCompareModal.on_submit)
     assert "send_lookup_result" in inspect.getsource(CoordinatesLookupModal.on_submit)
+
+
+def test_state_comparison_categories_are_readable_and_selected():
+    from cogs.command_center import StateComparisonCategoryView
+    from cogs.wos_leaderboards import SCOUT_BOARDS, scout_label
+    view = StateComparisonCategoryView(object(), 123)
+    assert len(view.category_selector.options) == len(SCOUT_BOARDS)
+    assert {option.value for option in view.category_selector.options} == set(SCOUT_BOARDS)
+    assert all(option.label == scout_label(option.value) for option in view.category_selector.options)
+    labels = {getattr(item, "label", None) for item in view.children}
+    assert {"Back to Intelligence", "Main Menu"} <= labels
+
+
+@pytest.mark.asyncio
+async def test_state_comparison_selection_passes_category_to_modal():
+    from types import SimpleNamespace
+    from cogs.command_center import StateComparisonCategoryView, StateCompareModal
+    opened = []
+    async def send_modal(modal):
+        opened.append(modal)
+    view = StateComparisonCategoryView(object(), 123)
+    view.category_selector._values = ["pet_power"]
+    await view.select_category(SimpleNamespace(response=SimpleNamespace(send_modal=send_modal)))
+    assert isinstance(opened[0], StateCompareModal)
+    assert opened[0].board == "pet_power"
