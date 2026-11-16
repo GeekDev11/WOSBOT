@@ -49,6 +49,7 @@ def test_workspace_has_real_management_actions():
     assert "Attendance & OCR" in labels
     assert "Export Members" in labels
     assert "Alliance Settings / History" in labels
+    assert "Manage Alliances" in labels
 
 
 def test_existing_main_menu_hub_and_permissions_not_removed():
@@ -197,6 +198,7 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
         show_alliance_management=fake_direct,
+        show_alliance_settings=fake_direct,
     )
     interaction = SimpleNamespace(response=SimpleNamespace(send_modal=fake_modal))
     await module.route(cog, interaction, section, choice)

@@ -376,6 +376,11 @@ class AllianceWorkspaceView(discord.ui.View):
     async def settings(self, interaction, button):
         await self.cog.show_alliance_settings(interaction, self.alliance_id)
 
+    @discord.ui.button(label="Manage Alliances", emoji="🗂️", style=discord.ButtonStyle.secondary, row=3)
+    async def manage_alliances(self, interaction, button):
+        """Keep alliance creation and bulk actions accessible."""
+        await self.cog.show_alliance_admin_tools(interaction)
+
     @discord.ui.button(label="Back to Alliances", emoji="↩️", style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction, button):
         await open_section(self.cog, interaction, "alliance")
