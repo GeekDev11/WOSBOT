@@ -571,6 +571,14 @@ class MinisterChannelView(discord.ui.View):
     async def settings(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.show_settings_menu(interaction)
 
+    @discord.ui.button(label="Back to Events", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def back_to_events(self, interaction, button):
+        from .command_center import open_section
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await open_section(parent, interaction, "events")
+
     @discord.ui.button(label="Main Menu", style=discord.ButtonStyle.secondary, emoji=f"{theme.homeIcon}", row=2)
     async def main_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
