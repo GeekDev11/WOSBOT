@@ -16,12 +16,12 @@ def test_complete_export_scopes_all_history_and_preserves_files(tmp_path):
     _db(tmp_path / "users.sqlite", """
         CREATE TABLE users(fid INTEGER,nickname TEXT,furnace_lv INTEGER,kid INTEGER,
           power INTEGER,combat_power INTEGER,avatar_url TEXT,api_synced_at TEXT,alliance TEXT);
-        INSERT INTO users VALUES (101,'A',80,1501,100,50,'url','2026-11-12T00:00:00','1');
-        INSERT INTO users VALUES (102,'B',70,1501,90,45,NULL,NULL,'2');
+        INSERT INTO users VALUES (101,'A',80,101,100,50,'url','2026-11-12T00:00:00','1');
+        INSERT INTO users VALUES (102,'B',70,101,90,45,NULL,NULL,'2');
     """)
     _db(tmp_path / "alliance.sqlite", """
         CREATE TABLE alliance_list(alliance_id INTEGER,name TEXT);
-        INSERT INTO alliance_list VALUES(1,'VEN');
+        INSERT INTO alliance_list VALUES(1,'EXA');
         INSERT INTO alliance_list VALUES(2,'OTHER');
     """)
     _db(tmp_path / "changes.sqlite", """
@@ -32,7 +32,7 @@ def test_complete_export_scopes_all_history_and_preserves_files(tmp_path):
         CREATE TABLE power_changes(fid INTEGER,old_power INTEGER,new_power INTEGER,change_date TEXT,id INTEGER PRIMARY KEY);
         CREATE TABLE combat_power_changes(fid INTEGER,old_combat_power INTEGER,new_combat_power INTEGER,change_date TEXT,id INTEGER PRIMARY KEY);
     """)
-    payload = json.dumps({"player":{"kid":1501,"x":77,"y":88,"kills":123},
+    payload = json.dumps({"player":{"kid":101,"x":77,"y":88,"kills":123},
                           "heroes":[{"id":41,"name":"Gregory","level":80,
                                      "gear":[{"plus":100,"mastery":20}]}]})
     with sqlite3.connect(tmp_path / "wos_player_observations.sqlite") as db:
@@ -62,8 +62,8 @@ def test_filtered_export_never_includes_other_members(tmp_path):
     _db(tmp_path / "users.sqlite", """
         CREATE TABLE users(fid INTEGER,nickname TEXT,furnace_lv INTEGER,kid INTEGER,
           power INTEGER,combat_power INTEGER,avatar_url TEXT,api_synced_at TEXT,alliance TEXT);
-        INSERT INTO users VALUES(101,'A',80,1501,100,50,NULL,NULL,'1');
-        INSERT INTO users VALUES(102,'B',80,1501,100,50,NULL,NULL,'1');
+        INSERT INTO users VALUES(101,'A',80,101,100,50,NULL,NULL,'1');
+        INSERT INTO users VALUES(102,'B',80,101,100,50,NULL,NULL,'1');
     """)
     sheets = build_export(1, member_ids=[102], db_dir=str(tmp_path),
                           categories=["Current Player Data"])
@@ -80,7 +80,7 @@ def test_spreadsheet_formula_injection_is_escaped():
 def test_member_xlsx_import_ignores_history_sheets():
     from cogs.alliance_member_operations import _member_import_text, _extract_ids_from_csv
     sheets = {
-        'Members': [['ID', 'Name', 'FC Level', 'State'], [123456, 'Player', 80, 1501]],
+        'Members': [['ID', 'Name', 'FC Level', 'State'], [123456, 'Player', 80, 101]],
         'Export Metadata': [['Property', 'Value'], ['Note', 'Do not restore history']],
     }
     raw = to_xlsx(sheets)
@@ -93,13 +93,13 @@ def test_older_provider_snapshots_are_exported(tmp_path):
     _db(tmp_path / 'users.sqlite', '''
         CREATE TABLE users(fid INTEGER,nickname TEXT,furnace_lv INTEGER,kid INTEGER,
           power INTEGER,combat_power INTEGER,avatar_url TEXT,api_synced_at TEXT,alliance TEXT);
-        INSERT INTO users VALUES(501,'Five',80,1501,100,50,NULL,NULL,'1');
+        INSERT INTO users VALUES(501,'Five',80,101,100,50,NULL,NULL,'1');
     ''')
     _db(tmp_path / 'whiteoutstats.sqlite', '''
         CREATE TABLE wos_player_history(chief_id INTEGER,source_cached_at REAL,
           observed_at TEXT,nickname TEXT,state_id INTEGER,furnace_level INTEGER,
           power INTEGER,kills INTEGER,vip_level INTEGER);
-        INSERT INTO wos_player_history VALUES(501,1790000000,'2026-11-01','Five',1501,80,100,10,5);
+        INSERT INTO wos_player_history VALUES(501,1790000000,'2026-11-01','Five',101,80,100,10,5);
     ''')
     sheets=build_export(1, db_dir=str(tmp_path), categories=['Player History'])
     assert 'Provider History' in sheets
