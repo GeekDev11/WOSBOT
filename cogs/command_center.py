@@ -137,6 +137,12 @@ class ResultNavigationView(discord.ui.View):
         await self.cog.show_main_menu(interaction)
 
 
+def intelligence_result_view(interaction):
+    """Navigation for standalone and Command Center intelligence responses."""
+    center = interaction.client.get_cog("MainMenu")
+    return ResultNavigationView(center, interaction.user.id) if center else None
+
+
 async def send_lookup_result(cog, interaction, *, embed=None, content=None):
     """Always attach working navigation, including empty/API-limit results."""
     await interaction.followup.send(
