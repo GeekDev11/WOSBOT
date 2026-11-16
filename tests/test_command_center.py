@@ -171,3 +171,33 @@ def test_selection_descriptions_not_repeated_in_embed():
     source = inspect.getsource(open_section)
     assert "lines +=" not in source
     assert "dropdown" in source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section,choice", [
+    (section, item[0]) for section, (_, _, items) in SECTIONS.items() for item in items
+])
+async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choice):
+    import cogs.command_center as module
+    from types import SimpleNamespace
+    called = []
+
+    async def fake_open_cog(*args, **kwargs):
+        called.append(("cog", args[2], args[3]))
+    async def fake_workspace(*args, **kwargs):
+        called.append(("alliance",))
+    async def fake_direct(*args, **kwargs):
+        called.append(("direct",))
+    async def fake_modal(modal):
+        called.append(("modal", type(modal).__name__))
+
+    monkeypatch.setattr(module, "open_cog", fake_open_cog)
+    monkeypatch.setattr(module, "show_alliance_workspace", fake_workspace)
+    cog = SimpleNamespace(
+        show_permissions=fake_direct,
+        show_maintenance=fake_direct,
+        show_alliance_management=fake_direct,
+    )
+    interaction = SimpleNamespace(response=SimpleNamespace(send_modal=fake_modal))
+    await module.route(cog, interaction, section, choice)
+    assert called, f"No handler routed for {section}/{choice}"
