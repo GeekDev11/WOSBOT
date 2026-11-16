@@ -194,6 +194,7 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
 
     monkeypatch.setattr(module, "open_cog", fake_open_cog)
     monkeypatch.setattr(module, "show_alliance_workspace", fake_workspace)
+    monkeypatch.setattr(module, "show_alliance_settings_entry", fake_direct)
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
