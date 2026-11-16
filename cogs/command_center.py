@@ -820,6 +820,48 @@ async def show_import_export_entry(cog, interaction):
                             view=ImportExportView(cog, interaction.user.id), content=None)
 
 
+
+class GiftCodeManagementView(discord.ui.View):
+    """Dedicated code CRUD navigation, without another duplicate full dashboard."""
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id = cog, user_id
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    @discord.ui.button(label="Add Gift Code", emoji="➕", style=discord.ButtonStyle.success)
+    async def add(self, interaction, button):
+        await open_cog(self.cog, interaction, "GiftOperations", "create_gift_code")
+
+    @discord.ui.button(label="List Gift Codes", emoji="📋", style=discord.ButtonStyle.primary)
+    async def list_codes(self, interaction, button):
+        await open_cog(self.cog, interaction, "GiftOperations", "list_gift_codes")
+
+    @discord.ui.button(label="Delete Gift Code", emoji="🗑️", style=discord.ButtonStyle.danger)
+    async def delete(self, interaction, button):
+        await open_cog(self.cog, interaction, "GiftOperations", "delete_gift_code")
+
+    @discord.ui.button(label="Back to Gift Center", emoji="↩️", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "gifts")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠", style=discord.ButtonStyle.secondary)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
+
+async def show_gift_code_management(cog, interaction):
+    embed = discord.Embed(
+        title="Manage Gift Codes",
+        description="Add, list or delete codes. Redemption, results, automation "
+                    "and channel management have their own Gift Code Center entries.",
+        color=theme.emColor1,
+    )
+    await safe_edit_message(interaction, embed=embed,
+                            view=GiftCodeManagementView(cog, interaction.user.id), content=None)
+
+
 async def open_gift_redemption(cog, interaction):
     """Launch the existing protected GiftView redemption workflow."""
     gift = cog.bot.get_cog("GiftOperations")
@@ -919,8 +961,9 @@ async def route(cog, interaction, section, key):
         return await open_cog(cog, interaction, "Attendance", "show_attendance_menu")
 
     if section == "gifts":
+        if key == "dashboard":
+            return await show_gift_code_management(cog, interaction)
         dispatch = {
-            "dashboard": "show_gift_menu",
             "results": "show_redeem_results",
             "automation": "show_settings_menu",
             "channels": "manage_channel_settings",
