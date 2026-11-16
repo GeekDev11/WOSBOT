@@ -729,7 +729,6 @@ async def route(cog, interaction, section, key):
     if section == "gifts":
         dispatch = {
             "dashboard": "show_gift_menu",
-            "redeem": "show_gift_menu",
             "results": "show_redeem_results",
             "automation": "show_settings_menu",
             "channels": "manage_channel_settings",
