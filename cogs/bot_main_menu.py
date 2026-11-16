@@ -510,6 +510,13 @@ class AllianceManagementEntryView(discord.ui.View):
         self.max_page = max(0, (len(alliances_with_counts) - 1) // 25)
         self._build_select()
         self._apply_permission_gates()
+        # Export and Player Sync have dedicated command-center entries.
+        # Keep their callable legacy handlers for slash commands/backward compatibility.
+        for item in tuple(self.children):
+            if isinstance(item, discord.ui.Button) and item.custom_id in {
+                "alliance_entry_export", "alliance_entry_player_sync",
+            }:
+                self.remove_item(item)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         is_admin, _ = PermissionManager.is_admin(interaction.user.id)
