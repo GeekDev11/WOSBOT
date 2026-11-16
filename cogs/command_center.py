@@ -241,11 +241,11 @@ class StateComparisonCategoryView(discord.ui.View):
         from .wos_leaderboards import scout_label
         heading = (f"State {self.first} vs State {self.second}"
                    + (f" · {scout_label(self.board)}" if self.board else ""))
-        description = (f"**States:** {self.first} and {self.second}\\n"
+        description = (f"**States:** {self.first} and {self.second}\n"
                        "Choose a ranking category below to compare their top 20 entries. "
                        "Switch categories without entering the states again.")
         if lines:
-            description += "\\n\\n" + "\\n".join(lines)
+            description += "\n\n" + "\n".join(lines)
         embed = discord.Embed(title=heading, description=description, color=theme.emColor1)
         embed.set_footer(text="Whiteout Stats snapshots · API usage is limited by your configured budget")
         return embed
