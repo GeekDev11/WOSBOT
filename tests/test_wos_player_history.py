@@ -8,7 +8,7 @@ def profile(power=100, kills=5, ts=100):
     return {
         "cached_at": ts,
         "player": {
-            "nick_name": "Tester", "kid": 1501, "power": power,
+            "nick_name": "Tester", "kid": 101, "power": power,
             "kills": kills, "furnace_level": 80, "vip": 11
         }
     }
