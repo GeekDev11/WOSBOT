@@ -222,3 +222,18 @@ def test_settings_and_history_have_explicit_navigation():
     code = inspect.getsource(route)
     assert '("settings", "history")' in code
     assert "show_alliance_settings_entry" in code
+
+
+def test_maintenance_back_returns_to_new_admin_center():
+    import inspect
+    from cogs.bot_main_menu import MainMenu
+    assert "open_section" in inspect.getsource(MainMenu.show_maintenance)
+    assert "MaintenanceView" in inspect.getsource(MainMenu.show_maintenance_tools)
+    assert "show_maintenance_tools" in inspect.getsource(__import__("cogs.command_center", fromlist=["route"]).route)
+
+
+def test_legacy_alliance_admin_tools_remain_available():
+    import inspect
+    from cogs.bot_main_menu import MainMenu
+    assert "AllianceManagementEntryView" in inspect.getsource(MainMenu.show_alliance_admin_tools)
+    assert "show_alliance_admin_tools" in inspect.getsource(AllianceWorkspaceView.manage_alliances)

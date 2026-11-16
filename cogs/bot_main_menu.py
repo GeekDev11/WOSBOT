@@ -137,22 +137,13 @@ class MainMenu(commands.Cog):
         self.bot = bot
 
     def build_main_menu_embed(self) -> discord.Embed:
-        """Five clear entry points; all underlying workflows remain intact."""
+        """Compact main menu; feature descriptions live inside their centers."""
         return discord.Embed(
             title=f"{theme.settingsIcon} Stalker 2.0 · Command Center",
             description=(
-                "**Choose a center to manage your bot.**\n\n"
-                "🛡️ **Alliance Command Center**\n"
-                "Members, editing, imports, troops, attendance and alliance settings.\n\n"
-                "🎯 **Intelligence Center**\n"
-                "State Scout, player profiles, history and SvS intelligence.\n\n"
-                "📅 **Events & Scheduling**\n"
-                "Notifications, bear tracking, attendance and minister appointments.\n\n"
-                "🎁 **Gift Code Center**\n"
-                "Redemption, code management, results and automation.\n\n"
-                "⚙️ **Administration & Settings**\n"
-                "Permissions, integrations, appearance, Bot Health and backups.\n\n"
-                "_Existing slash commands and specialized menus are preserved._"
+                "**Choose a center below.**\n"
+                "Select your destination, then choose a tool from its dropdown.\n\n"
+                "_Your existing commands, records and permissions are preserved._"
             ),
             color=theme.emColor1,
         )
@@ -280,28 +271,11 @@ class MainMenu(commands.Cog):
                 )
 
             description = (
-                f"**Overview**\n"
-                f"{theme.upperDivider}\n"
-                + "\n".join(overview_lines) + "\n"
-                f"{theme.lowerDivider}\n\n"
-                f"Pick an alliance from the dropdown to manage members, history, "
-                f"ID channel, and activity log, or use a bulk action below. "
-                f"Buttons greyed out are above your permission level.\n\n"
-                f"**Bulk Actions**\n"
-                f"{theme.upperDivider}\n"
-                f"{theme.addIcon} **Add Alliance**\n"
-                f"└ Register a new alliance\n\n"
-                f"{theme.userIcon} **Self-Registration**\n"
-                f"└ Manage the global Self-Registration system\n\n"
-                f"{theme.transferIcon} **Transfer Members**\n"
-                f"└ Move members between alliances\n\n"
-                f"{theme.exportIcon} **Export Members**\n"
-                f"└ Export one alliance or all of them to CSV/TSV\n\n"
-                f"{theme.globeIcon} **Member States**\n"
-                f"└ Fix missing or wrong states so gift codes can redeem\n\n"
-                f"{theme.retryIcon} **Player Sync**\n"
-                f"└ Keep member names, levels, states and power up to date automatically\n"
-                f"{theme.lowerDivider}"
+                "**Manage Alliances**\n"
+                + "\n".join(overview_lines) + "\n\n"
+                "Pick an alliance or use Add Alliance, Transfer, Export, "
+                "Member States or Player Sync below.\n"
+                "Main Menu returns to the five-center layout."
             )
             if not alliances_with_counts:
                 description += (
@@ -461,37 +435,23 @@ class MainMenu(commands.Cog):
             await report_failed_click(interaction, "show_permissions", e, MENU_OPEN_FAILED)
 
     async def show_maintenance(self, interaction: discord.Interaction):
+        """Compatibility route for old tool Back buttons."""
+        from .command_center import open_section
+        await open_section(self, interaction, "admin")
+
+    async def show_maintenance_tools(self, interaction: discord.Interaction):
         """Display the Maintenance sub-menu."""
         try:
             _, is_global = PermissionManager.is_admin(interaction.user.id)
 
             embed = discord.Embed(
-                title=f"{theme.robotIcon} Maintenance",
+                title=f"{theme.robotIcon} Administration · Maintenance Tools",
                 description=(
-                    f"Bot maintenance and support options:\n\n"
-                    f"**Available Operations**\n"
-                    f"{theme.upperDivider}\n"
-                    f"{theme.refreshIcon} **Check for Updates**\n"
-                    f"└ Check for and install bot updates (Global Admin only)\n\n"
-                    f"{theme.archiveIcon} **Backup System**\n"
-                    f"└ Create / view / clean local + DM backups (Global Admin only)\n\n"
-                    f"{theme.heartIcon} **Bot Health**\n"
-                    f"└ API status, DB health, system info, restart, cleanup tools (Global Admin only)\n\n"
-                    f"{theme.robotIcon} **Bot Presence**\n"
-                    f"└ Set the bot's Discord activity status (Global Admin only)\n\n"
-                    f"❄️ **Bot Profile**\n"
-                    f"└ Customize the bot's nickname, bio, banner and avatar by server (Global Admin only)\n\n"
-                    f"{theme.supportIcon} **Request Support**\n"
-                    f"└ Open a support DM with logs attached\n\n"
-                    f"{theme.infoIcon} **About Project**\n"
-                    f"└ View project info, links, and credits\n\n"
-                    f"{theme.globeIcon} **External OCR Service**\n"
-                    f"└ Set the OCR service URL, or blank for local OCR (Global Admin only)\n\n"
-                    f"{theme.shutdownDoorIcon} **Leave a Server**\n"
-                    f"└ See every server the bot is in and make it leave one (Bot Owner only)\n"
-                    f"{theme.lowerDivider}"
+                    "Choose a maintenance action below: updates, backups, "
+                    "Bot Health, appearance, support or server management.\n\n"
+                    "**Main Menu** returns to the five-center layout."
                 ),
-                color=theme.emColor1
+                color=theme.emColor1,
             )
 
             view = MaintenanceView(self, is_global, PermissionManager.is_owner(interaction.user.id))

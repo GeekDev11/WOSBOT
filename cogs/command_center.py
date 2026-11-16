@@ -527,7 +527,9 @@ async def route(cog, interaction, section, key):
         if key == "health":
             return await open_cog(cog, interaction, "BotHealth", "show_health_menu")
         if key in ("backup", "updates"):
-            return await cog.show_maintenance(interaction)
-        return await cog.show_alliance_management(interaction)
+            return await cog.show_maintenance_tools(interaction)
+        if key == "servers":
+            return await open_cog(cog, interaction, "BotHealth", "show_servers")
+        return await open_section(cog, interaction, "admin")
 
     await missing(interaction, "Requested module")
