@@ -83,8 +83,8 @@ class WosSvs(commands.Cog):
 
     @app_commands.command(name="wossvs", description="View an SvS matchup from Whiteout Stats (Frosty)")
     @app_commands.describe(state_id="State number")
-    async def wossvs(
-        from .command_center import intelligence_result_viewself, interaction: discord.Interaction, state_id: int):
+    async def wossvs(self, interaction: discord.Interaction, state_id: int):
+        from .command_center import intelligence_result_view
         await interaction.response.defer(ephemeral=True, thinking=True)
         if state_id <= 0:
             await interaction.followup.send("Enter a positive state number.", ephemeral=True, view=intelligence_result_view(interaction))
