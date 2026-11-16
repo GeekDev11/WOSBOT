@@ -428,3 +428,14 @@ async def test_state_comparison_category_switch_uses_saved_states():
     assert updates[-1]["view"] is view
     await view.select_category(interaction)
     assert len(client.calls) == 2
+
+
+def test_state_comparison_embed_displays_real_line_breaks():
+    from cogs.command_center import StateComparisonCategoryView
+    view = StateComparisonCategoryView(object(), 123, 101, 102)
+    embed = view.build_embed(["**State 101:** API budget exhausted.",
+                              "**State 102:** API budget exhausted."])
+    assert "\n" in embed.description
+    assert r"\n" not in embed.description
+    assert "State 101:" in embed.description
+    assert "State 102:" in embed.description
