@@ -71,8 +71,8 @@ def test_lookup_forms_validate_id_before_api():
 def test_state_comparison_is_real_modal_not_scout_redirect():
     import inspect
     from cogs.command_center import StateCompareModal, route
-    assert "fetch_board" in inspect.getsource(StateCompareModal.on_submit)
-    assert "show_state_comparison_categories" in inspect.getsource(route)
+    assert "StateComparisonCategoryView" in inspect.getsource(StateCompareModal.on_submit)
+    assert "StateCompareModal(cog)" in inspect.getsource(route)
 
 
 def test_alliance_summary_includes_troop_coverage(tmp_path, monkeypatch):
@@ -200,7 +200,6 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     monkeypatch.setattr(module, "open_gift_redemption", fake_direct)
     monkeypatch.setattr(module, "show_event_reports_entry", fake_direct)
     monkeypatch.setattr(module, "show_appearance_entry", fake_direct)
-    monkeypatch.setattr(module, "show_state_comparison_categories", fake_direct)
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
@@ -353,10 +352,9 @@ def test_lookup_forms_use_instructions_not_personal_examples():
     assert ChiefLookupModal.chief_id.placeholder == "Enter Chief ID"
     assert CoordinatesLookupModal.chief_id.placeholder == "Enter Chief ID"
     assert StateLookupModal.state_id.placeholder == "Enter state number"
-    assert StateCompareModal.first.placeholder == "Enter first state number"
-    assert StateCompareModal.second.placeholder == "Enter second state number"
-    import inspect
-    assert "board" in inspect.signature(StateCompareModal).parameters
+    modal = StateCompareModal(object())
+    assert modal.first.placeholder == "Enter first state number"
+    assert modal.second.placeholder == "Enter second state number"
     assert AllianceIntelModal.state_id.placeholder == "Enter state number"
     assert AllianceIntelModal.tag.placeholder == "Enter alliance tag"
 
@@ -384,14 +382,14 @@ def test_intelligence_results_expose_parent_and_home_navigation():
 def test_comparison_response_retains_navigation():
     import inspect
     from cogs.command_center import StateCompareModal, CoordinatesLookupModal
-    assert "send_lookup_result" in inspect.getsource(StateCompareModal.on_submit)
+    assert "StateComparisonCategoryView" in inspect.getsource(StateCompareModal.on_submit)
     assert "send_lookup_result" in inspect.getsource(CoordinatesLookupModal.on_submit)
 
 
 def test_state_comparison_categories_are_readable_and_selected():
     from cogs.command_center import StateComparisonCategoryView
     from cogs.wos_leaderboards import SCOUT_BOARDS, scout_label
-    view = StateComparisonCategoryView(object(), 123)
+    view = StateComparisonCategoryView(object(), 123, 1501, 1502)
     assert len(view.category_selector.options) == len(SCOUT_BOARDS)
     assert {option.value for option in view.category_selector.options} == set(SCOUT_BOARDS)
     assert all(option.label == scout_label(option.value) for option in view.category_selector.options)
@@ -400,14 +398,33 @@ def test_state_comparison_categories_are_readable_and_selected():
 
 
 @pytest.mark.asyncio
-async def test_state_comparison_selection_passes_category_to_modal():
+async def test_state_comparison_category_switch_uses_saved_states():
     from types import SimpleNamespace
-    from cogs.command_center import StateComparisonCategoryView, StateCompareModal
-    opened = []
-    async def send_modal(modal):
-        opened.append(modal)
-    view = StateComparisonCategoryView(object(), 123)
+    from cogs.command_center import StateComparisonCategoryView
+    class Leaderboards:
+        def __init__(self):
+            self.calls = []
+        async def fetch_board(self, state, board, limit):
+            self.calls.append((state, board, limit))
+            return [{"score": 10}], None
+    client = Leaderboards()
+    class Bot:
+        def get_cog(self, name):
+            return client if name == "WosLeaderboards" else None
+    async def defer():
+        return None
+    updates = []
+    async def edit_original_response(**kw):
+        updates.append(kw)
+    view = StateComparisonCategoryView(SimpleNamespace(bot=Bot()), 123, 1501, 1502)
     view.category_selector._values = ["pet_power"]
-    await view.select_category(SimpleNamespace(response=SimpleNamespace(send_modal=send_modal)))
-    assert isinstance(opened[0], StateCompareModal)
-    assert opened[0].board == "pet_power"
+    interaction = SimpleNamespace(
+        response=SimpleNamespace(defer=defer),
+        edit_original_response=edit_original_response,
+    )
+    await view.select_category(interaction)
+    assert client.calls == [(1501, "pet_power", 20), (1502, "pet_power", 20)]
+    assert view.first == 1501 and view.second == 1502
+    assert updates[-1]["view"] is view
+    await view.select_category(interaction)
+    assert len(client.calls) == 2
