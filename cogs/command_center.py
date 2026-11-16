@@ -148,7 +148,8 @@ class StateLookupModal(discord.ui.Modal):
             return
         key = "scout" if self.route == "scout" else "wossvs"
         target = "WosStateScout" if key == "scout" else "WosSvs"
-        await invoke_slash(self.cog, interaction, target, key, state=int(state))
+        await invoke_slash(self.cog, interaction, target, key,
+                           **({"state": int(state)} if key == "scout" else {"state_id": int(state)}))
 
 
 class StateCompareModal(discord.ui.Modal):
@@ -477,17 +478,146 @@ async def show_alliance_settings_entry(cog, interaction):
         await cog.show_alliance_settings(interaction, int(alliances[0][0]))
 
 
+
+class CoordinatesLookupModal(discord.ui.Modal):
+    """Coordinates reported by Whiteout Stats, not inferred live positions."""
+    chief_id = discord.ui.TextInput(label="Chief ID", placeholder="137940156", max_length=24)
+
+    def __init__(self, cog):
+        super().__init__(title="Map & Coordinates")
+        self.cog = cog
+
+    async def on_submit(self, interaction):
+        fid = str(self.chief_id.value).strip()
+        if not fid.isascii() or not fid.isdecimal() or not 1 <= len(fid) <= 16 or int(fid) < 1:
+            await interaction.response.send_message("Enter a valid numeric Chief ID.", ephemeral=True)
+            return
+        client = self.cog.bot.get_cog("ChiefStalker")
+        if client is None:
+            return await missing(interaction, "Player coordinates")
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            from .chief_stalker import basic_fields, freshness
+            payload, error = await client.get_player(int(fid))
+            if error:
+                return await interaction.followup.send(error, ephemeral=True)
+            data = basic_fields(payload)
+            if not data:
+                return await interaction.followup.send("No player data was reported.", ephemeral=True)
+            embed = discord.Embed(
+                title="📍 Last reported coordinates",
+                description=f"Chief ID: `{fid}`",
+                color=theme.emColor1,
+            )
+            if data.get("x") is None or data.get("y") is None:
+                embed.add_field(name="Location", value="Coordinates not reported by the API.")
+            else:
+                embed.add_field(name="X", value=str(data["x"]), inline=True)
+                embed.add_field(name="Y", value=str(data["y"]), inline=True)
+            embed.add_field(name="State", value=str(data["state"]) if data.get("state") is not None else "Not reported")
+            embed.set_footer(text=f"Whiteout Stats · {freshness(payload)} · Snapshot, not live location")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception:
+            logger.exception("Command Center coordinates lookup failed")
+            await interaction.followup.send("Unable to retrieve coordinates. Check Bot Health logs.", ephemeral=True)
+
+
+class AllianceHistoryPickView(discord.ui.View):
+    """Pick a permitted alliance for the actual member-history menu."""
+    def __init__(self, cog, user_id, alliances):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id = cog, user_id
+        select = discord.ui.Select(
+            placeholder="Select alliance history",
+            options=[discord.SelectOption(label=str(name)[:95], value=str(aid))
+                     for aid, name in alliances[:25]],
+        )
+        self.selector = select
+        select.callback = self.select_alliance
+        self.add_item(select)
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    async def select_alliance(self, interaction):
+        permitted, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
+        aid = int(self.selector.values[0])
+        if aid not in {int(row[0]) for row in permitted}:
+            return await interaction.response.send_message("Alliance access denied.", ephemeral=True)
+        await open_cog(self.cog, interaction, "AllianceHistory", "show_history_for", aid)
+
+
+async def show_alliance_history_entry(cog, interaction):
+    if interaction.guild_id is None:
+        return await interaction.response.send_message("Alliance history requires a Discord server.", ephemeral=True)
+    alliances, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
+    if not alliances:
+        return await interaction.response.send_message("No assigned alliances.", ephemeral=True)
+    if len(alliances) == 1:
+        return await open_cog(cog, interaction, "AllianceHistory", "show_history_for", int(alliances[0][0]))
+    embed = discord.Embed(title="Alliance History", description="Choose an alliance to inspect its member history.",
+                          color=theme.emColor1)
+    await safe_edit_message(interaction, embed=embed,
+                            view=AllianceHistoryPickView(cog, interaction.user.id, alliances), content=None)
+
+
+class ImportExportView(discord.ui.View):
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id = cog, user_id
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    @discord.ui.button(label="Import / Manage Members", emoji="📥", style=discord.ButtonStyle.primary)
+    async def imports(self, interaction, button):
+        await show_alliance_workspace(self.cog, interaction)
+
+    @discord.ui.button(label="Export Members", emoji="📤", style=discord.ButtonStyle.secondary)
+    async def exports(self, interaction, button):
+        await open_cog(self.cog, interaction, "AllianceMemberOperations", "show_export_members")
+
+    @discord.ui.button(label="Back to Alliances", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "alliance")
+
+
+async def show_import_export_entry(cog, interaction):
+    embed = discord.Embed(title="Imports & Exports",
+                          description="Import via **Import / Manage Members** → Import (CSV/XLSX), or export directly.",
+                          color=theme.emColor1)
+    await safe_edit_message(interaction, embed=embed,
+                            view=ImportExportView(cog, interaction.user.id), content=None)
+
+
+async def open_gift_redemption(cog, interaction):
+    """Launch the existing protected GiftView redemption workflow."""
+    gift = cog.bot.get_cog("GiftOperations")
+    if gift is None:
+        return await missing(interaction, "Gift redemption")
+    from .gift_views import GiftView
+    view = GiftView(gift, interaction.user.id)
+    await view.use_gift_alliance_button.callback(interaction)
+
+
+
 async def route(cog, interaction, section, key):
     """Every menu entry routes to a real existing workflow or a truthful alternative."""
     if section == "alliance":
-        if key in ("settings", "history"):
+        if key == "settings":
             return await show_alliance_settings_entry(cog, interaction)
+        if key == "history":
+            return await show_alliance_history_entry(cog, interaction)
+        if key == "imports":
+            return await show_import_export_entry(cog, interaction)
         if key == "attendance":
             return await open_cog(cog, interaction, "Attendance", "show_attendance_menu")
         return await show_alliance_workspace(cog, interaction)
 
     if section == "intel":
-        if key in ("player", "playerhistory", "coordinates"):
+        if key == "coordinates":
+            return await interaction.response.send_modal(CoordinatesLookupModal(cog))
+        if key in ("player", "playerhistory"):
             return await interaction.response.send_modal(
                 ChiefLookupModal(cog, "playerhistory" if key == "playerhistory" else "player"))
         if key in ("scout", "svs"):
@@ -498,7 +628,9 @@ async def route(cog, interaction, section, key):
             return await interaction.response.send_modal(AllianceIntelModal(cog))
 
     if section == "events":
-        if key in ("calendar", "notifications"):
+        if key == "calendar":
+            return await open_cog(cog, interaction, "NotificationSchedule", "show_main_menu")
+        if key == "notifications":
             return await open_cog(cog, interaction, "NotificationSystem", "show_notification_menu")
         if key == "bear":
             return await open_cog(cog, interaction, "BearTrack", "show_bear_track_menu")
@@ -514,6 +646,8 @@ async def route(cog, interaction, section, key):
             "automation": "show_settings_menu",
             "channels": "manage_channel_settings",
         }
+        if key == "redeem":
+            return await open_gift_redemption(cog, interaction)
         return await open_cog(cog, interaction, "GiftOperations",
                               dispatch.get(key, "show_gift_menu"))
 
@@ -526,7 +660,9 @@ async def route(cog, interaction, section, key):
             return await open_cog(cog, interaction, "Theme", "show_theme_menu")
         if key == "health":
             return await open_cog(cog, interaction, "BotHealth", "show_health_menu")
-        if key in ("backup", "updates"):
+        if key == "backup":
+            return await open_cog(cog, interaction, "BackupOperations", "show_backup_menu")
+        if key == "updates":
             return await cog.show_maintenance_tools(interaction)
         if key == "servers":
             return await open_cog(cog, interaction, "BotHealth", "show_servers")
