@@ -273,27 +273,42 @@ class StateComparisonCategoryView(discord.ui.View):
                     lines = ["Whiteout Stats leaderboards are not loaded."]
                 else:
                     try:
-                        results = await asyncio.gather(
-                            client.fetch_board(self.first, board, 20),
-                            client.fetch_board(self.second, board, 20),
-                        )
+                        if hasattr(client, "comparison_board"):
+                            results = await asyncio.gather(
+                                client.comparison_board(self.first, board),
+                                client.comparison_board(self.second, board),
+                            )
+                        else:
+                            # Compatibility for older embedded integrations.
+                            original = await asyncio.gather(
+                                client.fetch_board(self.first, board, 20),
+                                client.fetch_board(self.second, board, 20),
+                            )
+                            results = [(entries, error, None) for entries, error in original]
                         lines = []
-                        for state, (entries, error) in zip((self.first, self.second), results):
+                        errors = []
+                        for state, (entries, error, source) in zip((self.first, self.second), results):
                             if error:
-                                lines.append(f"**State {state}:** {error}")
+                                errors.append(error)
                                 continue
                             entries = (entries or [])[:20]
                             numeric = [row["score"] for row in entries
                                        if isinstance(row.get("score"), (int, float))
                                        and not isinstance(row["score"], bool)]
                             lines.append(f"**State {state}** · {len(entries)} entries")
+                            if source:
+                                lines.append(f"Source: {source}")
                             if numeric:
                                 lines.append(f"Highest recorded score: {max(numeric):,.0f}")
                             if len(numeric) == 20 and len(entries) == 20:
                                 lines.append(f"Sum of top 20 recorded scores: {sum(numeric):,.0f}")
                             else:
                                 lines.append("Full top-20 numeric comparison unavailable")
-                        if not any(error for _, error in results):
+                        if errors:
+                            lines.append("**Ranking unavailable:** " + (
+                                errors[0] if len(set(errors)) == 1 else "; ".join(dict.fromkeys(errors))
+                            ))
+                        else:
                             self.cache[board] = lines
                     except Exception:
                         logger.exception("State comparison failed")
