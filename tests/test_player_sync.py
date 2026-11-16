@@ -1451,3 +1451,40 @@ def test_no_data_result_tracks_member_without_creating_a_change(monkeypatch):
     record_no_data(123456789, "9", report)
     assert report.no_data["9"] == [(123456789, "Unavailable Chief")]
     assert report.changes == {}
+
+
+def test_legacy_official_quota_migration_is_once_and_preserves_custom(monkeypatch):
+    from copy import deepcopy
+    saved = {}
+    flags = {}
+    profiles = [
+        _profile(base_url="https://api.whiteoutstats.com", per_minute=30, per_day=1000),
+        _profile(base_url="https://api.whiteoutstats.com", per_minute=20, per_day=700),
+        _profile(base_url="https://another.example.com", per_minute=30, per_day=1000),
+    ]
+    def read(*names):
+        return {"profile": deepcopy(profiles[0]), "key": "fake-key"}
+    monkeypatch.setattr(sync, "load_settings", read)
+    monkeypatch.setattr(sync, "_settings", lambda *names: flags)
+    monkeypatch.setattr(sync, "_put_setting", lambda k, v: flags.__setitem__(k, v))
+    monkeypatch.setattr(sync, "save_setting", lambda k, v: saved.__setitem__(k, v))
+    profile, key = sync.load_connection()
+    assert profile["per_minute"] == 60 and profile["per_day"] == 5000
+    assert saved["profile"]["per_day"] == 5000
+    assert flags[sync._OFFICIAL_LIMIT_MIGRATION] == "1"
+    saved.clear()
+    profile, _ = sync.load_connection()
+    assert "profile" not in saved
+    assert profile["per_day"] == 1000  # mocked storage remains old
+
+    flags.clear()
+    saved.clear()
+    monkeypatch.setattr(sync, "load_settings", lambda *names: {"profile": deepcopy(profiles[1]), "key": "fake"})
+    profile, _ = sync.load_connection()
+    assert profile["per_day"] == 700 and "profile" not in saved
+    assert flags[sync._OFFICIAL_LIMIT_MIGRATION] == "1"
+
+    flags.clear()
+    monkeypatch.setattr(sync, "load_settings", lambda *names: {"profile": deepcopy(profiles[2]), "key": "fake"})
+    profile, _ = sync.load_connection()
+    assert profile["per_day"] == 1000 and not flags
