@@ -260,9 +260,9 @@ class ChiefStalker(commands.Cog):
 
     @app_commands.command(name="wosplayer", description="Inspect a Whiteout Survival player using Whiteout Stats")
     @app_commands.describe(chief_id="In-game Chief ID")
-    async def wosplayer(
-        from .command_center import intelligence_result_viewself, interaction: discord.Interaction, chief_id: str):
-        await interaction.response.defer(thinking=True, ephemeral=True, view=intelligence_result_view(interaction))
+    async def wosplayer(self, interaction: discord.Interaction, chief_id: str):
+        from .command_center import intelligence_result_view
+        await interaction.response.defer(thinking=True, ephemeral=True)
         if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
             await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=True, view=intelligence_result_view(interaction))
             return
