@@ -291,5 +291,5 @@ async def test_old_alliance_settings_back_goes_to_workspace():
         called.append(alliance_id)
     cog = SimpleNamespace(show_alliance_hub=hub)
     view = AllianceHubView(cog, 25, "VEN", "alliance", [(25, "VEN", 71)])
-    await view.back(SimpleNamespace(), None)
+    await view.back.callback(SimpleNamespace())
     assert called == [25]
