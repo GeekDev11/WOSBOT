@@ -453,6 +453,13 @@ class AllianceWorkspaceView(discord.ui.View):
         self.alliance_selector = selector
         selector.callback = self.switch_alliance
         self.add_item(selector)
+        # Overview stays focused on summary and alliance context; each operation
+        # already has a single dedicated entry in Alliance Command Center.
+        redundant = {"Members & Imports", "Troop Quality", "Export Members",
+                     "Rankings & History"}
+        for item in tuple(self.children):
+            if isinstance(item, discord.ui.Button) and item.label in redundant:
+                self.remove_item(item)
 
     async def interaction_check(self, interaction):
         if not await authorized(interaction, self.user_id):
@@ -567,10 +574,10 @@ async def show_alliance_workspace(cog, interaction, alliance_id=None):
             f"**Missing member names:** {unnamed:,}\n"
             "**Troop coverage:** Not yet recorded\n\n"
         ) + (
-            "Choose an alliance to inspect or manage. Members, troop editing, "
-            "exports, rankings, and configuration also have dedicated entries "
-            "in the Alliance Command Center.\n\n"
-            "Attendance and OCR are in **Events & Scheduling**."
+            "Use the alliance selector to view its recorded statistics. "
+            "For members, imports, exports, troop quality, rankings and history, "
+            "use their dedicated entries in Alliance Command Center.\n\n"
+            "Attendance and OCR are under **Events & Scheduling**."
         ),
         color=theme.emColor1,
     )
