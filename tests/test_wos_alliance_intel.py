@@ -11,7 +11,7 @@ from cogs.wos_alliance_intel import (
 def sample(members, cached_at=100):
     return {
         "ok": True,
-        "alliance": {"aid": 1234, "kid": 1501, "abbr": "ABC", "name": "Test Alliance"},
+        "alliance": {"aid": 1234, "kid": 101, "abbr": "ABC", "name": "Test Alliance"},
         "members": members,
         "cached_at": cached_at,
     }
@@ -28,8 +28,8 @@ def test_roster_validated_and_normalized():
 
 
 @pytest.mark.parametrize("payload", [
-    {}, {"alliance": {"aid": 1, "kid": 1501}},
-    {"alliance": {"aid": 1, "kid": 1501}, "members": None},
+    {}, {"alliance": {"aid": 1, "kid": 101}},
+    {"alliance": {"aid": 1, "kid": 101}, "members": None},
     sample([{"nick_name": "No ID"}]),
     sample([{"chief_id": 1}, {"chief_id": 1}]),
 ])
@@ -49,21 +49,21 @@ def test_diff_does_not_call_departure_a_state_transfer():
 def test_first_observation_is_baseline_and_subsequent_observations_make_events(tmp_path):
     db = tmp_path / "db" / "whiteoutstats.sqlite"
     info1, roster1 = parse_alliance(sample([{"chief_id": 101, "alliance_rank": 4}]))
-    first = store_roster(1501, info1, roster1, 100, db)
+    first = store_roster(101, info1, roster1, 100, db)
     assert first["reason"] == "initial baseline"
     assert first["events"] is None
 
-    same = store_roster(1501, info1, roster1, 100, db)
+    same = store_roster(101, info1, roster1, 100, db)
     assert same["stored"] is False
 
     info2, roster2 = parse_alliance(sample([
         {"chief_id": 101, "alliance_rank": 3}, {"chief_id": 102, "alliance_rank": 1}
     ]))
-    next_result = store_roster(1501, info2, roster2, 200, db)
+    next_result = store_roster(101, info2, roster2, 200, db)
     assert next_result["events"] == {
         "joined": [102], "left": [], "rank_changed": [101]
     }
-    rows = recent_events(1501, 1234, path=db)
+    rows = recent_events(101, 1234, path=db)
     assert {r[1] for r in rows} == {"joined", "rank_changed"}
 
     with sqlite3.connect(db) as conn:
@@ -79,5 +79,5 @@ def test_empty_roster_is_valid_when_explicitly_provided():
 def test_invalid_roster_does_not_touch_database(tmp_path):
     db = tmp_path / "db" / "whiteoutstats.sqlite"
     with pytest.raises(ValueError):
-        parse_alliance({"alliance": {"aid": 1, "kid": 1501}})
+        parse_alliance({"alliance": {"aid": 1, "kid": 101}})
     assert not db.exists()
