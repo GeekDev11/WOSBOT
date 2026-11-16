@@ -373,10 +373,11 @@ class MainMenu(commands.Cog):
                 description=(
                     f"{theme.membersIcon} {stats_line}\n"
                     f"{state_line}\n\n"
-                    "**Manage this alliance** using the controls below.\n"
-                    "Edit its name and state, configure channels, inspect history "
-                    "or rankings, and change transfer restrictions.\n\n"
-                    "Use **Back to Command Center** to return to the new workspace."
+                    "**Alliance configuration**\n"
+                    "Edit the alliance name and state, configure channels, "
+                    "and manage state locks and transfer restrictions.\n\n"
+                    "Member management, troop quality, history and rankings "
+                    "are in Alliance Command Center."
                 ),
                 color=theme.emColor1,
             )
@@ -679,6 +680,16 @@ class AllianceManagementEntryView(discord.ui.View):
         )
 
     @discord.ui.button(
+        label="Back to Alliances",
+        emoji=theme.backIcon,
+        style=discord.ButtonStyle.secondary,
+        custom_id="alliance_entry_back",
+        row=4,
+    )
+    async def back_to_alliances(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.show_alliance_management(interaction)
+
+    @discord.ui.button(
         label="Main Menu",
         emoji=theme.homeIcon,
         style=discord.ButtonStyle.secondary,
@@ -714,6 +725,13 @@ class AllianceHubView(discord.ui.View):
         self._build_select()
         self._build_lock_toggle()
         self._build_auto_remove_toggle()
+        # Configuration only: duplicate member, troop and history shortcuts
+        # remain available via the new Alliance Command Center.
+        for item in tuple(self.children):
+            if isinstance(item, discord.ui.Button) and item.label in {
+                "Manage Members", "Troop Quality", "History", "Power Rankings",
+            }:
+                self.remove_item(item)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return not await _deny_alliance_access(interaction, self.alliance_id)
@@ -892,6 +910,11 @@ class AllianceHubView(discord.ui.View):
                        style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.show_alliance_hub(interaction, self.alliance_id)
+
+    @discord.ui.button(label="Main Menu", emoji=theme.homeIcon,
+                       style=discord.ButtonStyle.secondary, row=4)
+    async def home(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.show_main_menu(interaction)
 
     @discord.ui.button(label="Delete Alliance", emoji=theme.trashIcon,
                        style=discord.ButtonStyle.danger, row=4)
