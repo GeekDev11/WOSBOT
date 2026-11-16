@@ -356,7 +356,17 @@ def alliance_summary(alliance_id):
             "SUM(CASE WHEN nickname IS NULL OR nickname = '' THEN 1 ELSE 0 END) "
             "FROM users WHERE alliance = ?", (alliance_id,),
         ).fetchone()
-    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+        try:
+            complete = db.execute(
+                "SELECT COUNT(*) FROM users u "
+                "JOIN member_troop_quality t ON t.fid=u.fid "
+                "WHERE u.alliance=? AND t.infantry_tier IS NOT NULL "
+                "AND t.lancer_tier IS NOT NULL AND t.marksman_tier IS NOT NULL",
+                (alliance_id,),
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            complete = None
+    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0), complete
 
 
 async def show_alliance_workspace(cog, interaction, alliance_id=None):
@@ -375,13 +385,20 @@ async def show_alliance_workspace(cog, interaction, alliance_id=None):
     if alliance_id not in allowed:
         await interaction.response.send_message("This alliance is outside your permissions.", ephemeral=True)
         return
-    count, power, unnamed = await asyncio.to_thread(alliance_summary, alliance_id)
+    count, power, unnamed, troop_complete = await asyncio.to_thread(alliance_summary, alliance_id)
     embed = discord.Embed(
         title=f"🛡️ Alliance Command Center · {allowed[alliance_id]}",
         description=(
             f"**Registered members:** {count:,}\n"
             f"**Combined recorded power:** {power:,}\n"
-            f"**Missing member names:** {unnamed:,}\n\n"
+            f"**Missing member names:** {unnamed:,}\n"
+            f"**Troop coverage:** {troop_complete}/{count} fully recorded\n\n"
+            if troop_complete is not None else
+            f"**Registered members:** {count:,}\n"
+            f"**Combined recorded power:** {power:,}\n"
+            f"**Missing member names:** {unnamed:,}\n"
+            "**Troop coverage:** Not yet recorded\n\n"
+        ) + (
             "Choose an alliance and an action. Member edits, CSV/XLSX uploads, "
             "troop edits, attendance OCR and exports open the existing protected workflows.\n\n"
             "**Import:** Manage Members → Import (CSV/XLSX).\n"
