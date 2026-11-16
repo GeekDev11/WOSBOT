@@ -8,13 +8,13 @@ from cogs.chief_stalker import basic_fields, describe_error, format_shield, with
 
 def test_basic_fields_accepts_player_object():
     payload = {"player": {
-        "nick_name": "FUTURE IS BRIGHT", "kid": 1501, "furnace_level": 80,
+        "nick_name": "Example Chief", "kid": 101, "furnace_level": 80,
         "power": 1298820795, "x": 12, "y": 345,
         "shield_endtime": 1794094142,
     }}
     result = basic_fields(payload)
     assert result == {
-        "name": "FUTURE IS BRIGHT", "state": 1501, "furnace": 80,
+        "name": "Example Chief", "state": 101, "furnace": 80,
         "power": 1298820795, "x": 12, "y": 345, "shield": 1794094142,
         "kills": None, "vip": None, "alliance": None,
     }
@@ -79,10 +79,10 @@ async def test_get_player_uses_existing_connection_and_quota(monkeypatch):
             return FakeSync() if name == "AllianceApiSync" else None
 
     cog = ChiefStalker(FakeBot())
-    result, error = await cog.get_player(137940156)
+    result, error = await cog.get_player(123456789)
     assert error is None
     assert result["player"]["nick_name"] == "OK"
-    assert seen == [(with_include(profile, ("base",)), "fake-key", 137940156)]
+    assert seen == [(with_include(profile, ("base",)), "fake-key", 123456789)]
 
 
 def test_with_include_replaces_section_without_mutating_original():
@@ -127,8 +127,8 @@ async def test_heroes_command_requests_only_relevant_sections(monkeypatch):
         response = Response()
         followup = Followup()
     cog = ChiefStalker(object())
-    await cog.wosheroes.callback(cog, Interaction(), "137940156")
-    assert captured == [(137940156, ("base", "heroes"))]
+    await cog.wosheroes.callback(cog, Interaction(), "123456789")
+    assert captured == [(123456789, ("base", "heroes"))]
     assert "embed" in sent[0][1]
 
 
@@ -136,8 +136,8 @@ def test_check_embed_reports_activity_and_profile():
     from cogs.chief_stalker import check_embed
     payload = {
         "player": {
-            "nick_name": "FUTURE IS BRIGHT",
-            "kid": 1501,
+            "nick_name": "Example Chief",
+            "kid": 101,
             "furnace_level": 80,
             "power": 1303347544,
             "online": False,
@@ -148,7 +148,7 @@ def test_check_embed_reports_activity_and_profile():
         },
         "age_seconds": 1602,
     }
-    embed = check_embed(payload, 137940156)
+    embed = check_embed(payload, 123456789)
     assert embed is not None
     rendered = {field.name: field.value for field in embed.fields}
     assert rendered["Activity status"] == "⚪ Reported offline"
@@ -195,8 +195,8 @@ async def test_check_command_reuses_client_and_shows_refresh(monkeypatch):
         response = Response()
         followup = Followup()
     cog = ChiefStalker(object())
-    await cog.check.callback(cog, Interaction(), "137940156")
-    assert seen == [(137940156, ("base",))]
+    await cog.check.callback(cog, Interaction(), "123456789")
+    assert seen == [(123456789, ("base",))]
 
 
 def test_check_utc_is_independent_of_local_timezone(monkeypatch):
@@ -206,11 +206,11 @@ def test_check_utc_is_independent_of_local_timezone(monkeypatch):
     payload = {"player": {"nick_name": "Example", "last_active_at": 1794608176.0}}
     previous_tz = os.environ.get("TZ")
     try:
-        for tz in ("UTC", "Asia/Riyadh", "America/Los_Angeles"):
+        for tz in ("UTC", "Pacific/Auckland", "America/Los_Angeles"):
             monkeypatch.setenv("TZ", tz)
             if hasattr(time, "tzset"):
                 time.tzset()
-            embed = check_embed(payload, 137940156)
+            embed = check_embed(payload, 123456789)
             fields = {field.name: field.value for field in embed.fields}
             assert fields["Recorded activity time (UTC)"] == "2026-11-13 22:16:16 UTC"
             assert fields["Reported last active"] == "<t:1794608176:R>"
