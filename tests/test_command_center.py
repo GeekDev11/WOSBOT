@@ -65,3 +65,38 @@ def test_lookup_forms_validate_id_before_api():
     from cogs.command_center import ChiefLookupModal, StateLookupModal
     assert "isdigit" in inspect.getsource(ChiefLookupModal.on_submit)
     assert "isdigit" in inspect.getsource(StateLookupModal.on_submit)
+
+
+def test_state_comparison_is_real_modal_not_scout_redirect():
+    import inspect
+    from cogs.command_center import StateCompareModal, route
+    assert "fetch_board" in inspect.getsource(StateCompareModal.on_submit)
+    assert "StateCompareModal" in inspect.getsource(route)
+
+
+def test_alliance_summary_includes_troop_coverage(tmp_path, monkeypatch):
+    import sqlite3
+    from cogs.command_center import alliance_summary
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "db").mkdir()
+    with sqlite3.connect(tmp_path / "db" / "users.sqlite") as db:
+        db.executescript("""
+            CREATE TABLE users (
+                fid INTEGER PRIMARY KEY, alliance TEXT, nickname TEXT,
+                power INTEGER
+            );
+            CREATE TABLE member_troop_quality (
+                fid INTEGER PRIMARY KEY,
+                infantry_tier INTEGER, lancer_tier INTEGER, marksman_tier INTEGER
+            );
+            INSERT INTO users VALUES (1, '10', 'Alpha', 3000000);
+            INSERT INTO users VALUES (2, '10', '', 2000000);
+            INSERT INTO member_troop_quality VALUES (1, 11, 10, 12);
+            INSERT INTO member_troop_quality VALUES (2, 11, NULL, 11);
+        """)
+    assert alliance_summary(10) == (2, 5000000, 1, 1)
+
+
+def test_top_menu_requires_administrator():
+    import inspect
+    assert "is_admin" in inspect.getsource(MainMenuView.interaction_check)
