@@ -191,16 +191,15 @@ class StateCompareModal(discord.ui.Modal):
     """Top-20 comparison for one supported category; no inferred data."""
     first = discord.ui.TextInput(label="First state", placeholder="Enter first state number", max_length=8)
     second = discord.ui.TextInput(label="Second state", placeholder="Enter second state number", max_length=8)
-    board = discord.ui.TextInput(label="Ranking category", placeholder="Enter ranking category", max_length=40)
-
-    def __init__(self, cog):
+    def __init__(self, cog, board):
         super().__init__(title="Compare State Rankings")
         self.cog = cog
+        self.board = board
 
     async def on_submit(self, interaction):
         from .wos_leaderboards import SCOUT_BOARDS, scout_label
         one, two = str(self.first.value).strip(), str(self.second.value).strip()
-        board = str(self.board.value).strip().lower().replace(" ", "_")
+        board = self.board
         if not one.isdigit() or not two.isdigit() or min(int(one), int(two)) < 1:
             await interaction.response.send_message("Enter two positive state numbers.", ephemeral=True)
             return
@@ -243,6 +242,53 @@ class StateCompareModal(discord.ui.Modal):
         )
         embed.set_footer(text="Whiteout Stats snapshots · compare identical ranking categories")
         await send_lookup_result(self.cog, interaction, embed=embed)
+
+
+
+class StateComparisonCategoryView(discord.ui.View):
+    """Choose a readable category before entering the two states."""
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=menu_timeout())
+        from .wos_leaderboards import SCOUT_BOARDS, scout_label
+        self.cog, self.user_id = cog, user_id
+        select = discord.ui.Select(
+            placeholder="Choose ranking category",
+            options=[discord.SelectOption(label=scout_label(slug)[:100], value=slug)
+                     for slug in SCOUT_BOARDS],
+        )
+        self.category_selector = select
+        select.callback = self.select_category
+        self.add_item(select)
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    async def select_category(self, interaction):
+        await interaction.response.send_modal(
+            StateCompareModal(self.cog, self.category_selector.values[0]))
+
+    @discord.ui.button(label="Back to Intelligence", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "intel")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
+
+async def show_state_comparison_categories(cog, interaction):
+    embed = discord.Embed(
+        title="Compare State Rankings",
+        description="Select a ranking category by name, then enter the two state numbers. Both states will be compared using the same top-20 ranking.",
+        color=theme.emColor1,
+    )
+    await safe_edit_message(
+        interaction, embed=embed,
+        view=StateComparisonCategoryView(cog, interaction.user.id), content=None,
+    )
+
 
 
 class AllianceIntelModal(discord.ui.Modal):
@@ -772,7 +818,7 @@ async def route(cog, interaction, section, key):
         if key in ("scout", "svs"):
             return await interaction.response.send_modal(StateLookupModal(cog, key))
         if key == "statecompare":
-            return await interaction.response.send_modal(StateCompareModal(cog))
+            return await show_state_comparison_categories(cog, interaction)
         if key == "allianceintel":
             return await interaction.response.send_modal(AllianceIntelModal(cog))
 
