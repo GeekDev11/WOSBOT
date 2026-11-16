@@ -3192,6 +3192,11 @@ class BearTrapView(discord.ui.View):
     def __init__(self, cog):
         super().__init__(timeout=menu_timeout())
         self.cog = cog
+        # Schedule Boards now has its own Events & Scheduling entry.
+        # Retain its callback for older command/interaction paths.
+        for item in tuple(self.children):
+            if isinstance(item, discord.ui.Button) and item.label == "Schedule Boards":
+                self.remove_item(item)
         # Use cog's connection instead of creating new one
         self.conn = cog.conn
         self.cursor = cog.cursor
