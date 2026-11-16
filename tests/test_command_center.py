@@ -200,6 +200,7 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     monkeypatch.setattr(module, "open_gift_redemption", fake_direct)
     monkeypatch.setattr(module, "show_event_reports_entry", fake_direct)
     monkeypatch.setattr(module, "show_appearance_entry", fake_direct)
+    monkeypatch.setattr(module, "show_server_management", fake_direct)
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
@@ -528,3 +529,36 @@ async def test_redemption_history_home_uses_main_menu():
     interaction = SimpleNamespace()
     await view._home(interaction)
     assert calls == [interaction]
+
+
+def test_server_settings_are_a_real_hub_not_direct_leave_server(monkeypatch):
+    from cogs.command_center import SECTIONS, ServerManagementView
+    from cogs.permission_handler import PermissionManager
+    labels = {key: label for key, label, _ in SECTIONS["admin"][2]}
+    assert labels["servers"] == "Server Management"
+    monkeypatch.setattr(PermissionManager, "is_owner", lambda user_id: True)
+    view = ServerManagementView(object(), 17)
+    button_labels = {getattr(item, "label", None) for item in view.children}
+    assert {"Server Overview", "Alliance Channel Setup",
+            "Administrator Permissions", "Leave a Server",
+            "Back to Administration", "Main Menu"} <= button_labels
+    monkeypatch.setattr(PermissionManager, "is_owner", lambda user_id: False)
+    viewer = ServerManagementView(object(), 17)
+    assert "Leave a Server" not in {getattr(item, "label", None) for item in viewer.children}
+
+
+@pytest.mark.asyncio
+async def test_leave_server_back_returns_to_server_management(monkeypatch):
+    from cogs.bot_health import ServersView
+    import cogs.command_center as center
+    from types import SimpleNamespace
+    received = []
+    async def fake_hub(cog, interaction):
+        received.append(interaction)
+    monkeypatch.setattr(center, "show_server_management", fake_hub)
+    parent = SimpleNamespace()
+    cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: parent))
+    view = ServersView(cog, None)
+    interaction = SimpleNamespace()
+    await view._on_back(interaction)
+    assert received == [interaction]
