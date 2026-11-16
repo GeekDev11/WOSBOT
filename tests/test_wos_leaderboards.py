@@ -127,3 +127,68 @@ def test_documented_migrant_slug():
 def test_rankings_ranks_key():
     rows = parse_board({"ok": True, "ranks": [{"rank": 1, "aid": 12, "abbr": "ABC", "score": 400}]})
     assert rows[0]["alliance_id"] == 12
+
+
+def test_ranking_snapshots_are_persistent_and_marked_as_saved(tmp_path, monkeypatch):
+    import time
+    import cogs.wos_leaderboards as rankings
+    monkeypatch.setattr(rankings, "RANKING_CACHE_DB", str(tmp_path / "rankings.sqlite3"))
+    entries = [{"rank": 1, "name": "Example", "score": 123, "chief_id": 100}]
+    rankings.save_ranking_snapshot(101, "pet_power", entries)
+    cached = rankings.read_ranking_snapshot(101, "pet_power")
+    assert cached is not None
+    assert cached[0] == entries
+    assert "Saved API snapshot" in rankings.ranking_snapshot_label(cached[1])
+    assert rankings.read_ranking_snapshot(102, "pet_power") is None
+    assert rankings.read_ranking_snapshot(101, "pet_power", max_age=-1) is None
+
+
+@pytest.mark.asyncio
+async def test_comparison_board_reuses_combined_response_for_categories(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import cogs.wos_leaderboards as rankings
+    monkeypatch.setattr(rankings, "RANKING_CACHE_DB", str(tmp_path / "rankings.sqlite3"))
+    calls = []
+    class FakeScout:
+        async def fetch_combined(self, state):
+            calls.append(state)
+            return {
+                "pet_power": [{"rank": 1, "score": 20}],
+                "personal_power": [{"rank": 1, "score": 40}],
+            }, None
+    scout = FakeScout()
+    class FakeBot:
+        def get_cog(self, name):
+            return scout if name == "WosStateScout" else None
+    client = rankings.WosLeaderboards(FakeBot())
+    first, error1, source1 = await client.comparison_board(101, "pet_power")
+    second, error2, source2 = await client.comparison_board(101, "personal_power")
+    assert error1 is None and error2 is None
+    assert first[0]["score"] == 20 and second[0]["score"] == 40
+    assert calls == [101]
+    assert rankings.read_ranking_snapshot(101, "personal_power")[0] == second
+
+
+@pytest.mark.asyncio
+async def test_comparison_returns_saved_results_when_budget_exhausted(tmp_path, monkeypatch):
+    import cogs.wos_leaderboards as rankings
+    monkeypatch.setattr(rankings, "RANKING_CACHE_DB", str(tmp_path / "rankings.sqlite3"))
+    import time
+    entries = [{"rank": 1, "score": 50}]
+    rankings.save_ranking_snapshot(101, "pet_power", entries,
+                                   captured_at=time.time() - 4000)
+    calls = []
+    class FakeScout:
+        async def fetch_combined(self, state):
+            calls.append(state)
+            return {}, "Configured API request budget exhausted."
+    class FakeBot:
+        def get_cog(self, name):
+            return FakeScout() if name == "WosStateScout" else None
+    client = rankings.WosLeaderboards(FakeBot())
+    rows, error, source = await client.comparison_board(101, "pet_power")
+    assert rows == entries and error is None
+    assert "Saved API snapshot" in source
+    assert calls == [101]
+    rows, error, source = await client.comparison_board(102, "pet_power")
+    assert rows is None and "No saved ranking" in error
