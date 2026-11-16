@@ -136,32 +136,22 @@ class MainMenu(commands.Cog):
         self.bot = bot
 
     def build_main_menu_embed(self) -> discord.Embed:
-        """Single source of truth for the top-level Settings Menu embed."""
+        """Five clear entry points; all underlying workflows remain intact."""
         return discord.Embed(
-            title=f"{theme.settingsIcon} Settings Menu",
+            title=f"{theme.settingsIcon} Stalker 2.0 · Command Center",
             description=(
-                f"Welcome to the bot settings. Select a category to get started:\n\n"
-                f"**Menu Categories**\n"
-                f"{theme.upperDivider}\n"
-                f"{theme.allianceIcon} **Alliances**\n"
-                f"└ Manage alliances, members, and registration\n\n"
-                f"{theme.giftIcon} **Gift Codes**\n"
-                f"└ Manage gift codes and rewards\n\n"
-                f"{theme.bellIcon} **Notifications**\n"
-                f"└ Event notification system for Bear, KE, and more\n\n"
-                f"{theme.listIcon} **Attendance**\n"
-                f"└ Track and export event attendance\n\n"
-                f"{theme.chartIcon} **Bear Tracking**\n"
-                f"└ Track bear hunt damage and view statistics\n\n"
-                f"{theme.ministerIcon} **Minister Scheduling**\n"
-                f"└ Manage state minister appointments\n\n"
-                f"{theme.paletteIcon} **Themes**\n"
-                f"└ Customize bot icons and colors\n\n"
-                f"{theme.lockIcon} **Permissions**\n"
-                f"└ Manage bot administrators (Global Admin only)\n\n"
-                f"{theme.robotIcon} **Maintenance**\n"
-                f"└ Updates, backups, and support\n"
-                f"{theme.lowerDivider}"
+                "**Choose a center to manage your bot.**\n\n"
+                "🛡️ **Alliance Command Center**\n"
+                "Members, editing, imports, troops, attendance and alliance settings.\n\n"
+                "🎯 **Intelligence Center**\n"
+                "State Scout, player profiles, history and SvS intelligence.\n\n"
+                "📅 **Events & Scheduling**\n"
+                "Notifications, bear tracking, attendance and minister appointments.\n\n"
+                "🎁 **Gift Code Center**\n"
+                "Redemption, code management, results and automation.\n\n"
+                "⚙️ **Administration & Settings**\n"
+                "Permissions, integrations, appearance, Bot Health and backups.\n\n"
+                "_Existing slash commands and specialized menus are preserved._"
             ),
             color=theme.emColor1,
         )
@@ -512,169 +502,9 @@ class MainMenu(commands.Cog):
 # Main Menu View
 # ============================================================================
 
-class MainMenuView(discord.ui.View):
-    """Main menu with 8 category buttons."""
-
-    def __init__(self, cog):
-        super().__init__(timeout=None)
-        self.cog = cog
-
-    @discord.ui.button(
-        label="Alliances",
-        emoji=theme.allianceIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="alliance_management",
-        row=0
-    )
-    async def alliance_management_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.show_alliance_management(interaction)
-
-    @discord.ui.button(
-        label="Gift Codes",
-        emoji=theme.giftIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="gift_codes",
-        row=0
-    )
-    async def gift_codes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            gift_cog = self.cog.bot.get_cog("GiftOperations")
-            if gift_cog:
-                await gift_cog.show_gift_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Gift Operations module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Gift Codes menu: {e}")
-            print(f"Error loading Gift Codes menu: {e}")
-
-    @discord.ui.button(
-        label="Notifications",
-        emoji=theme.bellIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="notifications",
-        row=0
-    )
-    async def notifications_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            notification_cog = self.cog.bot.get_cog("NotificationSystem")
-            if notification_cog:
-                await notification_cog.show_notification_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Notification System module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Notifications menu: {e}")
-            print(f"Error loading Notifications menu: {e}")
-
-    @discord.ui.button(
-        label="Attendance",
-        emoji=theme.listIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="attendance_tracking",
-        row=1
-    )
-    async def attendance_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            attendance_cog = self.cog.bot.get_cog("Attendance")
-            if attendance_cog:
-                await attendance_cog.show_attendance_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Attendance System module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Attendance menu: {e}")
-            print(f"Error loading Attendance menu: {e}")
-
-    @discord.ui.button(
-        label="Bear Tracking",
-        emoji=theme.chartIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="bear_tracking",
-        row=1
-    )
-    async def bear_tracking_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            bear_cog = self.cog.bot.get_cog("BearTrack")
-            if bear_cog:
-                await bear_cog.show_bear_track_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Bear Tracking module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Bear Tracking menu: {e}")
-            print(f"Error loading Bear Tracking menu: {e}")
-
-    @discord.ui.button(
-        label="Minister Scheduling",
-        emoji=theme.ministerIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="minister_scheduling",
-        row=1
-    )
-    async def minister_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            minister_cog = self.cog.bot.get_cog("MinisterMenu")
-            if minister_cog:
-                await minister_cog.show_minister_channel_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Minister Scheduling module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Minister menu: {e}")
-            print(f"Error loading Minister menu: {e}")
-
-    @discord.ui.button(
-        label="Themes",
-        emoji=theme.paletteIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="themes",
-        row=2
-    )
-    async def themes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            theme_cog = self.cog.bot.get_cog("Theme")
-            if theme_cog:
-                await theme_cog.show_theme_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Theme module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Theme menu: {e}")
-            print(f"Error loading Theme menu: {e}")
-
-    @discord.ui.button(
-        label="Permissions",
-        emoji=theme.lockIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="permissions_top",
-        row=2
-    )
-    async def permissions_top_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.show_permissions(interaction)
-
-    @discord.ui.button(
-        label="Maintenance",
-        emoji=theme.robotIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="maintenance",
-        row=2
-    )
-    async def maintenance_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.show_maintenance(interaction)
-
+# Shared navigation. Existing AllianceHubView, admin panels and route helpers
+# below remain unchanged and are reused by the new Command Center.
+from .command_center import MainMenuView
 
 # ============================================================================
 # Alliances View
