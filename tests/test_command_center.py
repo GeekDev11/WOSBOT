@@ -195,6 +195,9 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     monkeypatch.setattr(module, "open_cog", fake_open_cog)
     monkeypatch.setattr(module, "show_alliance_workspace", fake_workspace)
     monkeypatch.setattr(module, "show_alliance_settings_entry", fake_direct)
+    monkeypatch.setattr(module, "show_alliance_history_entry", fake_direct)
+    monkeypatch.setattr(module, "show_import_export_entry", fake_direct)
+    monkeypatch.setattr(module, "open_gift_redemption", fake_direct)
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
@@ -221,8 +224,10 @@ def test_settings_and_history_have_explicit_navigation():
     import inspect
     from cogs.command_center import route
     code = inspect.getsource(route)
-    assert '("settings", "history")' in code
+    assert 'if key == "settings":' in code
+    assert 'if key == "history":' in code
     assert "show_alliance_settings_entry" in code
+    assert "show_alliance_history_entry" in code
 
 
 def test_maintenance_back_returns_to_new_admin_center():
@@ -293,3 +298,35 @@ async def test_old_alliance_settings_back_goes_to_workspace():
     view = AllianceHubView(cog, 25, "VEN", "alliance", [(25, "VEN", 71)])
     await view.back.callback(SimpleNamespace())
     assert called == [25]
+
+
+def test_svs_modal_passes_state_id_not_scout_state():
+    import inspect
+    from cogs.command_center import StateLookupModal
+    source = inspect.getsource(StateLookupModal.on_submit)
+    assert '"state_id": int(state)' in source
+    assert '"state": int(state)' in source
+
+
+def test_distinct_modified_routes_and_direct_backup():
+    import inspect
+    from cogs.command_center import route, CoordinatesLookupModal
+    source = inspect.getsource(route)
+    assert 'CoordinatesLookupModal(cog)' in source
+    assert '"NotificationSchedule", "show_main_menu"' in source
+    assert '"BackupOperations", "show_backup_menu"' in source
+    assert 'show_import_export_entry' in source
+    assert 'open_gift_redemption' in source
+
+
+@pytest.mark.asyncio
+async def test_coordinates_are_not_redirected_to_player_inspector(monkeypatch):
+    from cogs.command_center import route, CoordinatesLookupModal
+    from types import SimpleNamespace
+    opened = []
+    async def send_modal(modal):
+        opened.append(modal)
+    await route(SimpleNamespace(), SimpleNamespace(response=SimpleNamespace(send_modal=send_modal)),
+                "intel", "coordinates")
+    assert len(opened) == 1
+    assert isinstance(opened[0], CoordinatesLookupModal)
