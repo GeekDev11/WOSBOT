@@ -9,6 +9,7 @@ from collections import Counter
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 import aiohttp
 import discord
@@ -270,9 +271,27 @@ def save_setting(name, value) -> None:
     _put_setting(key, to_text(value))
 
 
+_OFFICIAL_LIMIT_MIGRATION = "api_sync_official_limits_migrated_v1"
+
+
 def load_connection():
     settings = load_settings("profile", "key")
-    return settings["profile"], settings["key"]
+    profile = settings["profile"]
+    # One-time upgrade for the original WOSBOT default profile only. The
+    # provider documents 60/minute and 5000/day for standard API keys.
+    # Preserve every different user-configured value and other API providers.
+    try:
+        official = urlsplit(str(profile["base_url"])).hostname == "api.whiteoutstats.com"
+        old_defaults = profile["per_minute"] == 30 and profile["per_day"] == 1000
+        if official and old_defaults and not _settings(_OFFICIAL_LIMIT_MIGRATION).get(_OFFICIAL_LIMIT_MIGRATION):
+            revised = dict(profile, per_minute=60, per_day=5000)
+            save_setting("profile", revised)
+            _put_setting(_OFFICIAL_LIMIT_MIGRATION, "1")
+            profile = revised
+            logger.info("Player Sync: upgraded legacy default API limits to published standard allowance")
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        logger.warning("Player Sync: unable to upgrade legacy API allowance; keeping current limits")
+    return profile, settings["key"]
 
 
 def mask_key(key: str) -> str:
