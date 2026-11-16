@@ -198,6 +198,7 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     cog = SimpleNamespace(
         show_permissions=fake_direct,
         show_maintenance=fake_direct,
+        show_maintenance_tools=fake_direct,
         show_alliance_management=fake_direct,
         show_alliance_settings=fake_direct,
     )
