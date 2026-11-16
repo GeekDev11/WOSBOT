@@ -146,7 +146,7 @@ class StateLookupModal(discord.ui.Modal):
         if not state.isdigit() or int(state) < 1:
             await interaction.response.send_message("Enter a positive state number.", ephemeral=True)
             return
-        key = "scout" if self.route in ("scout", "statecompare") else "wossvs"
+        key = "scout" if self.route == "scout" else "wossvs"
         target = "WosStateScout" if key == "scout" else "WosSvs"
         await invoke_slash(self.cog, interaction, target, key, state=int(state))
 
@@ -182,6 +182,12 @@ class MainMenuView(discord.ui.View):
                 await open_section(self.cog, interaction, section)
             button.callback = clicked
             self.add_item(button)
+
+    async def interaction_check(self, interaction):
+        is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+        if not is_admin:
+            await interaction.response.send_message("Administrator permission required.", ephemeral=True)
+        return is_admin
 
 
 async def open_section(cog, interaction, section):
@@ -336,8 +342,6 @@ async def route(cog, interaction, section, key):
     if section == "alliance":
         if key == "attendance":
             return await open_cog(cog, interaction, "Attendance", "show_attendance_menu")
-        if key == "imports":
-            return await open_cog(cog, interaction, "AllianceMemberOperations", "show_export_members")
         return await show_alliance_workspace(cog, interaction)
 
     if section == "intel":
