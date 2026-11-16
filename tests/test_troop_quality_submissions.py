@@ -17,9 +17,9 @@ def test_parse_tiers_from_troops_preview_ignores_counts():
 
 
 def test_parse_single_chief_id():
-    assert sub.parse_chief_id("137940156") == 137940156
-    assert sub.parse_chief_id("ID: 137940156\nAttached screenshot") == 137940156
-    assert sub.parse_chief_id("137940156 and 454298509") is None
+    assert sub.parse_chief_id("123456789") == 123456789
+    assert sub.parse_chief_id("ID: 123456789\nAttached screenshot") == 123456789
+    assert sub.parse_chief_id("123456789 and 454298509") is None
     assert sub.parse_chief_id("not an ID") is None
 
 
