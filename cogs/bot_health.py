@@ -2395,7 +2395,8 @@ class ServersView(MenuView):
                            self.confirm_embed(guild))
 
     async def _on_back(self, interaction: discord.Interaction):
-        await self.cog.bot.get_cog("MainMenu").show_maintenance(interaction)
+        from .command_center import show_server_management
+        await show_server_management(self.cog.bot.get_cog("MainMenu"), interaction)
 
 
 class CleanCogsConfirmView(discord.ui.View):
