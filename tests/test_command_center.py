@@ -342,3 +342,46 @@ def test_scoped_workflows_and_profile_exposure():
     assert 'show_appearance_entry(cog, interaction)' in source
     assert 'open_alliance_scoped_tool' in inspect.getsource(ImportExportView)
     assert 'BotProfile' in inspect.getsource(AppearanceView)
+
+
+def test_lookup_forms_use_instructions_not_personal_examples():
+    from cogs.command_center import (
+        ChiefLookupModal, StateLookupModal, StateCompareModal,
+        AllianceIntelModal, CoordinatesLookupModal,
+    )
+    assert ChiefLookupModal.chief_id.placeholder == "Enter Chief ID"
+    assert CoordinatesLookupModal.chief_id.placeholder == "Enter Chief ID"
+    assert StateLookupModal.state_id.placeholder == "Enter state number"
+    assert StateCompareModal.first.placeholder == "Enter first state number"
+    assert StateCompareModal.second.placeholder == "Enter second state number"
+    assert StateCompareModal.board.placeholder == "Enter ranking category"
+    assert StateCompareModal.board.default is None
+    assert AllianceIntelModal.state_id.placeholder == "Enter state number"
+    assert AllianceIntelModal.tag.placeholder == "Enter alliance tag"
+
+
+def test_intelligence_results_expose_parent_and_home_navigation():
+    from cogs.command_center import (
+        ResultNavigationView, AllianceHistoryPickView, AllianceActionPickView,
+        ImportExportView, AppearanceView,
+    )
+    def labels(view):
+        return {getattr(item, "label", None) for item in view.children}
+    class Dummy: pass
+    parent = ResultNavigationView(Dummy(), 1)
+    assert {"Back to Intelligence", "Main Menu"} <= labels(parent)
+    history = AllianceHistoryPickView(Dummy(), 1, [(10, "Example")])
+    assert {"Back to Alliances", "Main Menu"} <= labels(history)
+    scoped = AllianceActionPickView(Dummy(), 1, [(10, "Example")],
+                                  "AttendanceReport", "show_session_selection", "Event Reports")
+    assert scoped.parent_section == "events"
+    assert {"Back to Center", "Main Menu"} <= labels(scoped)
+    assert "Main Menu" in labels(ImportExportView(Dummy(), 1))
+    assert "Main Menu" in labels(AppearanceView(Dummy(), 1))
+
+
+def test_comparison_response_retains_navigation():
+    import inspect
+    from cogs.command_center import StateCompareModal, CoordinatesLookupModal
+    assert "send_lookup_result" in inspect.getsource(StateCompareModal.on_submit)
+    assert "send_lookup_result" in inspect.getsource(CoordinatesLookupModal.on_submit)
