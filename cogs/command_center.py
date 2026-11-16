@@ -573,6 +573,26 @@ class AllianceHistoryPickView(discord.ui.View):
     async def interaction_check(self, interaction):
         return await authorized(interaction, self.user_id)
 
+    @discord.ui.button(label="Back to Alliances", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "alliance")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
+    @discord.ui.button(label="Back to Center", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, self.parent_section)
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
     async def select_alliance(self, interaction):
         permitted, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
         aid = int(self.selector.values[0])
@@ -602,6 +622,7 @@ class AllianceActionPickView(discord.ui.View):
         super().__init__(timeout=menu_timeout())
         self.cog, self.user_id = cog, user_id
         self.target_cog, self.target_method = target_cog, target_method
+        self.parent_section = "events" if target_cog == "AttendanceReport" else "alliance"
         selector = discord.ui.Select(
             placeholder=label,
             options=[discord.SelectOption(label=str(name)[:95], value=str(aid))
@@ -667,6 +688,10 @@ class ImportExportView(discord.ui.View):
     async def back(self, interaction, button):
         await open_section(self.cog, interaction, "alliance")
 
+    @discord.ui.button(label="Main Menu", emoji="🏠", style=discord.ButtonStyle.secondary)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
 
 async def show_import_export_entry(cog, interaction):
     embed = discord.Embed(title="Imports & Exports",
@@ -708,6 +733,10 @@ class AppearanceView(discord.ui.View):
     @discord.ui.button(label="Back to Administration", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, button):
         await open_section(self.cog, interaction, "admin")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠", style=discord.ButtonStyle.secondary)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
 
 
 async def show_appearance_entry(cog, interaction):
