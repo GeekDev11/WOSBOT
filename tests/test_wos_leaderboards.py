@@ -18,9 +18,9 @@ async def test_autocomplete_includes_last_category():
 
 def test_parse_player_board():
     result = parse_board({"ok": True, "rankings": [
-        {"rank": 1, "chief_id": 137940156, "nick_name": "Test", "score": 1000000}
+        {"rank": 1, "chief_id": 123456789, "nick_name": "Test", "score": 1000000}
     ]})
-    assert result[0]["chief_id"] == 137940156
+    assert result[0]["chief_id"] == 123456789
     assert result[0]["score"] == 1000000
     assert "#1" in summary_text(result)
 
@@ -63,7 +63,7 @@ def test_scout_excludes_furnace_and_both_kills():
 def test_scout_combined_dict_only_recognized_boards():
     payload = {"ok": True, "state": {"boards": {
         "personal_power": [{"rank": 1, "chief_id": 42, "nick_name": "Chief", "score": 100}],
-        "alliance_power": {"entries": [{"rank": 1, "aid": 7, "abbr": "VEN", "score": 50}]},
+        "alliance_power": {"entries": [{"rank": 1, "aid": 7, "abbr": "EXA", "score": 50}]},
         "kills": [{"rank": 1, "chief_id": 2, "score": 1000}],
     }}}
     found = parse_state_boards(payload)
@@ -93,7 +93,7 @@ def test_scout_displays_all_20_rows():
 def test_scout_ui_has_23_options_and_navigation():
     class Dummy:
         pass
-    view = StateScoutView(Dummy(), 1501, 1234)
+    view = StateScoutView(Dummy(), 101, 1234)
     assert len(view.category_selector.options) == 23
     assert all(opt.value not in SCOUT_EXCLUDE for opt in view.category_selector.options)
     assert view.next_button.disabled is False
