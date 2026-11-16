@@ -271,28 +271,11 @@ def save_setting(name, value) -> None:
     _put_setting(key, to_text(value))
 
 
-_OFFICIAL_LIMIT_MIGRATION = "api_sync_official_limits_migrated_v1"
-
-
 def load_connection():
+    """Read the configured connection; API tier is verified independently."""
     settings = load_settings("profile", "key")
-    profile = settings["profile"]
-    # One-time upgrade for the original WOSBOT default profile only. The
-    # provider documents 60/minute and 5000/day for standard API keys.
-    # Preserve every different user-configured value and other API providers.
-    try:
-        official = urlsplit(str(profile["base_url"])).hostname == "api.whiteoutstats.com"
-        old_defaults = profile["per_minute"] == 30 and profile["per_day"] == 1000
-        if official and not _settings(_OFFICIAL_LIMIT_MIGRATION).get(_OFFICIAL_LIMIT_MIGRATION):
-            if old_defaults:
-                revised = dict(profile, per_minute=60, per_day=5000)
-                save_setting("profile", revised)
-                profile = revised
-                logger.info("Player Sync: upgraded legacy default API limits to published standard allowance")
-            _put_setting(_OFFICIAL_LIMIT_MIGRATION, "1")
-    except (OSError, sqlite3.Error, ValueError, TypeError):
-        logger.warning("Player Sync: unable to upgrade legacy API allowance; keeping current limits")
-    return profile, settings["key"]
+    return settings["profile"], settings["key"]
+
 
 
 def mask_key(key: str) -> str:
@@ -480,8 +463,67 @@ class _LookupGate:
 _LOOKUP_GATE = _LookupGate()
 
 
+# Checking the provider's usage endpoint is free and avoids guessing subscription
+# tiers from defaults. Only legacy WOSBOT limit pairs are updated automatically.
+_VERIFIED_USAGE_AT = 0.0
+_VERIFIED_USAGE_LOCK = None
+_VERIFIED_USAGE_LOOP = None
+_VERIFIED_USAGE_INTERVAL = 300
+_LEGACY_LIMIT_PAIRS = frozenset({(30, 1000), (60, 5000)})
+
+
+async def _refresh_official_limits(profile):
+    global _VERIFIED_USAGE_AT, _VERIFIED_USAGE_LOCK, _VERIFIED_USAGE_LOOP
+    from urllib.parse import urlsplit
+    try:
+        if urlsplit(str(profile.get("base_url", ""))).hostname != "api.whiteoutstats.com":
+            return
+        if (profile.get("per_minute"), profile.get("per_day")) not in _LEGACY_LIMIT_PAIRS:
+            return
+        loop = asyncio.get_running_loop()
+        if _VERIFIED_USAGE_LOOP is not loop:
+            _VERIFIED_USAGE_LOCK, _VERIFIED_USAGE_LOOP = asyncio.Lock(), loop
+        async with _VERIFIED_USAGE_LOCK:
+            if time.monotonic() - _VERIFIED_USAGE_AT < _VERIFIED_USAGE_INTERVAL:
+                return
+            _VERIFIED_USAGE_AT = time.monotonic()
+            key = await asyncio.to_thread(load_setting, "key")
+            if not key:
+                return
+            header_name = profile.get("auth_header", "X-Api-Key")
+            headers = {header_name: ("Bearer " + key if header_name.lower() == "authorization" else key)}
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://api.whiteoutstats.com/v1/usage",
+                                       headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        return
+                    payload = await response.json(content_type=None)
+            if not isinstance(payload, dict) or payload.get("frosty") is not True:
+                return
+            minute = (payload.get("minute") or {}).get("limit")
+            daily = (payload.get("daily") or {}).get("limit")
+            if type(minute) is not int or type(daily) is not int:
+                return
+            if not (1 <= minute <= PER_MINUTE_MAX and 1 <= daily <= PER_DAY_MAX):
+                return
+            current = await asyncio.to_thread(load_setting, "profile")
+            if (current.get("per_minute"), current.get("per_day")) not in _LEGACY_LIMIT_PAIRS:
+                return
+            updated = dict(current, per_minute=minute, per_day=daily)
+            await asyncio.to_thread(save_setting, "profile", updated)
+            profile.update({"per_minute": minute, "per_day": daily})
+            logger.info("Player Sync: verified Frosty API limits from provider usage endpoint")
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError,
+            OSError, sqlite3.Error, KeyError):
+        logger.warning("Player Sync: could not verify API entitlement; retaining configured limits")
+
+
+
+
+
 async def _take_slot(profile, today=utc_today) -> bool:
-    """Counts one request and waits its turn; False when today's limit is used up."""
+    """Use the provider-verified Frosty allowance without overriding custom limits."""
+    await _refresh_official_limits(profile)
     if not await asyncio.to_thread(take_request, today(), profile["per_day"]):
         return False
     await _LOOKUP_GATE.wait(profile["per_minute"])
