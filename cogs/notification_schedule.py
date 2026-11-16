@@ -1357,6 +1357,22 @@ class ScheduleBoardMainView(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send(f"{theme.deniedIcon} An error occurred!", ephemeral=True)
 
+    @discord.ui.button(label="Back to Events", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def back_to_events(self, interaction, button):
+        from .command_center import open_section
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await open_section(parent, interaction, "events")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def home(self, interaction, button):
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await parent.show_main_menu(interaction)
+
+
 class CreateBoardTypeView(discord.ui.View):
     """Step 1: Select board type with buttons"""
     def __init__(self, cog, guild_id: int):
