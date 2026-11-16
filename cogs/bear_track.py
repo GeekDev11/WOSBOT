@@ -5118,6 +5118,16 @@ class BearMenuView(discord.ui.View):
         embed = view._build_embed()
         await safe_edit_message(interaction, embed=embed, view=view, content=None)
 
+    @discord.ui.button(label="Back to Events", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def back_to_events(self, interaction, button):
+        if not await check_interaction_user(interaction, self.original_user_id):
+            return
+        from .command_center import open_section
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await open_section(parent, interaction, "events")
+
     @discord.ui.button(label="Main Menu", style=discord.ButtonStyle.secondary, emoji=theme.homeIcon, row=2)
     async def main_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await check_interaction_user(interaction, self.original_user_id):
