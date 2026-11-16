@@ -17,13 +17,13 @@ logger = logging.getLogger("bot")
 # Ordered, stable menu catalog. Every item has a real handler below.
 SECTIONS = {
     "alliance": ("Alliance Command Center", "🛡️", (
-        ("overview", "Alliance Overview", "Statistics and alliance actions"),
-        ("members", "Manage Members", "Add, edit, transfer or remove members"),
-        ("troops", "Troop Quality", "View, edit and upload troop tiers"),
-        ("attendance", "Attendance & OCR", "Screenshots, events and corrections"),
-        ("imports", "Imports & Exports", "Upload files and export member records"),
-        ("settings", "Alliance Settings", "State, channels and membership rules"),
-        ("history", "Alliance History", "Changes, rankings and member history"),
+        ("overview", "Alliance Overview", "Member totals and alliance summary"),
+        ("members", "Members & Imports", "Manage, edit, transfer and import members"),
+        ("troops", "Troop Quality", "Recorded tiers and troop submissions"),
+        ("imports", "Export Members", "Export alliance roster and selected columns"),
+        ("history", "Rankings & History", "Alliance rankings and recorded changes"),
+        ("management", "Manage Alliances", "Add alliances, transfers and registration"),
+        ("settings", "Alliance Configuration", "Name, state, channels and transfer rules"),
     )),
     "intel": ("Intelligence Center", "🎯", (
         ("scout", "State Scout", "Top 20 rankings across 23 categories"),
@@ -35,7 +35,7 @@ SECTIONS = {
         ("coordinates", "Map & Coordinates", "Available recorded player location"),
     )),
     "events": ("Events & Scheduling", "📅", (
-        ("calendar", "Event Calendar", "Reminders and upcoming schedules"),
+        ("calendar", "Schedule Boards", "Live boards for upcoming events"),
         ("notifications", "Notifications", "Configure notifications and channels"),
         ("bear", "Bear Tracking", "Damage, screenshots and history"),
         ("minister", "Minister Scheduling", "Appointments and archives"),
@@ -43,10 +43,10 @@ SECTIONS = {
         ("reports", "Event Reports", "Recorded attendance reports and exports"),
     )),
     "gifts": ("Gift Code Center", "🎁", (
-        ("dashboard", "Gift Code Dashboard", "Codes, status and controls"),
+        ("dashboard", "Manage Gift Codes", "Add, list or remove gift codes"),
         ("redeem", "Redeem Gift Codes", "Run the existing redemption flow"),
         ("results", "Redemption Results", "View completed and pending redemptions"),
-        ("automation", "Automation Settings", "Validation and retry preferences"),
+        ("automation", "Gift Code Settings", "Redemption automation, priority and validation"),
         ("channels", "Gift Channels", "Announcement and redemption logs"),
     )),
     "admin": ("Administration & Settings", "⚙️", (
@@ -55,7 +55,7 @@ SECTIONS = {
         ("appearance", "Appearance & Bot Profile", "Themes and customization"),
         ("health", "Bot Health", "Monitoring and running operations"),
         ("backup", "Backup & Restore", "Backup and restore utilities"),
-        ("updates", "Updates & Maintenance", "Versions, maintenance and support"),
+        ("updates", "Updates & Support", "Updates, bot presence, support and OCR service"),
         ("servers", "Discord Server Settings", "Channel and server configuration"),
     )),
 }
@@ -83,6 +83,8 @@ async def missing(interaction, label):
 
 
 async def open_cog(cog, interaction, name, method, *args):
+    if name == "AllianceInsights":
+        return await show_alliance_insights(cog, interaction, *args)
     other = cog.bot.get_cog(name)
     action = getattr(other, method, None) if other is not None else None
     if not callable(action):
@@ -477,7 +479,7 @@ class AllianceWorkspaceView(discord.ui.View):
                 "Alliance menu action failed. Check Bot Health logs.", ephemeral=True,
             )
 
-    @discord.ui.button(label="Manage Members / Import", emoji="👥", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Members & Imports", emoji="👥", style=discord.ButtonStyle.primary, row=1)
     async def members(self, interaction, button):
         await open_cog(self.cog, interaction, "AllianceMemberOperations",
                        "show_manage_members_for", self.alliance_id)
@@ -487,19 +489,18 @@ class AllianceWorkspaceView(discord.ui.View):
         await open_cog(self.cog, interaction, "TroopQuality",
                        "show_troop_quality_for", self.alliance_id)
 
-    @discord.ui.button(label="Attendance & OCR", emoji="📋", style=discord.ButtonStyle.primary, row=2)
-    async def attendance(self, interaction, button):
-        await open_cog(self.cog, interaction, "Attendance",
-                       "show_attendance_hub", self.alliance_id)
+    @discord.ui.button(label="Alliance Configuration", emoji="⚙️", style=discord.ButtonStyle.secondary, row=2)
+    async def configuration(self, interaction, button):
+        await self.cog.show_alliance_settings(interaction, self.alliance_id)
 
     @discord.ui.button(label="Export Members", emoji="📤", style=discord.ButtonStyle.secondary, row=2)
     async def export(self, interaction, button):
         await open_cog(self.cog, interaction, "AllianceMemberOperations",
                        "show_export_members")
 
-    @discord.ui.button(label="Alliance Settings / History", emoji="⚙️", style=discord.ButtonStyle.secondary, row=3)
-    async def settings(self, interaction, button):
-        await self.cog.show_alliance_settings(interaction, self.alliance_id)
+    @discord.ui.button(label="Rankings & History", emoji="📊", style=discord.ButtonStyle.secondary, row=3)
+    async def history(self, interaction, button):
+        await show_alliance_insights(self.cog, interaction, self.alliance_id)
 
     @discord.ui.button(label="Manage Alliances", emoji="🗂️", style=discord.ButtonStyle.secondary, row=3)
     async def manage_alliances(self, interaction, button):
@@ -566,11 +567,10 @@ async def show_alliance_workspace(cog, interaction, alliance_id=None):
             f"**Missing member names:** {unnamed:,}\n"
             "**Troop coverage:** Not yet recorded\n\n"
         ) + (
-            "Choose an alliance and an action. Member edits, CSV/XLSX uploads, "
-            "troop edits, attendance OCR and exports open the existing protected workflows.\n\n"
-            "**Import:** Manage Members → Import (CSV/XLSX).\n"
-            "**Edit:** Manage Members → Edit / Bulk Edit.\n"
-            "**Troop uploads:** Troop Quality → submission channel."
+            "Choose an alliance to inspect or manage. Members, troop editing, "
+            "exports, rankings, and configuration also have dedicated entries "
+            "in the Alliance Command Center.\n\n"
+            "Attendance and OCR are in **Events & Scheduling**."
         ),
         color=theme.emColor1,
     )
@@ -581,25 +581,54 @@ async def show_alliance_workspace(cog, interaction, alliance_id=None):
 
 
 async def show_alliance_settings_entry(cog, interaction):
-    """Open configuration only after resolving an alliance in the new workspace."""
-    if interaction.guild_id is None:
-        await interaction.response.send_message(
-            "Alliance settings require an installed Discord server.", ephemeral=True,
-        )
-        return
-    alliances, _ = PermissionManager.get_admin_alliances(
-        interaction.user.id, interaction.guild_id,
+    """Directly open the existing configuration-only view for an authorized alliance."""
+    return await open_alliance_scoped_tool(
+        cog, interaction, "MainMenu", "show_alliance_settings", "Alliance Configuration")
+
+
+class AllianceInsightsView(discord.ui.View):
+    """Two related read-only features, with one scoped alliance context."""
+    def __init__(self, cog, user_id, alliance_id):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id, self.alliance_id = cog, user_id, alliance_id
+
+    async def interaction_check(self, interaction):
+        if not await authorized(interaction, self.user_id):
+            return False
+        permitted, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
+        if self.alliance_id not in {int(aid) for aid, _ in permitted}:
+            await interaction.response.send_message("Alliance access denied.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Alliance History", emoji="📜", style=discord.ButtonStyle.primary)
+    async def history(self, interaction, button):
+        await open_cog(self.cog, interaction, "AllianceHistory", "show_history_for", self.alliance_id)
+
+    @discord.ui.button(label="Power Rankings", emoji="📊", style=discord.ButtonStyle.primary)
+    async def rankings(self, interaction, button):
+        await open_cog(self.cog, interaction, "AllianceMemberOperations",
+                       "show_power_rankings_for", self.alliance_id)
+
+    @discord.ui.button(label="Back to Alliances", emoji="↩️", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "alliance")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠", style=discord.ButtonStyle.secondary)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
+
+async def show_alliance_insights(cog, interaction, alliance_id):
+    embed = discord.Embed(
+        title="Alliance Rankings & History",
+        description="Choose recorded alliance changes or member power rankings.",
+        color=theme.emColor1,
     )
-    if not alliances:
-        await interaction.response.send_message(
-            "No alliance assigned to your administrator account.", ephemeral=True,
-        )
-        return
-    # The Alliance Command Center handles switching between assigned alliances.
-    if len(alliances) > 1:
-        await show_alliance_workspace(cog, interaction)
-    else:
-        await cog.show_alliance_settings(interaction, int(alliances[0][0]))
+    await safe_edit_message(interaction, embed=embed,
+                            view=AllianceInsightsView(cog, interaction.user.id, alliance_id),
+                            content=None)
+
 
 
 
@@ -843,15 +872,25 @@ async def show_appearance_entry(cog, interaction):
 async def route(cog, interaction, section, key):
     """Every menu entry routes to a real existing workflow or a truthful alternative."""
     if section == "alliance":
+        if key == "overview":
+            return await show_alliance_workspace(cog, interaction)
+        if key == "members":
+            return await open_alliance_scoped_tool(
+                cog, interaction, "AllianceMemberOperations", "show_manage_members_for",
+                "Members & Imports")
+        if key == "troops":
+            return await open_alliance_scoped_tool(
+                cog, interaction, "TroopQuality", "show_troop_quality_for", "Troop Quality")
+        if key == "imports":
+            return await open_cog(cog, interaction, "AllianceMemberOperations", "show_export_members")
+        if key == "history":
+            return await open_alliance_scoped_tool(
+                cog, interaction, "AllianceInsights", "show_alliance_insights", "Rankings & History")
+        if key == "management":
+            return await cog.show_alliance_admin_tools(interaction)
         if key == "settings":
             return await show_alliance_settings_entry(cog, interaction)
-        if key == "history":
-            return await show_alliance_history_entry(cog, interaction)
-        if key == "imports":
-            return await show_import_export_entry(cog, interaction)
-        if key == "attendance":
-            return await open_cog(cog, interaction, "Attendance", "show_attendance_menu")
-        return await show_alliance_workspace(cog, interaction)
+        return await open_section(cog, interaction, "alliance")
 
     if section == "intel":
         if key == "coordinates":
