@@ -475,6 +475,14 @@ class AttendanceHubView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=AttendanceSettingsView(self.cog))
 
+    @discord.ui.button(label="Back to Events", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=3)
+    async def back_to_events(self, interaction, button):
+        from .command_center import open_section
+        parent = self.cog.bot.get_cog("MainMenu")
+        if parent:
+            await open_section(parent, interaction, "events")
+
     @discord.ui.button(label="Main Menu", emoji=theme.homeIcon,
                        style=discord.ButtonStyle.secondary, row=3)
     async def main_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
