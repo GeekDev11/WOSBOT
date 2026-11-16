@@ -232,13 +232,18 @@ def _is_back(text: str) -> bool:
     return plain == "Back" or (plain.startswith("Back to ") and not _is_home(plain))
 
 
-def test_no_view_has_both_back_and_main_menu():
+def test_legacy_views_do_not_mix_back_and_home():
+    # Command Center navigation deliberately offers both, as users requested:
+    # Back preserves the current center; Main Menu exits to the five-center home.
+    new_navigation_files = {"command_center.py", "wos_leaderboards.py"}
     bad = []
     for f, cls in VIEWS:
+        if f.name in new_navigation_files:
+            continue
         texts = _button_texts(cls)
         if any(_is_home(t) for t in texts) and any(_is_back(t) and not _is_home(t) for t in texts):
             bad.append(f"{f.name}:{cls.lineno} {cls.name}")
-    assert not bad, "views with both a Back and a Main Menu button:\n  " + "\n  ".join(bad)
+    assert not bad, "legacy views with both Back and Main Menu:\n  " + "\n  ".join(bad)
 
 
 # ── Embeds: all text goes in the embed, never in content above it ──
