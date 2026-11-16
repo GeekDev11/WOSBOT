@@ -561,6 +561,56 @@ async def show_alliance_history_entry(cog, interaction):
                             view=AllianceHistoryPickView(cog, interaction.user.id, alliances), content=None)
 
 
+
+class AllianceActionPickView(discord.ui.View):
+    """Select an authorized alliance for an existing scoped workflow."""
+    def __init__(self, cog, user_id, alliances, target_cog, target_method, label):
+        super().__init__(timeout=menu_timeout())
+        self.cog, self.user_id = cog, user_id
+        self.target_cog, self.target_method = target_cog, target_method
+        selector = discord.ui.Select(
+            placeholder=label,
+            options=[discord.SelectOption(label=str(name)[:95], value=str(aid))
+                     for aid, name in alliances[:25]],
+        )
+        self.selector = selector
+        selector.callback = self.select_alliance
+        self.add_item(selector)
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    async def select_alliance(self, interaction):
+        permitted, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
+        aid = int(self.selector.values[0])
+        if aid not in {int(row[0]) for row in permitted}:
+            return await interaction.response.send_message("Alliance access denied.", ephemeral=True)
+        await open_cog(self.cog, interaction, self.target_cog, self.target_method, aid)
+
+
+async def open_alliance_scoped_tool(cog, interaction, target_cog, target_method, title):
+    if interaction.guild_id is None:
+        return await interaction.response.send_message("This tool requires a Discord server.", ephemeral=True)
+    alliances, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
+    if not alliances:
+        return await interaction.response.send_message("No assigned alliances.", ephemeral=True)
+    if len(alliances) == 1:
+        return await open_cog(cog, interaction, target_cog, target_method, int(alliances[0][0]))
+    embed = discord.Embed(title=title, description="Choose the alliance to continue.", color=theme.emColor1)
+    await safe_edit_message(
+        interaction, embed=embed,
+        view=AllianceActionPickView(cog, interaction.user.id, alliances,
+                                    target_cog, target_method, title),
+        content=None,
+    )
+
+
+async def show_event_reports_entry(cog, interaction):
+    return await open_alliance_scoped_tool(
+        cog, interaction, "AttendanceReport", "show_session_selection", "Event Reports")
+
+
+
 class ImportExportView(discord.ui.View):
     def __init__(self, cog, user_id):
         super().__init__(timeout=menu_timeout())
@@ -571,7 +621,9 @@ class ImportExportView(discord.ui.View):
 
     @discord.ui.button(label="Import / Manage Members", emoji="📥", style=discord.ButtonStyle.primary)
     async def imports(self, interaction, button):
-        await show_alliance_workspace(self.cog, interaction)
+        await open_alliance_scoped_tool(self.cog, interaction,
+                                       "AllianceMemberOperations", "show_manage_members_for",
+                                       "Import / Manage Members")
 
     @discord.ui.button(label="Export Members", emoji="📤", style=discord.ButtonStyle.secondary)
     async def exports(self, interaction, button):
@@ -636,6 +688,8 @@ async def route(cog, interaction, section, key):
             return await open_cog(cog, interaction, "BearTrack", "show_bear_track_menu")
         if key == "minister":
             return await open_cog(cog, interaction, "MinisterMenu", "show_minister_channel_menu")
+        if key == "reports":
+            return await show_event_reports_entry(cog, interaction)
         return await open_cog(cog, interaction, "Attendance", "show_attendance_menu")
 
     if section == "gifts":
