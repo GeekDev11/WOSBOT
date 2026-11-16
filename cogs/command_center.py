@@ -583,16 +583,6 @@ class AllianceHistoryPickView(discord.ui.View):
     async def home(self, interaction, button):
         await self.cog.show_main_menu(interaction)
 
-    @discord.ui.button(label="Back to Center", emoji="↩️",
-                       style=discord.ButtonStyle.secondary, row=1)
-    async def back(self, interaction, button):
-        await open_section(self.cog, interaction, self.parent_section)
-
-    @discord.ui.button(label="Main Menu", emoji="🏠",
-                       style=discord.ButtonStyle.secondary, row=1)
-    async def home(self, interaction, button):
-        await self.cog.show_main_menu(interaction)
-
     async def select_alliance(self, interaction):
         permitted, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
         aid = int(self.selector.values[0])
@@ -634,6 +624,16 @@ class AllianceActionPickView(discord.ui.View):
 
     async def interaction_check(self, interaction):
         return await authorized(interaction, self.user_id)
+
+    @discord.ui.button(label="Back to Center", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, self.parent_section)
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
 
     async def select_alliance(self, interaction):
         permitted, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild_id)
