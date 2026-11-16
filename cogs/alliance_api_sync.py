@@ -465,7 +465,7 @@ _LOOKUP_GATE = _LookupGate()
 
 # Checking the provider's usage endpoint is free and avoids guessing subscription
 # tiers from defaults. Only legacy WOSBOT limit pairs are updated automatically.
-_VERIFIED_USAGE_AT = 0.0
+_VERIFIED_USAGE_AT = None
 _VERIFIED_USAGE_LOCK = None
 _VERIFIED_USAGE_LOOP = None
 _VERIFIED_USAGE_INTERVAL = 300
@@ -484,7 +484,8 @@ async def _refresh_official_limits(profile):
         if _VERIFIED_USAGE_LOOP is not loop:
             _VERIFIED_USAGE_LOCK, _VERIFIED_USAGE_LOOP = asyncio.Lock(), loop
         async with _VERIFIED_USAGE_LOCK:
-            if time.monotonic() - _VERIFIED_USAGE_AT < _VERIFIED_USAGE_INTERVAL:
+            if (_VERIFIED_USAGE_AT is not None and
+                    time.monotonic() - _VERIFIED_USAGE_AT < _VERIFIED_USAGE_INTERVAL):
                 return
             _VERIFIED_USAGE_AT = time.monotonic()
             key = await asyncio.to_thread(load_setting, "key")
