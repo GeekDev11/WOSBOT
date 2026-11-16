@@ -42,7 +42,7 @@ def test_section_select_and_home():
 
 def test_workspace_has_real_management_actions():
     class Fake: pass
-    view = AllianceWorkspaceView(Fake(), 1, [(100, "VEN")], 100)
+    view = AllianceWorkspaceView(Fake(), 1, [(100, "EXA")], 100)
     labels = {getattr(x, "label", "") for x in view.children}
     assert "Manage Members / Import" in labels
     assert "Troop Quality" in labels
@@ -136,7 +136,7 @@ async def test_alliance_switch_reads_select_not_action_button(monkeypatch):
     async def fake_open(cog, interaction, alliance_id):
         opened.append(alliance_id)
     monkeypatch.setattr(module, "show_alliance_workspace", fake_open)
-    view = AllianceWorkspaceView(object(), 11, [(100, "VEN"), (200, "ABC")], 100)
+    view = AllianceWorkspaceView(object(), 11, [(100, "EXA"), (200, "ABC")], 100)
     assert view.children[0] is not view.alliance_selector
     view.alliance_selector._values = ["200"]
     await view.switch_alliance(SimpleNamespace())
@@ -257,8 +257,8 @@ async def test_legacy_alliance_hub_calls_new_workspace(monkeypatch):
         called.append(aid)
     monkeypatch.setattr(nav, "show_alliance_workspace", workspace)
     menu = MainMenu(SimpleNamespace())
-    await menu.show_alliance_hub(SimpleNamespace(), 1501)
-    assert called == [1501]
+    await menu.show_alliance_hub(SimpleNamespace(), 101)
+    assert called == [101]
 
 
 @pytest.mark.asyncio
@@ -297,7 +297,7 @@ async def test_old_alliance_settings_back_goes_to_workspace():
     async def hub(interaction, alliance_id):
         called.append(alliance_id)
     cog = SimpleNamespace(show_alliance_hub=hub)
-    view = AllianceHubView(cog, 25, "VEN", "alliance", [(25, "VEN", 71)])
+    view = AllianceHubView(cog, 25, "EXA", "alliance", [(25, "EXA", 71)])
     await view.back.callback(SimpleNamespace())
     assert called == [25]
 
@@ -389,7 +389,7 @@ def test_comparison_response_retains_navigation():
 def test_state_comparison_categories_are_readable_and_selected():
     from cogs.command_center import StateComparisonCategoryView
     from cogs.wos_leaderboards import SCOUT_BOARDS, scout_label
-    view = StateComparisonCategoryView(object(), 123, 1501, 1502)
+    view = StateComparisonCategoryView(object(), 123, 101, 102)
     assert len(view.category_selector.options) == len(SCOUT_BOARDS)
     assert {option.value for option in view.category_selector.options} == set(SCOUT_BOARDS)
     assert all(option.label == scout_label(option.value) for option in view.category_selector.options)
@@ -416,15 +416,15 @@ async def test_state_comparison_category_switch_uses_saved_states():
     updates = []
     async def edit_original_response(**kw):
         updates.append(kw)
-    view = StateComparisonCategoryView(SimpleNamespace(bot=Bot()), 123, 1501, 1502)
+    view = StateComparisonCategoryView(SimpleNamespace(bot=Bot()), 123, 101, 102)
     view.category_selector._values = ["pet_power"]
     interaction = SimpleNamespace(
         response=SimpleNamespace(defer=defer),
         edit_original_response=edit_original_response,
     )
     await view.select_category(interaction)
-    assert client.calls == [(1501, "pet_power", 20), (1502, "pet_power", 20)]
-    assert view.first == 1501 and view.second == 1502
+    assert client.calls == [(101, "pet_power", 20), (102, "pet_power", 20)]
+    assert view.first == 101 and view.second == 102
     assert updates[-1]["view"] is view
     await view.select_category(interaction)
     assert len(client.calls) == 2
