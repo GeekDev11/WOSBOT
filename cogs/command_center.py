@@ -374,7 +374,7 @@ class AllianceWorkspaceView(discord.ui.View):
 
     @discord.ui.button(label="Alliance Settings / History", emoji="⚙️", style=discord.ButtonStyle.secondary, row=3)
     async def settings(self, interaction, button):
-        await self.cog.show_alliance_hub(interaction, self.alliance_id)
+        await self.cog.show_alliance_settings(interaction, self.alliance_id)
 
     @discord.ui.button(label="Back to Alliances", emoji="↩️", style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction, button):
@@ -450,9 +450,33 @@ async def show_alliance_workspace(cog, interaction, alliance_id=None):
                             content=None)
 
 
+async def show_alliance_settings_entry(cog, interaction):
+    """Open configuration only after resolving an alliance in the new workspace."""
+    if interaction.guild_id is None:
+        await interaction.response.send_message(
+            "Alliance settings require an installed Discord server.", ephemeral=True,
+        )
+        return
+    alliances, _ = PermissionManager.get_admin_alliances(
+        interaction.user.id, interaction.guild_id,
+    )
+    if not alliances:
+        await interaction.response.send_message(
+            "No alliance assigned to your administrator account.", ephemeral=True,
+        )
+        return
+    # The Alliance Command Center handles switching between assigned alliances.
+    if len(alliances) > 1:
+        await show_alliance_workspace(cog, interaction)
+    else:
+        await cog.show_alliance_settings(interaction, int(alliances[0][0]))
+
+
 async def route(cog, interaction, section, key):
     """Every menu entry routes to a real existing workflow or a truthful alternative."""
     if section == "alliance":
+        if key in ("settings", "history"):
+            return await show_alliance_settings_entry(cog, interaction)
         if key == "attendance":
             return await open_cog(cog, interaction, "Attendance", "show_attendance_menu")
         return await show_alliance_workspace(cog, interaction)

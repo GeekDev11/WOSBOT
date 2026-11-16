@@ -201,3 +201,21 @@ async def test_every_catalog_route_reaches_a_handler(monkeypatch, section, choic
     interaction = SimpleNamespace(response=SimpleNamespace(send_modal=fake_modal))
     await module.route(cog, interaction, section, choice)
     assert called, f"No handler routed for {section}/{choice}"
+
+
+def test_back_navigation_uses_new_command_center():
+    import inspect
+    from cogs.bot_main_menu import MainMenu, AllianceHubView
+    assert "show_alliance_workspace" in inspect.getsource(MainMenu.show_alliance_hub)
+    assert "open_section" in inspect.getsource(MainMenu.show_alliance_management)
+    assert "show_alliance_settings" in inspect.getsource(MainMenu)
+    assert "show_alliance_hub" in inspect.getsource(AllianceHubView.back)
+    assert "show_alliance_settings" in inspect.getsource(AllianceWorkspaceView.settings)
+
+
+def test_settings_and_history_have_explicit_navigation():
+    import inspect
+    from cogs.command_center import route
+    code = inspect.getsource(route)
+    assert '("settings", "history")' in code
+    assert "show_alliance_settings_entry" in code

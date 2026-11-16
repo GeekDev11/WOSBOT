@@ -212,6 +212,11 @@ class MainMenu(commands.Cog):
             }
 
     async def show_alliance_management(self, interaction: discord.Interaction):
+        """Compatibility route for existing Back callbacks: use the new layout."""
+        from .command_center import open_section
+        await open_section(self, interaction, "alliance")
+
+    async def show_alliance_admin_tools(self, interaction: discord.Interaction):
         """Entry to Alliances — pick an alliance to manage, or run a bulk
         action across alliances (gated by tier)."""
         try:
@@ -317,6 +322,11 @@ class MainMenu(commands.Cog):
             await report_failed_click(interaction, "show_alliance_management", e, MENU_OPEN_FAILED)
 
     async def show_alliance_hub(self, interaction: discord.Interaction, alliance_id: int):
+        """Compatibility route for older views returning from member/troop edits."""
+        from .command_center import show_alliance_workspace
+        await show_alliance_workspace(self, interaction, alliance_id)
+
+    async def show_alliance_settings(self, interaction: discord.Interaction, alliance_id: int):
         """Per-alliance hub — all per-alliance actions for one alliance."""
         try:
             if await _deny_alliance_access(interaction, alliance_id):
@@ -385,34 +395,14 @@ class MainMenu(commands.Cog):
             ]
 
             embed = discord.Embed(
-                title=f"{theme.allianceIcon} {alliance_name}",
+                title=f"🛡️ Alliance Settings · {alliance_name}",
                 description=(
                     f"{theme.membersIcon} {stats_line}\n"
                     f"{state_line}\n\n"
-                    f"Pick an action below, or use the dropdown to switch "
-                    f"to a different alliance.\n\n"
-                    f"**Actions**\n"
-                    f"{theme.upperDivider}\n"
-                    f"{theme.membersIcon} **Manage Members**\n"
-                    f"└ View, add, transfer, export and remove members\n\n"
-                    f"{theme.announceIcon} **Channel Setup**\n"
-                    f"└ Set this alliance's ID, Activity Log, Redemption Log and Sync Log channels\n\n"
-                    f"{theme.editListIcon} **Edit Name**\n"
-                    f"└ Rename this alliance\n\n"
-                    f"{theme.globeIcon} **Set State**\n"
-                    f"└ Set the home state new members inherit\n\n"
-                    f"{theme.listIcon} **History**\n"
-                    f"└ Furnace level, power and nickname changes per member\n\n"
-                    f"{theme.chartIcon} **Power Rankings**\n"
-                    f"└ Members ranked by power and attendance\n\n"                    "🛡️ **Troop Quality**\n"
-                    "└ Track T11/T12 tiers and T12 skills by troop type\n\n"
-                    f"{theme.lockIcon} **State Lock**\n"
-                    f"└ Only allow members from the home state\n\n"
-                    f"{theme.membersIcon} **Auto-remove Transfers**\n"
-                    f"└ Drop members who transfer to another state\n\n"
-                    f"{theme.trashIcon} **Delete Alliance**\n"
-                    f"└ Permanently remove this alliance and all related data\n"
-                    f"{theme.lowerDivider}"
+                    "**Manage this alliance** using the controls below.\n"
+                    "Edit its name and state, configure channels, inspect history "
+                    "or rankings, and change transfer restrictions.\n\n"
+                    "Use **Back to Command Center** to return to the new workspace."
                 ),
                 color=theme.emColor1,
             )
@@ -801,7 +791,7 @@ class AllianceHubView(discord.ui.View):
                 f"{theme.deniedIcon} Failed to update the state lock.", ephemeral=True
             )
             return
-        await self.cog.show_alliance_hub(interaction, self.alliance_id)
+        await self.cog.show_alliance_settings(interaction, self.alliance_id)
 
     def _build_auto_remove_toggle(self):
         # Auto-remove Transfers reads/writes auto_remove_on_transfer; label + color reflect the current state.
@@ -834,7 +824,7 @@ class AllianceHubView(discord.ui.View):
                 f"{theme.deniedIcon} Failed to update auto-remove.", ephemeral=True
             )
             return
-        await self.cog.show_alliance_hub(interaction, self.alliance_id)
+        await self.cog.show_alliance_settings(interaction, self.alliance_id)
 
     def _build_select(self):
         # Drop any existing select first (for rebuilds)
@@ -867,7 +857,7 @@ class AllianceHubView(discord.ui.View):
 
     async def _on_switch(self, interaction: discord.Interaction):
         select = next(c for c in self.children if isinstance(c, discord.ui.Select))
-        await self.cog.show_alliance_hub(interaction, int(select.values[0]))
+        await self.cog.show_alliance_settings(interaction, int(select.values[0]))
 
     # ── Primary actions (row 1, green) ──
 
@@ -938,10 +928,10 @@ class AllianceHubView(discord.ui.View):
 
     # ── Nav (row 4) ──
 
-    @discord.ui.button(label="Back", emoji=theme.backIcon,
+    @discord.ui.button(label="Back to Command Center", emoji=theme.backIcon,
                        style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.show_alliance_management(interaction)
+        await self.cog.show_alliance_hub(interaction, self.alliance_id)
 
     @discord.ui.button(label="Delete Alliance", emoji=theme.trashIcon,
                        style=discord.ButtonStyle.danger, row=4)
