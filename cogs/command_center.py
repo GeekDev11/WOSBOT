@@ -56,7 +56,7 @@ SECTIONS = {
         ("health", "Bot Health", "Monitoring and running operations"),
         ("backup", "Backup & Restore", "Backup and restore utilities"),
         ("updates", "Updates & Support", "Updates, bot presence, support and OCR service"),
-        ("servers", "Discord Server Settings", "Channel and server configuration"),
+        ("servers", "Server Management", "Server overview, alliance channels and owner controls"),
     )),
 }
 
@@ -918,6 +918,90 @@ async def show_appearance_entry(cog, interaction):
 
 
 
+
+class ServerManagementView(discord.ui.View):
+    """Keep server information and settings separate from destructive leave action."""
+
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=menu_timeout())
+        self.cog = cog
+        self.user_id = user_id
+        if not PermissionManager.is_owner(user_id):
+            self.remove_item(self.leave_server)
+
+    async def interaction_check(self, interaction):
+        return await authorized(interaction, self.user_id)
+
+    @discord.ui.button(label="Server Overview", emoji="📋",
+                       style=discord.ButtonStyle.primary, row=0)
+    async def overview(self, interaction, button):
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message(
+                "Open this menu inside a Discord server.", ephemeral=True)
+        embed = discord.Embed(
+            title="Server Overview",
+            description=(
+                f"**Server:** {discord.utils.escape_markdown(guild.name)}\n"
+                f"**Server ID:** `{guild.id}`\n"
+                f"**Members:** {guild.member_count or 0}\n"
+                f"**Text channels:** {len(guild.text_channels)}\n\n"
+                "Channel assignment is managed through the relevant alliance's "
+                "**Alliance Configuration → Channel Setup**."
+            ),
+            color=theme.emColor1,
+        )
+        await safe_edit_message(
+            interaction, embed=embed,
+            view=ServerManagementView(self.cog, self.user_id), content=None,
+        )
+
+    @discord.ui.button(label="Alliance Channel Setup", emoji="📣",
+                       style=discord.ButtonStyle.secondary, row=0)
+    async def channels(self, interaction, button):
+        await show_alliance_settings_entry(self.cog, interaction)
+
+    @discord.ui.button(label="Administrator Permissions", emoji="🔐",
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def permissions(self, interaction, button):
+        await self.cog.show_permissions(interaction)
+
+    @discord.ui.button(label="Leave a Server", emoji="🚪",
+                       style=discord.ButtonStyle.danger, row=1)
+    async def leave_server(self, interaction, button):
+        await open_cog(self.cog, interaction, "BotHealth", "show_servers")
+
+    @discord.ui.button(label="Back to Administration", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def back(self, interaction, button):
+        await open_section(self.cog, interaction, "admin")
+
+    @discord.ui.button(label="Main Menu", emoji="🏠",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def home(self, interaction, button):
+        await self.cog.show_main_menu(interaction)
+
+
+async def show_server_management(cog, interaction):
+    if interaction.guild is None:
+        return await interaction.response.send_message(
+            "Server Management is available inside Discord servers.", ephemeral=True)
+    embed = discord.Embed(
+        title="Server Management",
+        description=(
+            "View this server's details, configure alliance channels, or manage "
+            "administrator permissions.\n\n"
+            "Only the bot owner can access **Leave a Server**; leaving requires confirmation."
+        ),
+        color=theme.emColor1,
+    )
+    await safe_edit_message(
+        interaction, embed=embed,
+        view=ServerManagementView(cog, interaction.user.id), content=None,
+    )
+
+
+
 async def route(cog, interaction, section, key):
     """Every menu entry routes to a real existing workflow or a truthful alternative."""
     if section == "alliance":
@@ -994,7 +1078,7 @@ async def route(cog, interaction, section, key):
         if key == "updates":
             return await cog.show_maintenance_tools(interaction)
         if key == "servers":
-            return await open_cog(cog, interaction, "BotHealth", "show_servers")
+            return await show_server_management(cog, interaction)
         return await open_section(cog, interaction, "admin")
 
     await missing(interaction, "Requested module")
