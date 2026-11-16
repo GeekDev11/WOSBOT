@@ -912,6 +912,16 @@ class GiftView(discord.ui.View):
                 ephemeral=True
             )
 
+    @discord.ui.button(label="Back to Gift Center", emoji="↩️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def back_to_gifts(self, interaction, button):
+        if not await check_interaction_user(interaction, self.original_user_id):
+            return
+        from .command_center import open_section
+        main = self.cog.bot.get_cog("MainMenu")
+        if main:
+            await open_section(main, interaction, "gifts")
+
     @discord.ui.button(
         label="Main Menu",
         emoji=f"{theme.homeIcon}",
