@@ -276,23 +276,29 @@ class ChiefStalker(commands.Cog):
     @app_commands.command(name="check", description="Check a chief's reported activity and profile")
     @app_commands.describe(chief_id="In-game Chief ID")
     async def check(self, interaction: discord.Interaction, chief_id: str):
-        # Match /w: usable in servers and DMs with a normal visible response.
-        await interaction.response.defer(thinking=True)
+        # Preserve the existing public /check result for direct slash commands.
+        await self.show_check(interaction, chief_id)
+
+    async def show_check(self, interaction: discord.Interaction, chief_id: str,
+                         private: bool = False):
+        """Shared inspector. Command Center requests remain private."""
+        await interaction.response.defer(thinking=True, ephemeral=private)
         if not chief_id.isascii() or not chief_id.isdecimal() or not (1 <= len(chief_id) <= 16):
-            await interaction.followup.send("Enter a valid numeric Chief ID.")
+            await interaction.followup.send("Enter a valid numeric Chief ID.", ephemeral=private)
             return
         numeric_id = int(chief_id)
         payload, error = await self.get_player(numeric_id)
         if error:
-            await interaction.followup.send(error)
+            await interaction.followup.send(error, ephemeral=private)
             return
         embed = check_embed(payload, numeric_id)
         if embed is None:
-            await interaction.followup.send("No player object was found in the API response.")
+            await interaction.followup.send(
+                "No player object was found in the API response.", ephemeral=private)
             return
         await self.save_observation(numeric_id, payload)
         await interaction.followup.send(
-            embed=embed,
+            embed=embed, ephemeral=private,
             view=CheckRefreshView(self, numeric_id, interaction.user.id),
         )
 
