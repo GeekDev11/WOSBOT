@@ -202,12 +202,27 @@ class CheckRefreshView(discord.ui.View):
 
     @discord.ui.button(label="Stored Profile", style=discord.ButtonStyle.secondary, emoji="💾", row=0)
     async def stored(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Show /w's existing stored profile; never modify /w's behavior."""
+        """Read /w's existing record without changing /w or exposing this tab publicly."""
         target = self.cog.bot.get_cog("WCommand")
         if target is None:
-            await interaction.response.send_message("Stored profile lookup is unavailable.", ephemeral=True)
+            await interaction.response.send_message(
+                "Stored profile lookup is unavailable.", ephemeral=True)
             return
-        await target.fetch_user_info(interaction, str(self.chief_id))
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            stored = await asyncio.to_thread(target._read_stored, str(self.chief_id))
+            if stored is None:
+                await interaction.followup.send(
+                    "This chief has no stored alliance profile.", ephemeral=True)
+                return
+            from .alliance_w_command import stored_profile_embed
+            embed = stored_profile_embed(str(self.chief_id), *stored)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception:
+            import logging
+            logging.getLogger("bot").exception("Could not load /check stored profile")
+            await interaction.followup.send(
+                "Stored profile could not be loaded.", ephemeral=True)
 
     @discord.ui.button(label="Player History", style=discord.ButtonStyle.secondary, emoji="📈", row=0)
     async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -291,8 +306,13 @@ class ChiefStalker(commands.Cog):
         if error:
             # A failed API request must not hide an already stored /w profile.
             stored_cog = self.bot.get_cog("WCommand") if hasattr(self.bot, "get_cog") else None
-            stored = (await asyncio.to_thread(stored_cog._read_stored, str(numeric_id))
-                      if stored_cog is not None else None)
+            stored = None
+            if stored_cog is not None:
+                try:
+                    stored = await asyncio.to_thread(stored_cog._read_stored, str(numeric_id))
+                except Exception:
+                    import logging
+                    logging.getLogger("bot").exception("Could not read stored /check fallback")
             if stored is not None:
                 from .alliance_w_command import stored_profile_embed
                 embed = stored_profile_embed(str(numeric_id), *stored)
