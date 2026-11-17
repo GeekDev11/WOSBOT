@@ -382,3 +382,13 @@ async def test_check_player_history_is_private_without_navigation(monkeypatch):
     assert "view" not in sent[0]
     assert sent[0]["embed"].fields[0].name == "Saved observations"
     assert sent[0]["embed"].fields[0].value == "0"
+
+
+def test_wosplayer_command_removed_but_check_and_other_wos_commands_remain():
+    from cogs.chief_stalker import ChiefStalker
+    from cogs.alliance_w_command import WCommand
+    registered = {command.name for command in ChiefStalker.__cog_app_commands__}
+    assert "check" in registered
+    assert "wosplayer" not in registered
+    assert {"wosshield", "wosheroes", "wosgear"} <= registered
+    assert "w" in {command.name for command in WCommand.__cog_app_commands__}
