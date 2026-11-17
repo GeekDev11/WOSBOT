@@ -172,6 +172,7 @@ def check_embed(payload, chief_id):
     coords = (f"X: {data['x']} · Y: {data['y']}"
               if data["x"] is not None and data["y"] is not None else "Not reported")
     embed.add_field(name="Last reported coordinates", value=coords, inline=False)
+    embed.add_field(name="Shield", value=format_shield(data["shield"]), inline=False)
     avatar = player.get("avatar_url")
     if isinstance(avatar, str) and avatar.startswith(("https://", "http://")):
         embed.set_thumbnail(url=avatar)
@@ -199,7 +200,32 @@ class CheckRefreshView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
+    @discord.ui.button(label="Stored Profile", style=discord.ButtonStyle.secondary, emoji="💾", row=0)
+    async def stored(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show /w's existing stored profile; never modify /w's behavior."""
+        target = self.cog.bot.get_cog("WCommand")
+        if target is None:
+            await interaction.response.send_message("Stored profile lookup is unavailable.", ephemeral=True)
+            return
+        await target.fetch_user_info(interaction, str(self.chief_id))
+
+    @discord.ui.button(label="Player History", style=discord.ButtonStyle.secondary, emoji="📈", row=0)
+    async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        target = self.cog.bot.get_cog("WosPlayerHistory")
+        if target is None:
+            await interaction.response.send_message("Player history is unavailable.", ephemeral=True)
+            return
+        await target.woshistory.callback(target, interaction, str(self.chief_id))
+
+    @discord.ui.button(label="Arena Heroes", style=discord.ButtonStyle.secondary, emoji="⚔️", row=0)
+    async def heroes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.wosheroes.callback(self.cog, interaction, str(self.chief_id))
+
+    @discord.ui.button(label="Chief Gear", style=discord.ButtonStyle.secondary, emoji="🧰", row=0)
+    async def gear(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.wosgear.callback(self.cog, interaction, str(self.chief_id))
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         payload, error = await self.cog.get_player(self.chief_id)
@@ -210,6 +236,7 @@ class CheckRefreshView(discord.ui.View):
         if embed is None:
             await interaction.followup.send("No player object was found in the API response.", ephemeral=True)
             return
+        await self.cog.save_observation(self.chief_id, payload)
         await interaction.edit_original_response(embed=embed, view=self)
 
 
@@ -236,6 +263,16 @@ class ChiefStalker(commands.Cog):
             return None, "The API returned no usable JSON object."
         return answer.payload, None
 
+    async def save_observation(self, chief_id, payload):
+        """Store distinct provider snapshots, as /wosplayer did."""
+        from .wos_player_history import store_player
+        try:
+            return await asyncio.to_thread(store_player, chief_id, payload)
+        except Exception:
+            import logging
+            logging.getLogger("bot").exception("Could not save /check player snapshot")
+            return False
+
     @app_commands.command(name="check", description="Check a chief's reported activity and profile")
     @app_commands.describe(chief_id="In-game Chief ID")
     async def check(self, interaction: discord.Interaction, chief_id: str):
@@ -253,6 +290,7 @@ class ChiefStalker(commands.Cog):
         if embed is None:
             await interaction.followup.send("No player object was found in the API response.")
             return
+        await self.save_observation(numeric_id, payload)
         await interaction.followup.send(
             embed=embed,
             view=CheckRefreshView(self, numeric_id, interaction.user.id),
