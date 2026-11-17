@@ -226,11 +226,24 @@ class CheckRefreshView(discord.ui.View):
 
     @discord.ui.button(label="Player History", style=discord.ButtonStyle.secondary, emoji="📈", row=0)
     async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
-        target = self.cog.bot.get_cog("WosPlayerHistory")
-        if target is None:
-            await interaction.response.send_message("Player history is unavailable.", ephemeral=True)
+        # /check's detail results are clean, private embeds. The standalone
+        # /woshistory command retains its Intelligence navigation buttons.
+        from .wos_player_history import load_history, delta_text
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            rows = await asyncio.to_thread(load_history, self.chief_id)
+        except Exception:
+            import logging
+            logging.getLogger("bot").exception("Could not load /check player history")
+            await interaction.followup.send("Player history could not be loaded.", ephemeral=True)
             return
-        await target.woshistory.callback(target, interaction, str(self.chief_id))
+        embed = discord.Embed(
+            title=f"Player history · {self.chief_id}",
+            description=delta_text(rows),
+        )
+        embed.add_field(name="Saved observations", value=str(len(rows)))
+        embed.set_footer(text="Historical changes reflect source snapshots, not actual login times")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Arena Heroes", style=discord.ButtonStyle.secondary, emoji="⚔️", row=0)
     async def heroes(self, interaction: discord.Interaction, button: discord.ui.Button):
