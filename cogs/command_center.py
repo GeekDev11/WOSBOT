@@ -168,7 +168,7 @@ class ChiefLookupModal(discord.ui.Modal):
         if self.route == "playerhistory":
             await invoke_slash(self.cog, interaction, "WosPlayerHistory", "woshistory", chief_id=fid)
         else:
-            await invoke_slash(self.cog, interaction, "ChiefStalker", "wosplayer", chief_id=fid)
+            await open_cog(self.cog, interaction, "ChiefStalker", "show_check", fid, True)
 
 
 class StateLookupModal(discord.ui.Modal):
