@@ -358,3 +358,27 @@ async def test_check_autocomplete_reuses_w_without_changing_it():
     cog = ChiefStalker(SimpleNamespace(get_cog=lambda name: W()))
     result = await cog.autocomplete_chief_id(SimpleNamespace(), "Ex")
     assert result[0].value == "12345"
+
+
+@pytest.mark.asyncio
+async def test_check_player_history_is_private_without_navigation(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.chief_stalker import CheckRefreshView
+    import cogs.wos_player_history as history
+    monkeypatch.setattr(history, "load_history", lambda chief_id: [])
+    sent = []
+    async def defer(**kwargs):
+        assert kwargs.get("ephemeral") is True
+    async def send(**kwargs):
+        sent.append(kwargs)
+    interaction = SimpleNamespace(
+        response=SimpleNamespace(defer=defer),
+        followup=SimpleNamespace(send=send),
+    )
+    view = CheckRefreshView(object(), 123456789, 7)
+    await view.history.callback(interaction)
+    assert len(sent) == 1
+    assert sent[0]["ephemeral"] is True
+    assert "view" not in sent[0]
+    assert sent[0]["embed"].fields[0].name == "Saved observations"
+    assert sent[0]["embed"].fields[0].value == "0"
