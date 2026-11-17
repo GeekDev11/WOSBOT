@@ -313,3 +313,48 @@ def test_player_inspector_routes_to_check_not_wosplayer():
     source = inspect.getsource(ChiefLookupModal.on_submit)
     assert '"ChiefStalker", "show_check", fid, True' in source
     assert '"wosplayer"' not in source
+
+
+@pytest.mark.asyncio
+async def test_check_falls_back_to_existing_w_profile_on_api_failure(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.chief_stalker import ChiefStalker
+    from cogs.alliance_w_command import stored_profile_embed
+    async def api_unavailable(self, chief_id, include=("base",)):
+        return None, "Configured API limit reached"
+    monkeypatch.setattr(ChiefStalker, "get_player", api_unavailable)
+    row = ("Example Chief", 101, 5, 9000, None, 100, None,
+           None, None, 80, None, None)
+    class Stored:
+        def _read_stored(self, fid):
+            assert fid == "12345"
+            return (row, "Test Alliance")
+    bot = SimpleNamespace(get_cog=lambda name: Stored() if name == "WCommand" else None)
+    responses = []
+    async def defer(**kw):
+        return None
+    async def send(**kw):
+        responses.append(kw)
+    cog = ChiefStalker(bot)
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=7),
+        response=SimpleNamespace(defer=defer),
+        followup=SimpleNamespace(send=send),
+    )
+    await cog.show_check(interaction, "12345", private=True)
+    assert "API status" in [field.name for field in responses[0]["embed"].fields]
+    assert responses[0]["ephemeral"] is True
+
+
+@pytest.mark.asyncio
+async def test_check_autocomplete_reuses_w_without_changing_it():
+    from types import SimpleNamespace
+    from discord import app_commands
+    from cogs.chief_stalker import ChiefStalker
+    class W:
+        async def autocomplete_fid(self, interaction, current):
+            assert current == "Ex"
+            return [app_commands.Choice(name="Example", value="12345")]
+    cog = ChiefStalker(SimpleNamespace(get_cog=lambda name: W()))
+    result = await cog.autocomplete_chief_id(SimpleNamespace(), "Ex")
+    assert result[0].value == "12345"
