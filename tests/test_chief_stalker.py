@@ -221,3 +221,58 @@ def test_check_utc_is_independent_of_local_timezone(monkeypatch):
             monkeypatch.setenv("TZ", previous_tz)
         if hasattr(time, "tzset"):
             time.tzset()
+
+
+def test_check_unifies_player_shield_and_original_action_buttons():
+    from cogs.chief_stalker import CheckRefreshView, check_embed
+    embed = check_embed({"player": {
+        "nick_name": "Example", "online": True, "shield_endtime": 1794094142,
+        "kid": 101, "power": 1000,
+    }}, 12345)
+    fields = {field.name: field.value for field in embed.fields}
+    assert "Shield" in fields
+    assert "Reported expiry" in fields["Shield"] or "Last reported expiry" in fields["Shield"]
+    view = CheckRefreshView(object(), 12345, 7)
+    labels = {button.label for button in view.children}
+    assert {"Stored Profile", "Player History", "Arena Heroes",
+            "Chief Gear", "Refresh"} <= labels
+    assert len(view.children) <= 25
+
+
+@pytest.mark.asyncio
+async def test_check_saves_snapshot_without_replacing_w(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.chief_stalker import ChiefStalker
+    payload = {"player": {"nick_name": "Example", "online": False,
+                          "power": 5000}, "cached_at": 1794608176}
+    observed = []
+    async def get_player(self, chief_id, include=("base",)):
+        return payload, None
+    async def save(self, chief_id, data):
+        observed.append((chief_id, data))
+    monkeypatch.setattr(ChiefStalker, "get_player", get_player)
+    monkeypatch.setattr(ChiefStalker, "save_observation", save)
+    sent = []
+    async def defer(**kwargs):
+        return None
+    async def send(**kwargs):
+        sent.append(kwargs)
+    cog = ChiefStalker(SimpleNamespace())
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=7),
+        response=SimpleNamespace(defer=defer),
+        followup=SimpleNamespace(send=send),
+    )
+    await cog.check.callback(cog, interaction, "12345")
+    assert observed == [(12345, payload)]
+    assert sent[0]["embed"].fields[-1].name == "Shield"
+    assert sent[0]["view"].chief_id == 12345
+
+
+def test_w_command_source_is_unchanged_by_unification():
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "cogs" / "alliance_w_command.py"
+    source = path.read_text()
+    assert "async def fetch_user_info(" in source
+    assert "async def _live_profile_embed(" in source
+    assert "PermissionManager.is_admin" in source
