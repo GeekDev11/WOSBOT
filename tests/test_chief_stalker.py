@@ -276,3 +276,40 @@ def test_w_command_source_is_unchanged_by_unification():
     assert "async def fetch_user_info(" in source
     assert "async def _live_profile_embed(" in source
     assert "PermissionManager.is_admin" in source
+
+
+@pytest.mark.asyncio
+async def test_check_intelligence_entry_stays_private(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.chief_stalker import ChiefStalker, CheckRefreshView
+    payload = {"player": {"nick_name": "Example", "online": None}}
+    async def fake_get(self, chief_id, include=("base",)):
+        return payload, None
+    async def fake_save(self, chief_id, payload):
+        return False
+    monkeypatch.setattr(ChiefStalker, "get_player", fake_get)
+    monkeypatch.setattr(ChiefStalker, "save_observation", fake_save)
+    response = []
+    followups = []
+    async def defer(**kwargs):
+        response.append(kwargs)
+    async def send(**kwargs):
+        followups.append(kwargs)
+    cog = ChiefStalker(object())
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=22),
+        response=SimpleNamespace(defer=defer),
+        followup=SimpleNamespace(send=send),
+    )
+    await cog.show_check(interaction, "12345", True)
+    assert response == [{"thinking": True, "ephemeral": True}]
+    assert followups[0]["ephemeral"] is True
+    assert isinstance(followups[0]["view"], CheckRefreshView)
+
+
+def test_player_inspector_routes_to_check_not_wosplayer():
+    import inspect
+    from cogs.command_center import ChiefLookupModal
+    source = inspect.getsource(ChiefLookupModal.on_submit)
+    assert '"ChiefStalker", "show_check", fid, True' in source
+    assert '"wosplayer"' not in source
