@@ -289,7 +289,20 @@ class ChiefStalker(commands.Cog):
         numeric_id = int(chief_id)
         payload, error = await self.get_player(numeric_id)
         if error:
-            await interaction.followup.send(error, ephemeral=private)
+            # A failed API request must not hide an already stored /w profile.
+            stored_cog = self.bot.get_cog("WCommand") if hasattr(self.bot, "get_cog") else None
+            stored = (await asyncio.to_thread(stored_cog._read_stored, str(numeric_id))
+                      if stored_cog is not None else None)
+            if stored is not None:
+                from .alliance_w_command import stored_profile_embed
+                embed = stored_profile_embed(str(numeric_id), *stored)
+                embed.add_field(name="API status", value=error[:1024], inline=False)
+                await interaction.followup.send(
+                    embed=embed, ephemeral=private,
+                    view=CheckRefreshView(self, numeric_id, interaction.user.id),
+                )
+            else:
+                await interaction.followup.send(error, ephemeral=private)
             return
         embed = check_embed(payload, numeric_id)
         if embed is None:
@@ -301,6 +314,14 @@ class ChiefStalker(commands.Cog):
             embed=embed, ephemeral=private,
             view=CheckRefreshView(self, numeric_id, interaction.user.id),
         )
+
+    @check.autocomplete("chief_id")
+    async def autocomplete_chief_id(self, interaction: discord.Interaction, current: str):
+        """Reuse /w's original name/ID autocomplete without modifying /w."""
+        stored = self.bot.get_cog("WCommand") if hasattr(self.bot, "get_cog") else None
+        if stored is None:
+            return []
+        return await stored.autocomplete_fid(interaction, current)
 
     @app_commands.command(name="wosplayer", description="Inspect a Whiteout Survival player using Whiteout Stats")
     @app_commands.describe(chief_id="In-game Chief ID")
