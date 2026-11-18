@@ -12,6 +12,15 @@ This is a preservation-first refactor. Keep existing commands, SQLite data, API 
 - [ ] **Phase 5: remove obsolete code** — Removed known invisible button definitions and duplicate /settings implementation. **Open:** complete reference/reachability audit before removing other legacy views; retain compatibility handlers where needed.
 - [ ] **Phase 6: regression testing** — Updated `test_settings_installation.py`, `test_command_center.py`, and `tests/sim/test_hubs.py`; added owner-bootstrap and shared-service regression tests. **New:** scanned all 70 cog Python files for invalid backtick escapes; fixed all eight observed occurrences across the two troop-quality modules, added a guard test, and added role-tier tests. **New:** Extended the existing `.github/workflows/chief-stalker-tests.yml` syntax-validation and focused-test commands to cover `cogs/member_state_service.py`, `cogs/alliance_member_states.py`, and the new `tests/test_member_states_menu.py` cases, plus gift-validation persistence regressions. Pull requests touching these files now also match the workflow's path filter. **Open:** execute tests against this head; no successful run has yet been verified (latest observed Actions run remains on a 2026-11-16 commit).
 
+## First successful execution of latest-branch focused suite (2026-11-18)
+
+- GitHub Actions run [#124](https://github.com/GeekDev11/WOSBOT/actions/runs/44311437828) targeted `modified` commit `c2cb1c9`. Syntax validation and dependency installation completed; focused pytest reported **596 passed, 2 failed, 1 warning**.
+- Both failures were stale source-string test expectations, not asserted business-operation mismatches:
+  - `tests/test_bot_profile.py::test_profile_menu_is_global_admin_only` expected a removed Bot Profile button in `bot_main_menu.py`. Updated test to verify Appearance routes to `BotProfile.show_profile` and to exercise the actual global-admin gate.
+  - `tests/test_settings_installation.py::test_settings_and_center_use_same_private_entry` expected a direct `PermissionManager.add_admin(...)` call. Updated to assert the existing owner registration remains inside `asyncio.to_thread`.
+- **New test changes still need a fresh CI run on `modified`**. The 596 passing tests apply to commit `c2cb1c9`, not later test-only corrections.
+- No Gift Code feature, API, queue, database schema or user-facing menus were changed to address these failures.
+
 ## Regression and role-guild isolation audit (2026-11-18)
 
 - **Confirmed security issue fixed:** guild-aware `PermissionManager.get_admin_alliance_ids()`, `get_admin_alliances()`, and `get_admin_users()` previously accepted a cached Global or Alliance role grant from another Discord guild. Guild-aware access now accepts only the cache whose guild matches the request. Personal Global Admin retains its existing global scope.
