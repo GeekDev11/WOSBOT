@@ -106,11 +106,48 @@ class Sim:
         return await self._interact(self.users[user].select(message, [value], custom_id=menu.custom_id))
 
     async def walk(self, *steps: str, user: str = "owner") -> discord.Message:
-        """Clicks through menus from /settings; each step is a button label."""
+        """Navigate *real* five-center components, including legacy test paths.
+
+        Old simulations named destinations as first-level buttons. These are
+        now dropdown tools inside the five centers. Translate a destination
+        into actual button/select interactions, not an artificial view or
+        direct cog call, so missing callbacks still fail the test.
+        """
+        # Old UI names are test-only route aliases, not bot compatibility UI.
+        routes = {
+            "Alliances": ("Alliance Command Center", "Manage Alliances"),
+            "Maintenance": ("Administration & Settings",),
+            "Bear Tracking": ("Events & Scheduling", "Bear Tracking"),
+            "Attendance": ("Events & Scheduling", "Attendance Management"),
+        }
+        if steps[:2] == ("Alliances", "Player Sync"):
+            steps = ("Administration & Settings", "Player Sync & API") + steps[2:]
+        elif steps[:2] == ("Maintenance", "Leave a Server"):
+            steps = ("Administration & Settings", "Server Management", "Leave a Server") + steps[2:]
+        elif steps and steps[0] in routes:
+            steps = routes[steps[0]] + steps[1:]
+
         message = await self.open_settings(user)
         for label in steps:
-            click = await self.click(message, label, user=user)
+            current_labels = labels(message, enabled_only=True)
+            if label in current_labels:
+                click = await self.click(message, label, user=user)
+            else:
+                selects = [
+                    item for row in message.components for item in row.children
+                    if getattr(item, "placeholder", None) == "Choose a tool"
+                ]
+                assert len(selects) == 1, (
+                    f"No button or center dropdown for {label!r}. "
+                    f"Buttons: {current_labels!r}"
+                )
+                choices = [item.label for item in selects[0].options]
+                assert label in choices, (
+                    f"Unknown center destination {label!r}; options: {choices!r}"
+                )
+                click = await self.select(message, "Choose a tool", label, user=user)
             assert not click.problems(), (label, click.problems())
+            assert click.screen is not None, label
             message = click.screen[0]
         return message
 
