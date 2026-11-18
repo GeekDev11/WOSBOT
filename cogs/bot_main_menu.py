@@ -284,7 +284,9 @@ class MainMenu(commands.Cog):
         """Entry to Alliances — pick an alliance to manage, or run a bulk
         action across alliances (gated by tier)."""
         try:
-            tier = PermissionManager.get_tier(interaction.user.id)
+            tier = PermissionManager.get_effective_tier(
+                interaction.user.id, interaction.guild_id
+            )
             if tier == TIER_NONE:
                 await interaction.response.send_message(
                     f"{theme.deniedIcon} You don't have admin permissions.",
