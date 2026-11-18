@@ -202,6 +202,12 @@ class StateManagementView(_MenuView):
         main_menu = self.cog.bot.get_cog("MainMenu")
         if main_menu:
             await main_menu.show_alliance_admin_tools(interaction)
+        else:
+            await interaction.response.send_message(
+                "Manage Alliances is temporarily unavailable. "
+                "Open /settings to reopen the Command Center.",
+                ephemeral=True,
+            )
 
 
 class MembersToFixView(_PagedView):
