@@ -247,7 +247,8 @@ def test_legacy_views_do_not_mix_back_and_home():
     new_navigation_files = {
         "command_center.py", "wos_leaderboards.py", "bot_main_menu.py",
         "attendance.py", "bear_track.py", "minister_menu.py",
-        "gift_views.py", "notification_system.py", "notification_schedule.py",
+        "gift_views.py", "gift_redemption_results.py",
+        "notification_system.py", "notification_schedule.py",
         "bot_backup.py",
     }
     bad = []
