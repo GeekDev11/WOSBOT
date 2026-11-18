@@ -370,3 +370,53 @@ def test_gift_operations_retains_old_state_menu_method():
     from cogs.gift_operations import GiftOperations
     source = inspect.getsource(GiftOperations.show_state_management)
     assert "alliance_member_states.show_state_management(self, interaction)" in source
+
+
+@pytest.mark.asyncio
+async def test_single_state_service_persists_before_catchup(monkeypatch):
+    """The extracted service preserves save -> log -> catch-up ordering."""
+    import logging
+    from cogs import member_state_service as service
+
+    operations = []
+    engine = types.SimpleNamespace(logger=logging.getLogger("state-service-test"))
+
+    def save(fid, kid):
+        operations.append(("save", fid, kid))
+
+    def catchup(cog, fid, nickname):
+        operations.append(("catchup", fid, nickname))
+        return 2
+
+    monkeypatch.setattr(service.state_resolver, "set_user_kid", save)
+    monkeypatch.setattr(service.gift_redemption, "enqueue_member_redemption", catchup)
+    result = await service.set_member_state_and_catch_up(engine, 123, 1501, "Chief")
+    assert result == 2
+    assert operations == [("save", 123, 1501), ("catchup", 123, "Chief")]
+
+
+@pytest.mark.asyncio
+async def test_bulk_state_service_preserves_every_member_catchup(monkeypatch):
+    import logging
+    from cogs import member_state_service as service
+
+    operations = []
+    engine = types.SimpleNamespace(logger=logging.getLogger("state-service-test"))
+
+    def save_many(fids, kid):
+        operations.append(("save", list(fids), kid))
+
+    def catchup(cog, fid):
+        operations.append(("catchup", fid))
+        return 1 if fid != 2 else 0
+
+    monkeypatch.setattr(service.state_resolver, "set_user_kid_many", save_many)
+    monkeypatch.setattr(service.gift_redemption, "enqueue_member_redemption", catchup)
+    caught = await service.set_members_state_and_catch_up(engine, [1, 2, 3], 1501)
+    assert caught == 2
+    assert operations == [
+        ("save", [1, 2, 3], 1501),
+        ("catchup", 1),
+        ("catchup", 2),
+        ("catchup", 3),
+    ]
