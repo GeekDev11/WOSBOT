@@ -1,15 +1,31 @@
-"""Regression checks for server-installation diagnostics in /settings."""
+"""Regression checks for the canonical /settings and /center entry path."""
 import ast
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "cogs" / "alliance.py"
+ROOT = Path(__file__).resolve().parents[1]
+MAIN = ROOT / "cogs" / "bot_main_menu.py"
+ALLIANCE = ROOT / "cogs" / "alliance.py"
 
 
-def test_settings_distinguishes_no_bot_member_from_no_administrator_permission():
-    text = SRC.read_text(encoding="utf-8")
+def test_installation_diagnostics_live_in_shared_entry():
+    text = MAIN.read_text(encoding="utf-8")
     ast.parse(text)
-    assert "if perm_check is None:" in text
-    assert "if not perm_check.guild_permissions.administrator:" in text
+    assert "member = interaction.guild.me" in text
+    assert "if member is None:" in text
+    assert "if not member.guild_permissions.administrator:" in text
     assert "A user-installed app can run slash commands" in text
     assert "Integrations → Bots and Apps" in text
     assert "Only grant Administrator if you" in text
+
+
+def test_settings_and_center_use_same_private_entry():
+    main = MAIN.read_text(encoding="utf-8")
+    alliance = ALLIANCE.read_text(encoding="utf-8")
+    ast.parse(main)
+    ast.parse(alliance)
+    assert "await self.open_entry(interaction)" in main
+    assert "await main_menu.open_entry(interaction)" in alliance
+    assert "view=MainMenuView(self), ephemeral=True" in main
+    assert "await self.bot.is_owner(interaction.user)" in main
+    assert "PermissionManager.add_admin(interaction.user.id, tier=TIER_OWNER)" in main
+    assert "INSERT INTO admin (id, is_initial)" not in alliance
