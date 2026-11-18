@@ -1018,3 +1018,52 @@ def test_manage_alliances_read_only_queries_are_off_event_loop():
     assert "self._missing_state_count" in source
     assert "self._member_counts" in source
     assert "PermissionManager.get_admin_alliances" in source
+
+
+def test_alliance_settings_snapshot_preserves_existing_fields(tmp_path, monkeypatch):
+    """Read-only extraction must return exactly the old settings and aggregates."""
+    import sqlite3
+    from cogs.bot_main_menu import MainMenu
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "db").mkdir()
+    with sqlite3.connect("db/alliance.sqlite") as db:
+        db.execute(
+            "CREATE TABLE alliance_list (alliance_id INTEGER, name TEXT, kid INTEGER, "
+            "state_locked INTEGER, multistate INTEGER)"
+        )
+        db.execute(
+            "CREATE TABLE alliancesettings (alliance_id INTEGER, auto_remove_on_transfer INTEGER)"
+        )
+        db.execute(
+            "INSERT INTO alliance_list VALUES (11, 'VEN', 1501, 1, 0)"
+        )
+        db.execute("INSERT INTO alliancesettings VALUES (11, 1)")
+        db.execute(
+            "INSERT INTO alliance_list VALUES (22, 'EMPTY', NULL, NULL, NULL)"
+        )
+    with sqlite3.connect("db/users.sqlite") as db:
+        db.execute(
+            "CREATE TABLE users (alliance INTEGER, furnace_lv INTEGER)"
+        )
+        db.executemany(
+            "INSERT INTO users (alliance, furnace_lv) VALUES (?, ?)",
+            [(11, 70), (11, 80), (33, 90)],
+        )
+
+    assert MainMenu._alliance_settings_snapshot(11) == (
+        ("VEN", 1501, 1, 0), True, (2, 75.0, 80)
+    )
+    assert MainMenu._alliance_settings_snapshot(22) == (
+        ("EMPTY", None, 0, 0), False, (0, None, None)
+    )
+    assert MainMenu._alliance_settings_snapshot(999) is None
+
+
+def test_alliance_settings_reads_outside_discord_event_loop():
+    import inspect
+    from cogs.bot_main_menu import MainMenu
+    source = inspect.getsource(MainMenu.show_alliance_settings)
+    assert "asyncio.to_thread" in source
+    assert "self._alliance_settings_snapshot" in source
+    assert "self._member_counts" in source
