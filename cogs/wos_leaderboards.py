@@ -508,6 +508,9 @@ class WosStateScout(commands.Cog):
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.describe(state="State number to scout")
     async def scout(self, interaction: discord.Interaction, state: int):
+        return await self.show_scout(interaction, state)
+
+    async def show_scout(self, interaction: discord.Interaction, state: int):
         from .command_center import intelligence_result_view
         if state < 1:
             await interaction.response.send_message(
