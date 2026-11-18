@@ -33,6 +33,7 @@ TIMEOUT_EXCEPTIONS = {
 }
 CONTENT_EXCEPTIONS = {
     ("pimp_my_bot.py", "content"): "safe_edit_message passes content through",
+    ("command_center.py", "content"): "send_lookup_result forwards an optional text-only error or result to the existing navigation view; callers do not supply both nonempty content and embed",
     ("notification_editor.py", "mention_preview"): "preview shows the ping as it will be sent",
     ("notification_system.py", "mention_preview"): "preview shows the ping as it will be sent",
     ("notification_system.py", "content"): "embed editor help sits above the user's own embed preview",
