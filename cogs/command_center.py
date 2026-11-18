@@ -853,8 +853,9 @@ class GiftCodeManagementView(discord.ui.View):
 async def show_gift_code_management(cog, interaction):
     embed = discord.Embed(
         title="Manage Gift Codes",
-        description="Add, list or delete codes. Redemption, results, automation "
-                    "and channel management have their own Gift Code Center entries.",
+        description="Add, list or delete codes here. Redemption and results are in "
+                    "the Gift Code Center; automation and channel management are "
+                    "inside Gift Code Settings.",
         color=theme.emColor1,
     )
     await safe_edit_message(interaction, embed=embed,
