@@ -166,7 +166,11 @@ def test_used_count_excludes_persisted_failures():
     async def send_message(*a, **k):
         sent.append(k.get("embed") or (a[0] if a else None))
 
-    inter = types.SimpleNamespace(response=types.SimpleNamespace(send_message=send_message))
+    # The real paginated menu binds the initiating Discord user to the view.
+    inter = types.SimpleNamespace(
+        user=types.SimpleNamespace(id=123),
+        response=types.SimpleNamespace(send_message=send_message),
+    )
     asyncio.run(gv.list_gift_codes(cog, inter))
 
     embed = sent[0]
