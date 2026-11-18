@@ -497,11 +497,9 @@ class MemberStateModal(discord.ui.Modal):
                 f"Enter digits only, like `911`.",
                 ephemeral=True)
             return
-        from . import gift_redemption
+        from .member_state_service import set_member_state_and_catch_up
         cog = self.parent_view.cog
-        await asyncio.to_thread(gsr.set_user_kid, self.fid, kid)
-        cog.logger.info(f"GiftOps: admin set state {kid} for FID {self.fid} ({self.nickname})")
-        queued = gift_redemption.enqueue_member_redemption(cog, self.fid, self.nickname)
+        queued = await set_member_state_and_catch_up(cog, self.fid, kid, self.nickname)
         self.parent_view.last_result = (
             f"{self.nickname} is now in state {kid}. "
             + (f"Redeeming {queued} code(s) they missed." if queued
@@ -528,7 +526,7 @@ class BulkStateModal(discord.ui.Modal):
             return
         if not await check_interaction_user(interaction, self.parent_view.original_user_id):
             return
-        from . import gift_redemption
+        from .member_state_service import set_members_state_and_catch_up
         kid = parse_state(self.state.value)
         if kid is None:
             await interaction.response.send_message(
@@ -537,9 +535,7 @@ class BulkStateModal(discord.ui.Modal):
                 ephemeral=True)
             return
         cog = self.parent_view.cog
-        await asyncio.to_thread(gsr.set_user_kid_many, self.fids, kid)
-        caught = sum(1 for fid in self.fids if gift_redemption.enqueue_member_redemption(cog, fid))
-        cog.logger.info(f"GiftOps: admin set state {kid} for {len(self.fids)} listed member(s)")
+        caught = await set_members_state_and_catch_up(cog, self.fids, kid)
         self.parent_view.last_result = (
             f"Set {len(self.fids)} member(s) to state {kid}."
             + (f" Catching up {caught} on missed codes." if caught else "")
