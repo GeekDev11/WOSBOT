@@ -1188,7 +1188,8 @@ class SelfRegistrationView(discord.ui.View):
         )
 
     async def _back(self, interaction: discord.Interaction):
-        await self.cog.show_alliance_management(interaction)
+        # Opened from Manage Alliances; return to that immediate parent.
+        await self.cog.show_alliance_admin_tools(interaction)
 
 
 # ============================================================================
@@ -1474,7 +1475,9 @@ class AdminManagerView(discord.ui.View):
     async def _on_back(self, interaction):
         if not await check_interaction_user(interaction, self.viewer_id):
             return
-        await self.cog.show_main_menu(interaction)
+        # Permissions belongs to Administration, not the root Command Center.
+        from .command_center import open_section
+        await open_section(self.cog, interaction, "admin")
 
 
 def _format_audit_state(state):
