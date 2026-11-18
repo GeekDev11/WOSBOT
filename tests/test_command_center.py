@@ -597,7 +597,7 @@ async def test_command_center_uses_service_not_raw_slash_callback(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("owner", [True, False])
 async def test_empty_install_requires_discord_application_owner(tmp_path, monkeypatch, owner):
-    """No non-owner can bootstrap a global administrator from either alias."""
+    """Both aliases acknowledge before checking an empty install."""
     import sqlite3
     from types import SimpleNamespace
     import cogs.bot_main_menu as menus
@@ -608,13 +608,18 @@ async def test_empty_install_requires_discord_application_owner(tmp_path, monkey
     monkeypatch.setattr(menus.PermissionManager, "SETTINGS_DB", str(database))
     monkeypatch.setattr(menus.PermissionManager, "is_admin",
                         staticmethod(lambda user_id: (True, True)))
-    added, sent = [], []
+    added, sent, acknowledged = [], [], []
 
     def add_admin(user_id, *, tier):
+        assert acknowledged, "Must acknowledge the Discord command before database changes"
         added.append((user_id, tier))
 
     async def is_owner(user):
+        assert acknowledged, "Must acknowledge before application owner lookup"
         return owner
+
+    async def defer(**kwargs):
+        acknowledged.append(kwargs)
 
     async def send_message(*args, **kwargs):
         sent.append((args, kwargs))
@@ -623,9 +628,11 @@ async def test_empty_install_requires_discord_application_owner(tmp_path, monkey
     bot = SimpleNamespace(is_owner=is_owner)
     interaction = SimpleNamespace(
         guild=None, user=SimpleNamespace(id=123),
-        response=SimpleNamespace(send_message=send_message),
+        response=SimpleNamespace(defer=defer),
+        followup=SimpleNamespace(send=send_message),
     )
     await menus.MainMenu(bot).open_entry(interaction)
+    assert acknowledged == [{"thinking": True, "ephemeral": True}]
     assert bool(added) is owner
     if owner:
         assert added == [(123, menus.TIER_OWNER)]
