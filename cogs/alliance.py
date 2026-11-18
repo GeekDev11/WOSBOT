@@ -196,107 +196,14 @@ class Alliance(commands.Cog):
 
     @app_commands.command(name="settings", description="Open settings menu.")
     async def settings(self, interaction: discord.Interaction):
-        try:
-            if interaction.guild is not None:
-                # User-installed apps may offer commands in a server even when the
-                # bot is not installed as a server member. Report that case clearly.
-                perm_check = interaction.guild.me
-                if perm_check is None:
-                    await interaction.response.send_message(
-                        "WOSBOT is not installed as a bot member of this server. "
-                        "A user-installed app can run slash commands without appearing "
-                        "under Server Settings → Roles. To manage server settings, "
-                        "install this application **to the server** from Discord "
-                        "Developer Portal → Installation, using both bot and "
-                        "applications.commands scopes. Then check Server Settings → "
-                        "Integrations → Bots and Apps.",
-                        ephemeral=True,
-                    )
-                    return
-                if not perm_check.guild_permissions.administrator:
-                    await interaction.response.send_message(
-                        "WOSBOT is installed as a server member, but its bot role "
-                        "does not have Administrator permission. The current settings "
-                        "command requires this permission. Review the role under "
-                        "Server Settings → Roles. Only grant Administrator if you "
-                        "intend to give this bot full server access.",
-                        ephemeral=True,
-                    )
-                    return
-
-            with sqlite3.connect('db/settings.sqlite', timeout=30.0) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM admin")
-                admin_count = cursor.fetchone()[0]
-
-            user_id = interaction.user.id
-
-            if admin_count == 0:
-                with sqlite3.connect('db/settings.sqlite', timeout=30.0) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO admin (id, is_initial)
-                        VALUES (?, 1)
-                    """, (user_id,))
-                    conn.commit()
-
-                first_use_embed = discord.Embed(
-                    title=f"{theme.newIcon} First Time Setup",
-                    description=(
-                        "This command has been used for the first time and no administrators were found.\n\n"
-                        f"**{interaction.user.name}** has been added as the Global Administrator.\n\n"
-                        "You can now access all administrative functions."
-                    ),
-                    color=theme.emColor3
-                )
-                await interaction.response.send_message(embed=first_use_embed, ephemeral=True)
-                
-                await asyncio.sleep(3)
-                
-            with sqlite3.connect('db/settings.sqlite', timeout=30.0) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT id, is_initial FROM admin WHERE id = ?", (user_id,))
-                admin = cursor.fetchone()
-
-            if admin is None:
-                await interaction.response.send_message(
-                    "You do not have permission to access this menu.",
-                    ephemeral=True
-                )
-                return
-
-            # Delegate to MainMenu cog for the actual menu display
-            main_menu_cog = self.bot.get_cog("MainMenu")
-            if main_menu_cog:
-                if admin_count == 0:
-                    # First time setup - need to send initial response then show menu
-                    await main_menu_cog.show_main_menu(interaction)
-                else:
-                    # Normal flow - send menu as initial response
-                    await self._send_initial_main_menu(interaction, main_menu_cog)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Main Menu module not found.",
-                    ephemeral=True
-                )
-
-        except Exception as e:
-            if not any(error_code in str(e) for error_code in ["10062", "40060"]):
-                logger.error(f"Settings command error: {e}")
-                print(f"Settings command error: {e}")
-            error_message = "An error occurred while processing your request."
-            if not interaction.response.is_done():
-                await interaction.response.send_message(error_message, ephemeral=True)
-            else:
-                await interaction.followup.send(error_message, ephemeral=True)
-
-    async def _send_initial_main_menu(self, interaction: discord.Interaction, main_menu_cog):
-        """Send the main menu as the initial response (for /settings command)."""
-        from .bot_main_menu import MainMenuView
-
-        embed = main_menu_cog.build_main_menu_embed()
-        view = MainMenuView(main_menu_cog)
-        await interaction.response.send_message(embed=embed, view=view)
+        """Compatibility alias: all admin entry and initial setup rules live in MainMenu."""
+        main_menu = self.bot.get_cog("MainMenu")
+        if main_menu is None:
+            await interaction.response.send_message(
+                "Main Menu module is unavailable.", ephemeral=True,
+            )
+            return
+        await main_menu.open_entry(interaction)
 
     async def show_alliance_operations(self, interaction: discord.Interaction):
         """Display the Alliance Operations menu (Add/Edit/Delete/View alliances)."""
