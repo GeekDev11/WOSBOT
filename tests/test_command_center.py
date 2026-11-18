@@ -641,3 +641,47 @@ async def test_empty_install_requires_discord_application_owner(tmp_path, monkey
     else:
         assert sent[0][1]["ephemeral"] is True
         assert "application owner" in sent[0][0][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_player_sync_back_returns_to_administration(monkeypatch):
+    """Shared Player Sync has Administration as its canonical Back target."""
+    from types import SimpleNamespace
+    import cogs.command_center as navigation
+    from cogs.alliance_api_menu import PlayerSyncView
+
+    destinations = []
+
+    async def open_parent(main, interaction, section):
+        destinations.append(section)
+
+    monkeypatch.setattr(navigation, "open_section", open_parent)
+    main = SimpleNamespace()
+    cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: main))
+    view = PlayerSyncView(cog, 123)
+    interaction = SimpleNamespace()
+    await view._on_back(interaction)
+    assert destinations == ["admin"]
+
+
+@pytest.mark.asyncio
+async def test_attendance_empty_alliance_keeps_navigation(monkeypatch):
+    """With zero assigned alliances, the hub is shown instead of a dead end."""
+    from types import SimpleNamespace
+    from cogs.attendance import Attendance
+    import cogs.attendance as attendance_module
+
+    monkeypatch.setattr(attendance_module.PermissionManager, "is_admin",
+                        staticmethod(lambda user_id: (True, True)))
+    monkeypatch.setattr(attendance_module.PermissionManager, "get_admin_alliances",
+                        staticmethod(lambda user_id, guild_id: ([], False)))
+    opened = []
+
+    class Stub:
+        async def show_attendance_hub(self, interaction, alliance_id=None):
+            opened.append(alliance_id)
+
+    guild = SimpleNamespace(id=10)
+    interaction = SimpleNamespace(guild=guild, user=SimpleNamespace(id=123))
+    await Attendance.show_attendance_menu(Stub(), interaction)
+    assert opened == [None]
