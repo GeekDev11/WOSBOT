@@ -706,3 +706,58 @@ async def test_alliance_history_back_returns_to_insights(monkeypatch):
     assert any(item.label == "Back to Rankings & History" for item in view.children)
     await view.back.callback(SimpleNamespace())
     assert opened == [1501]
+
+
+@pytest.mark.asyncio
+async def test_self_registration_back_returns_to_manage_alliances():
+    """Self-Registration belongs under Manage Alliances, not the root Alliance center."""
+    from types import SimpleNamespace
+    from cogs.bot_main_menu import SelfRegistrationView
+    destinations = []
+
+    async def manage(interaction):
+        destinations.append("manage")
+
+    cog = SimpleNamespace(show_alliance_admin_tools=manage)
+    view = SelfRegistrationView(cog)
+    await view._back(SimpleNamespace())
+    assert destinations == ["manage"]
+
+
+@pytest.mark.asyncio
+async def test_member_states_back_returns_to_manage_alliances():
+    from types import SimpleNamespace
+    from cogs.alliance_member_states import StateManagementView
+    destinations = []
+
+    async def manage(interaction):
+        destinations.append("manage")
+
+    main = SimpleNamespace(show_alliance_admin_tools=manage)
+    cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: main))
+    view = StateManagementView(cog, 123)
+    await view._on_back(SimpleNamespace())
+    assert destinations == ["manage"]
+
+
+@pytest.mark.asyncio
+async def test_permissions_back_returns_to_administration(monkeypatch):
+    from types import SimpleNamespace
+    from cogs.bot_main_menu import AdminManagerView
+    import cogs.command_center as navigation
+    import cogs.bot_main_menu as mm
+
+    destinations = []
+
+    async def allowed(*args, **kwargs):
+        return True
+
+    async def open_parent(cog, interaction, section):
+        destinations.append(section)
+
+    monkeypatch.setattr(mm, "check_interaction_user", allowed)
+    monkeypatch.setattr(navigation, "open_section", open_parent)
+    # Constructor does not load DB; it builds the entry view.
+    view = AdminManagerView(SimpleNamespace(), 123)
+    await view._on_back(SimpleNamespace())
+    assert destinations == ["admin"]
