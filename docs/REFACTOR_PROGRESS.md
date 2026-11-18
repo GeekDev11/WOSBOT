@@ -12,6 +12,16 @@ This is a preservation-first refactor. Keep existing commands, SQLite data, API 
 - [ ] **Phase 5: remove obsolete code** — Removed known invisible button definitions and duplicate /settings implementation. **Open:** complete reference/reachability audit before removing other legacy views; retain compatibility handlers where needed.
 - [ ] **Phase 6: regression testing** — Updated `test_settings_installation.py`, `test_command_center.py`, and `tests/sim/test_hubs.py`; added owner-bootstrap and shared-service regression tests. **New:** scanned all 70 cog Python files for invalid backtick escapes; fixed all eight observed occurrences across the two troop-quality modules, added a guard test, and added role-tier tests. **Open:** execute tests against this head; no run has yet been verified.
 
+## Gift-code expiration and history audit (2026-11-18)
+
+- Confirmed: `GiftOperations.periodic_validation_loop` runs every two hours and checks up to 20 pending/validated codes per run using the game API. Conclusive code-level invalid responses mark codes `invalid`.
+- Confirmed: per-member redemption and manual Gift Code selection exclude `validation_status = 'invalid'`. Pending codes may still be presented; this is intentional existing behavior while validation finishes.
+- Fixed data-loss bug: legacy daily `cleanup_old_invalid_codes` deleted invalid code rows older than seven days **and** deleted their `user_giftcodes` outcomes. It is now non-destructive and retains both invalid code status and historical outcomes. Existing records already deleted cannot be recovered by this change.
+- Added tests in `tests/test_gift_validation_persistence.py` to guard the preserved rows and invalid-code exclusion.
+- Out of scope/unchanged: manual administrator deletion, periodic API validation pacing and quotas, redemption priority/queue, and the gift-history UI's 25-code selection limit. No age-only invalidation or new UI pagination was added.
+
+**Verification gate:** run `python -m pytest -q tests/test_gift_validation_persistence.py`, plus gift redemption and history suites, before marking the retention fix verified. GitHub Actions has not yet shown a run at this revision.
+
 ## Required validation
 
 1. `python -m compileall -q cogs`
