@@ -71,96 +71,82 @@ class PermissionManager:
 
     @staticmethod
     def get_admin_alliance_ids(user_id: int, guild_id: int) -> Tuple[List[int], bool]:
-        """
-        Get alliance IDs the admin can access, merging any cached role grant.
+        """Return only personal grants and role grants from the requested guild.
 
-        Returns:
-            (alliance_ids, is_global)
-            - If global: ([], True) - empty list means "all"
-            - If server admin: (list of IDs, False)
+        A Discord role cached while a user interacted in one server must never
+        grant access in a different server. Personal/global grants retain their
+        original scope. A guild-less request cannot borrow a role grant.
         """
-        is_admin, is_global = PermissionManager.is_admin(user_id)
-        if not is_admin:
+        admin_map = PermissionManager._admin_map()
+        personal = user_id in admin_map
+        personal_global = personal and admin_map[user_id] == 1
+
+        cached = PermissionManager._cached_role_grant(user_id)
+        role_grant = (
+            cached if cached and guild_id is not None
+            and cached.get("guild_id") == guild_id else None
+        )
+        if not personal and not (role_grant and role_grant["is_admin"]):
             return [], False
-        if is_global:
+
+        if personal_global or (role_grant and role_grant["is_global"]):
             return [], True
 
-        rg = PermissionManager._cached_role_grant(user_id) or {"server": False, "alliance_ids": [], "guild_id": None}
         with closing(sqlite3.connect(PermissionManager.SETTINGS_DB)) as db:
             user_assigned = [r[0] for r in db.execute(
-                "SELECT alliances_id FROM adminserver WHERE admin = ?", (user_id,)).fetchall()]
-        user_is_server_tier = (user_id in PermissionManager._admin_map()) and not user_assigned
-        # Role server-tier is guild-scoped: only when the cached grant came from this guild.
-        role_server = rg["server"] and rg.get("guild_id") == guild_id
+                "SELECT alliances_id FROM adminserver WHERE admin = ?", (user_id,)
+            ).fetchall()]
+
+        user_is_server_tier = personal and not user_assigned
+        role_server = bool(role_grant and role_grant["server"])
         if role_server or user_is_server_tier:
             with closing(sqlite3.connect(PermissionManager.ALLIANCE_DB)) as adb:
                 return [r[0] for r in adb.execute(
-                    "SELECT alliance_id FROM alliance_list WHERE discord_server_id = ?", (guild_id,)).fetchall()], False
-        return sorted(set(user_assigned) | set(rg["alliance_ids"])), False
+                    "SELECT alliance_id FROM alliance_list WHERE discord_server_id = ?",
+                    (guild_id,)
+                ).fetchall()], False
+
+        role_ids = role_grant["alliance_ids"] if role_grant else []
+        return sorted(set(user_assigned) | set(role_ids)), False
 
     @staticmethod
     def get_admin_alliances(user_id: int, guild_id: int) -> Tuple[List[Tuple], bool]:
-        """
-        Get alliance tuples (id, name) for admin, merging any cached role grant.
-        Used by most cogs for alliance selection dropdowns.
-
-        Returns:
-            (alliances, is_global)
-        """
-        is_admin, is_global = PermissionManager.is_admin(user_id)
-        if not is_admin:
-            return [], False
-
+        """Get alliance choices using the same guild-scoped access decision."""
+        ids, is_global = PermissionManager.get_admin_alliance_ids(user_id, guild_id)
         if is_global:
             with closing(sqlite3.connect(PermissionManager.ALLIANCE_DB)) as db:
-                return db.execute("SELECT DISTINCT alliance_id, name FROM alliance_list ORDER BY name").fetchall(), True
-
-        ids, _ = PermissionManager.get_admin_alliance_ids(user_id, guild_id)
+                return db.execute(
+                    "SELECT DISTINCT alliance_id, name FROM alliance_list ORDER BY name"
+                ).fetchall(), True
         if not ids:
             return [], False
         with closing(sqlite3.connect(PermissionManager.ALLIANCE_DB)) as db:
-            ph = ','.join('?' * len(ids))
+            ph = ",".join("?" * len(ids))
             return db.execute(
-                f"SELECT DISTINCT alliance_id, name FROM alliance_list WHERE alliance_id IN ({ph}) ORDER BY name", ids
+                f"SELECT DISTINCT alliance_id, name FROM alliance_list "
+                f"WHERE alliance_id IN ({ph}) ORDER BY name", ids
             ).fetchall(), False
 
     @staticmethod
     def get_admin_users(user_id: int, guild_id: int = None) -> List[Tuple]:
-        """
-        Get users the admin can see based on their permissions.
-
-        Returns:
-            list of (fid, nickname, alliance) tuples
-        """
-        is_admin, is_global = PermissionManager.is_admin(user_id)
-
-        if not is_admin:
-            return []
-
+        """Get users within the same guild-scoped alliance access decision."""
+        alliance_ids, is_global = PermissionManager.get_admin_alliance_ids(
+            user_id, guild_id
+        )
         if is_global:
-            # Global admin - return ALL users
             with sqlite3.connect(PermissionManager.USERS_DB) as db:
-                cursor = db.cursor()
-                cursor.execute("SELECT fid, nickname, alliance FROM users ORDER BY LOWER(nickname)")
-                return cursor.fetchall()
-
-        # Server admin - get alliance IDs they can access
-        alliance_ids, _ = PermissionManager.get_admin_alliance_ids(user_id, guild_id)
-
+                return db.execute(
+                    "SELECT fid, nickname, alliance FROM users ORDER BY LOWER(nickname)"
+                ).fetchall()
         if not alliance_ids:
             return []
-
-        # Get users from those alliances
         with sqlite3.connect(PermissionManager.USERS_DB) as db:
-            cursor = db.cursor()
-            placeholders = ','.join('?' * len(alliance_ids))
-            cursor.execute(f"""
-                SELECT fid, nickname, alliance
-                FROM users
-                WHERE alliance IN ({placeholders})
-                ORDER BY LOWER(nickname)
-            """, alliance_ids)
-            return cursor.fetchall()
+            ph = ",".join("?" * len(alliance_ids))
+            return db.execute(
+                f"SELECT fid, nickname, alliance FROM users "
+                f"WHERE alliance IN ({ph}) ORDER BY LOWER(nickname)",
+                alliance_ids,
+            ).fetchall()
 
     # ---------------------------------------------------------------
     # Owner / tier helpers
