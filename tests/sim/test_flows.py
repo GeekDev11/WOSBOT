@@ -82,7 +82,7 @@ async def test_click_on_expired_menu_is_answered(sim):
     """The opener should see the main menu reopen in place. That branch reads the deprecated
     message.interaction field, which SimCord does not send, so here every dead click gets the
     'stopped working' note; the test pins that a dead click is answered, not left failing."""
-    hub = (await sim.click(await sim.open_settings(), "Gift Codes")).screen[0]
+    hub = (await sim.click(await sim.open_settings(), "Gift Code Center")).screen[0]
     await _expire(sim, _menu_seconds())
     click = await sim.click(sim.current(hub), labels(hub, enabled_only=True)[0])
     assert not click.problems()
@@ -93,11 +93,11 @@ async def test_click_on_expired_menu_is_answered(sim):
 async def test_menus_never_expire_when_timeout_is_zero(sim):
     from cogs.pimp_my_bot import set_menu_timeout_minutes
     set_menu_timeout_minutes(0)
-    hub = (await sim.click(await sim.open_settings(), "Gift Codes")).screen[0]
+    hub = (await sim.click(await sim.open_settings(), "Gift Code Center")).screen[0]
     await _expire(sim, 30 * 24 * 3600)
-    click = await sim.click(sim.current(hub), "Main Menu")
+    click = await sim.click(sim.current(hub), "Back to Home")
     assert not click.problems()
-    assert title(click.screen[0]).endswith(SETTINGS_TITLE)
+    assert title(click.screen[0]).endswith("Command Center")
 
 
 async def _open_remove_confirmation(sim, target):
