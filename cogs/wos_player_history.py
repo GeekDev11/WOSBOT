@@ -97,6 +97,9 @@ class WosPlayerHistory(commands.Cog):
     @app_commands.command(name="woshistory", description="Compare previously saved Whiteout Stats player snapshots")
     @app_commands.describe(chief_id="In-game Chief ID", observations="Most recent observations to compare")
     async def woshistory(self, interaction: discord.Interaction, chief_id: str, observations: int = 30):
+        return await self.show_woshistory(interaction, chief_id, observations)
+
+    async def show_woshistory(self, interaction: discord.Interaction, chief_id: str, observations: int = 30):
         from .command_center import intelligence_result_view
         await interaction.response.defer(ephemeral=True, thinking=True)
         if not chief_id.isascii() or not chief_id.isdecimal() or not 1 <= len(chief_id) <= 16:
