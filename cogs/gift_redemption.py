@@ -2361,40 +2361,17 @@ async def _send_scan_results_message(cog, channel: discord.TextChannel, results:
 
 
 async def cleanup_old_invalid_codes(cog):
-    """Remove invalid gift codes older than 7 days from the database."""
-    try:
-        # Calculate the cutoff date (7 days ago)
-        cutoff_date = (datetime.now() - timedelta(days=7)).isoformat()
+    """Retain expired codes and per-member redemption outcomes for audit history.
 
-        # Get count of codes that will be deleted for logging
-        cog.cursor.execute("""
-            SELECT COUNT(*) FROM gift_codes
-            WHERE validation_status = 'invalid'
-            AND date < ?
-        """, (cutoff_date,))
-        delete_count = cog.cursor.fetchone()[0]
-
-        if delete_count > 0:
-            # Delete old invalid codes
-            cog.cursor.execute("""
-                DELETE FROM gift_codes
-                WHERE validation_status = 'invalid'
-                AND date < ?
-            """, (cutoff_date,))
-
-            # Also clean up any related user_giftcodes entries for deleted codes
-            cog.cursor.execute("""
-                DELETE FROM user_giftcodes
-                WHERE giftcode NOT IN (SELECT giftcode FROM gift_codes)
-            """)
-
-            cog.conn.commit()
-            cog.logger.info(f"Cleaned up {delete_count} invalid gift codes older than 7 days")
-        else:
-            cog.logger.info("No old invalid gift codes found for cleanup")
-
-    except Exception as e:
-        cog.logger.exception(f"Error during invalid codes cleanup: {e}")
+    Legacy callers still invoke this method daily. Validation status already
+    excludes invalid codes from active redemption, so deleting old rows here
+    would irreversibly erase redemption history and reactivation context.
+    No age-based expiration or database deletion is performed.
+    """
+    cog.logger.debug(
+        "GiftOps: Invalid code records retained for redemption history; "
+        "invalid codes remain excluded from active redemption."
+    )
 
 
 async def periodic_validation_loop_body(cog):
@@ -2406,7 +2383,7 @@ async def periodic_validation_loop_body(cog):
         # Check if we need to run daily cleanup (once per day)
         current_date = loop_start_time.date()
         if cog._last_cleanup_date != current_date:
-            cog.logger.info("Running daily cleanup of old invalid gift codes...")
+            cog.logger.debug("Daily gift-code retention check (non-destructive).")
             await cleanup_old_invalid_codes(cog)
             cog._last_cleanup_date = current_date
 
