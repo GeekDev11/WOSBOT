@@ -977,3 +977,44 @@ async def test_gift_code_list_next_updates_embed(monkeypatch):
     assert view.page == 1
     assert len(edited[0]["embed"].fields) == 3
     assert "Page 2/2" in edited[0]["embed"].description
+
+
+def test_manage_alliances_state_counts_preserve_data(tmp_path, monkeypatch):
+    """Read-only stats preserve the existing per-alliance missing-state result."""
+    import sqlite3
+    from cogs.bot_main_menu import MainMenu
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "db").mkdir()
+    with sqlite3.connect("db/users.sqlite") as db:
+        db.execute(
+            "CREATE TABLE users (alliance TEXT, kid INTEGER, state_mismatch_at TEXT)"
+        )
+        db.executemany(
+            "INSERT INTO users (alliance, kid, state_mismatch_at) VALUES (?, ?, ?)",
+            [
+                ("11", None, None),
+                ("11", 1501, "2026-11-18"),
+                ("11", 1501, None),
+                ("22", None, None),
+                ("33", None, None),
+            ],
+        )
+
+    assert MainMenu._missing_state_count([]) == 0
+    assert MainMenu._missing_state_count([11]) == 2
+    assert MainMenu._missing_state_count([11, 22]) == 3
+    assert MainMenu._missing_state_count([33]) == 1
+    assert MainMenu._member_counts() == {"11": 3, "22": 1, "33": 1}
+
+
+def test_manage_alliances_read_only_queries_are_off_event_loop():
+    """Keep SQLite menu reads in thread workers, not callbacks blocking Discord."""
+    import inspect
+    from cogs.bot_main_menu import MainMenu
+
+    source = inspect.getsource(MainMenu.show_alliance_admin_tools)
+    assert "asyncio.to_thread" in source
+    assert "self._missing_state_count" in source
+    assert "self._member_counts" in source
+    assert "PermissionManager.get_admin_alliances" in source
