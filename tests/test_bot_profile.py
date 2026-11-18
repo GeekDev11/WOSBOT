@@ -44,14 +44,34 @@ def test_profile_bulk_scope_and_reset_are_explicit():
     assert 'asyncio.sleep(0.6)' in source
 
 
-def test_profile_menu_is_global_admin_only():
-    source = (ROOT / "cogs" / "bot_main_menu.py").read_text(encoding="utf-8")
+def test_profile_menu_is_global_admin_only(monkeypatch):
+    """Appearance retains the Bot Profile route; the target enforces Global Admin."""
+    from types import SimpleNamespace
+    import cogs.command_center as center
+    from cogs.bot_profile import BotProfile
+    from cogs.permission_handler import PermissionManager
+
     main = (ROOT / "main.py").read_text(encoding="utf-8")
     assert '"bot_profile"' in main
-    assert 'label="Bot Profile"' in source
-    assert 'custom_id="bot_profile"' in source
-    assert 'profile_cog.show_profile(interaction)' in source
-    assert '"bot_presence", "bot_profile"' in source
+    assert "Bot Profile & Name Style" in (
+        ROOT / "cogs" / "command_center.py"
+    ).read_text(encoding="utf-8")
+
+    # Check that the real Appearance button routes to the protected target.
+    import inspect
+    route = inspect.getsource(center.AppearanceView.profile)
+    assert '"BotProfile", "show_profile"' in route
+
+    monkeypatch.setattr(
+        PermissionManager, "is_admin",
+        staticmethod(lambda user_id: (True, False)),
+    )
+    assert BotProfile.allowed(SimpleNamespace(user=SimpleNamespace(id=123))) is False
+    monkeypatch.setattr(
+        PermissionManager, "is_admin",
+        staticmethod(lambda user_id: (True, True)),
+    )
+    assert BotProfile.allowed(SimpleNamespace(user=SimpleNamespace(id=123))) is True
 
 
 def test_name_styles_are_opt_in_and_per_server():
