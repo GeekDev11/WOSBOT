@@ -97,13 +97,16 @@ async def test_leave_server_leaves_another_server(sim):
 
 
 async def test_leave_server_is_bot_owner_only(sim):
-    own_menu = await sim.walk("Maintenance", user="global")
-    assert "Leave a Server" in labels(own_menu) and "Leave a Server" not in labels(own_menu, enabled_only=True)
+    global_menu = await sim.walk("Administration & Settings", "Server Management", user="global")
+    assert "Leave a Server" not in labels(global_menu)
 
-    owners_menu = await sim.walk("Maintenance")
-    refused = await sim.click(owners_menu, "Leave a Server", user="global")
+    # The owner-only button exists on the owner's private screen. A global
+    # admin attempting to use that private view is rejected by its owner gate.
+    owner_menu = await sim.walk("Administration & Settings", "Server Management")
+    assert "Leave a Server" in labels(owner_menu, enabled_only=True)
+    refused = await sim.click(owner_menu, "Leave a Server", user="global")
     message, ephemeral = refused.screen
-    assert ephemeral and "Only the bot owner" in message.content
+    assert ephemeral and "another administrator" in message.content
 
 
 async def test_health_settings_save_both_timeouts(sim):
@@ -310,9 +313,12 @@ def _hold_sync_jobs(sim):
 
 
 async def test_player_sync_opens_from_alliances_not_set_up(sim):
-    alliances = await sim.walk("Alliances")
-    assert "Player Sync" in labels(alliances, enabled_only=True)
-    opened = await sim.click(alliances, "Player Sync")
+    administration = await sim.walk("Administration & Settings")
+    assert "Player Sync & API" in [
+        option.label for row in administration.components for item in row.children
+        for option in getattr(item, "options", [])
+    ]
+    opened = await sim.select(administration, "Choose a tool", "Player Sync & API")
     assert not opened.problems(), opened.problems()
     hub = opened.screen[0]
     assert title(hub).endswith("Player Sync")
@@ -474,16 +480,14 @@ async def test_player_sync_back_returns_to_alliances(sim):
     hub = await _player_sync(sim)
     back = await sim.click(hub, "Back")
     assert not back.problems(), back.problems()
-    assert title(back.screen[0]).endswith("Alliances")
+    assert title(back.screen[0]).endswith("Administration & Settings")
 
 
 async def test_player_sync_refuses_non_global_admins(sim):
-    alliances = await sim.walk("Alliances", user="server")
-    assert "Player Sync" in labels(alliances)
-    assert "Player Sync" not in labels(alliances, enabled_only=True)
-
-    hub = await _player_sync(sim)
-    refused = await sim.click(hub, "Connection", user="server")
+    administration = await sim.walk("Administration & Settings", user="server")
+    refused = await sim.select(
+        administration, "Choose a tool", "Player Sync & API", user="server",
+    )
     assert refused.result.modal is None
     message, ephemeral = refused.screen
     assert ephemeral and "Only global administrators" in message.content
