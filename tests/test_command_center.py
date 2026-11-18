@@ -685,3 +685,24 @@ async def test_attendance_empty_alliance_keeps_navigation(monkeypatch):
     interaction = SimpleNamespace(guild=guild, user=SimpleNamespace(id=123))
     await Attendance.show_attendance_menu(Stub(), interaction)
     assert opened == [None]
+
+
+@pytest.mark.asyncio
+async def test_alliance_history_back_returns_to_insights(monkeypatch):
+    """History type picker should return to its Rankings & History parent."""
+    from types import SimpleNamespace
+    import cogs.command_center as nav
+    from cogs.alliance_history import HistoryTypeView
+
+    opened = []
+
+    async def fake_insights(main, interaction, alliance_id):
+        opened.append(alliance_id)
+
+    monkeypatch.setattr(nav, "show_alliance_insights", fake_insights)
+    main = object()
+    cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: main))
+    view = HistoryTypeView(cog, 1501)
+    assert any(item.label == "Back to Rankings & History" for item in view.children)
+    await view.back.callback(SimpleNamespace())
+    assert opened == [1501]
