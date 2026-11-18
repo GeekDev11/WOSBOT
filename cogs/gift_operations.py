@@ -359,36 +359,21 @@ class GiftOperations(commands.Cog):
     # ── Menu entry point ──────────────────────────────────────────────
 
     async def show_gift_menu(self, interaction: discord.Interaction):
-        gift_menu_embed = discord.Embed(
-            title=f"{theme.giftIcon} Gift Code Operations",
-            description=(
-                "Here you can manage everything related to gift code redemption.\n\n"
-                "The bot automatically retrieves new gift codes from our distribution API. "
-                f"Codes are validated periodically, and automatically removed if they become invalid.\n\n"
-                f"If you're new here, you'll want to head to **Settings** and configure some things:\n"
-                f"- If you want codes to be automatically redeemed, go to **Auto Redemption** and enable it.\n"
-                f"- You can set up a channel via **Channel Management** where the bot will scan for new codes.\n"
-                f"- You can also adjust the order in which alliances redeem gift codes via **Redemption Priority**.\n\n"
-                f"**Available Operations**\n"
-                f"{theme.upperDivider}\n"
-                f"{theme.giftIcon} **Add Gift Code**\n"
-                f"└ Manually input a new gift code\n\n"
-                f"{theme.listIcon} **List Gift Codes**\n"
-                f"└ View all active, valid codes\n\n"
-                f"{theme.targetIcon} **Redeem Gift Code**\n"
-                f"└ Redeem gift code(s) for one or more alliances\n\n"
-                f"{theme.archiveIcon} **Redemption History**\n"
-                f"└ See which accounts redeemed, already had, or failed a code\n\n"
-                f"{theme.settingsIcon} **Settings**\n"
-                f"└ Set up a gift code channel, configure auto redemption, and more...\n\n"
-                f"{theme.trashIcon} **Delete Gift Code**\n"
-                f"└ Remove existing codes (rarely needed)\n"
-                f"{theme.lowerDivider}"
-            ),
-            color=theme.emColor1
-        )
-        view = GiftView(self, interaction.user.id)
-        await safe_edit_message(interaction, embed=gift_menu_embed, view=view)
+        """Compatibility entry: open the single canonical Gift Code Center.
+
+        Existing commands and older Back links may still call this method.
+        The full code CRUD, redemption, results, and settings workflows remain
+        accessible from the shared menu, without a second dashboard UI.
+        """
+        from .command_center import open_section
+        main_menu = self.bot.get_cog("MainMenu")
+        if main_menu is None:
+            await interaction.response.send_message(
+                "The Command Center is unavailable. Check Bot Health → Modules.",
+                ephemeral=True,
+            )
+            return
+        await open_section(main_menu, interaction, "gifts")
 
     # ── Delegation to gift_redemption ─────────────────────────────────
 
