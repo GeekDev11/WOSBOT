@@ -7,13 +7,10 @@ from sim_harness import SETTINGS_TITLE, labels, title
 pytestmark = pytest.mark.asyncio
 
 STOPPED_WORKING = "This button stopped working"
-# Hubs that refuse each admin tier; a change here is a permission change.
-REFUSED_HUBS = {
-    "owner": set(),
-    "global": set(),
-    "server": {"Permissions"},
-    "alliance": {"Permissions"},
-}
+# The five centers are private navigation for *all* administrator tiers.
+# Permission restrictions apply to the selected tool, not to an ephemeral hub.
+ADMIN_TIERS = ("owner", "global", "server", "alliance")
+RESTRICTED_PERMISSION_TIERS = ("server", "alliance")
 
 
 async def _expire(sim, seconds):
@@ -43,18 +40,42 @@ async def test_missing_administrator_is_explained(sim_without_admin):
     assert "Administrator" in reply.message.content
 
 
-async def _refused_hubs(sim, tier):
-    refused = set()
-    for hub in labels(await sim.open_settings(tier), enabled_only=True):
-        click = await sim.click(await sim.open_settings(tier), hub, user=tier)
-        assert not click.problems(), (tier, hub, click.problems())
-        if click.screen and click.screen[1]:
-            refused.add(hub)
-    return refused
+async def test_all_admin_tiers_can_open_private_centers(sim):
+    """An ephemeral center is expected, not a permission-denied response."""
+    for tier in ADMIN_TIERS:
+        settings = await sim.open_settings(tier)
+        for center in labels(settings, enabled_only=True):
+            click = await sim.click(await sim.open_settings(tier), center, user=tier)
+            assert not click.problems(), (tier, center, click.problems())
+            assert click.screen is not None, (tier, center)
+            message, ephemeral = click.screen
+            assert ephemeral, (tier, center)
+            assert "Choose a tool" in [
+                getattr(item, "placeholder", None)
+                for row in message.components for item in row.children
+            ], (tier, center)
 
 
-async def test_hubs_refused_by_tier(sim):
-    assert {tier: await _refused_hubs(sim, tier) for tier in REFUSED_HUBS} == REFUSED_HUBS
+async def test_permission_management_restricted_to_global_admin(sim):
+    """Verify the actual Permission Management tool, not its parent center."""
+    for tier in ADMIN_TIERS:
+        center = (
+            await sim.click(
+                await sim.open_settings(tier), "Administration & Settings", user=tier,
+            )
+        ).screen[0]
+        choice = await sim.select(
+            center, "Choose a tool", "Permission Management", user=tier,
+        )
+        assert not choice.problems(), (tier, choice.problems())
+        assert choice.screen is not None, tier
+        message, ephemeral = choice.screen
+        assert ephemeral, tier
+        if tier in RESTRICTED_PERMISSION_TIERS:
+            assert "Only global administrators" in message.content, tier
+        else:
+            assert message.embeds, tier
+            assert "Only global administrators" not in message.content, tier
 
 
 async def test_click_on_expired_menu_is_answered(sim):
