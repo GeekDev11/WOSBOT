@@ -160,14 +160,20 @@ class MainMenu(commands.Cog):
             if member is None:
                 await interaction.response.send_message(
                     "WOSBOT is not installed as a bot member of this server. "
-                    "Install it to the server with bot and applications.commands scopes.",
+                    "A user-installed app can run slash commands without appearing "
+                    "under Server Settings → Roles. Install this application to the "
+                    "server from Discord Developer Portal → Installation using both "
+                    "bot and applications.commands scopes, then check Server Settings → "
+                    "Integrations → Bots and Apps.",
                     ephemeral=True,
                 )
                 return
             if not member.guild_permissions.administrator:
                 await interaction.response.send_message(
-                    "The bot role needs Administrator permission to open server settings. "
-                    "Review the role under Server Settings.",
+                    "WOSBOT is installed as a server member, but its bot role "
+                    "does not have Administrator permission. Review the role under "
+                    "Server Settings → Roles. Only grant Administrator if you "
+                    "intend to give this bot full server access.",
                     ephemeral=True,
                 )
                 return
