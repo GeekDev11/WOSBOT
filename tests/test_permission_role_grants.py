@@ -133,3 +133,71 @@ def test_server_role_does_not_bleed_across_guilds(tmp_path, monkeypatch):
     # querying a DIFFERENT guild must NOT grant that guild's alliances
     ids, glob = PermissionManager.get_admin_alliance_ids(42, guild_id=901)
     assert glob is False and ids == []
+
+
+def _fresh_alliance_and_users_db(tmp_path, monkeypatch):
+    alliance_db = tmp_path / "alliance.sqlite"
+    users_db = tmp_path / "users.sqlite"
+    with sqlite3.connect(alliance_db) as conn:
+        conn.execute(
+            "CREATE TABLE alliance_list (alliance_id INTEGER, name TEXT, discord_server_id INTEGER)"
+        )
+        conn.executemany(
+            "INSERT INTO alliance_list VALUES (?, ?, ?)",
+            [(1, "A", 900), (2, "B", 901)],
+        )
+    with sqlite3.connect(users_db) as conn:
+        conn.execute(
+            "CREATE TABLE users (fid INTEGER, nickname TEXT, alliance INTEGER)"
+        )
+        conn.executemany(
+            "INSERT INTO users VALUES (?, ?, ?)",
+            [(100, "Alice", 1), (200, "Bob", 2)],
+        )
+    monkeypatch.setattr(PermissionManager, "ALLIANCE_DB", str(alliance_db))
+    monkeypatch.setattr(PermissionManager, "USERS_DB", str(users_db))
+
+
+def test_global_role_cannot_grant_access_in_other_guild(tmp_path, monkeypatch):
+    _fresh_db(tmp_path, monkeypatch)
+    _fresh_alliance_and_users_db(tmp_path, monkeypatch)
+    PermissionManager.add_role_grant(10, 900, tier="global")
+    PermissionManager._bust_role_cache()
+    PermissionManager._admin_cache = None
+    PermissionManager.cache_member_role_grant(42, [10], 900)
+
+    assert PermissionManager.get_admin_alliance_ids(42, 900) == ([], True)
+    assert PermissionManager.get_admin_alliance_ids(42, 901) == ([], False)
+    assert PermissionManager.get_admin_alliances(42, 900) == (
+        [(1, "A"), (2, "B")], True
+    )
+    assert PermissionManager.get_admin_alliances(42, 901) == ([], False)
+    assert PermissionManager.get_admin_users(42, 901) == []
+
+
+def test_alliance_role_cannot_grant_access_in_other_guild(tmp_path, monkeypatch):
+    _fresh_db(tmp_path, monkeypatch)
+    _fresh_alliance_and_users_db(tmp_path, monkeypatch)
+    PermissionManager.add_role_grant(10, 900, tier="alliance", alliance_ids=[1])
+    PermissionManager._bust_role_cache()
+    PermissionManager._admin_cache = None
+    PermissionManager.cache_member_role_grant(42, [10], 900)
+
+    assert PermissionManager.get_admin_alliance_ids(42, 900) == ([1], False)
+    assert PermissionManager.get_admin_alliance_ids(42, 901) == ([], False)
+    assert PermissionManager.get_admin_users(42, 900) == [(100, "Alice", 1)]
+    assert PermissionManager.get_admin_users(42, 901) == []
+
+
+def test_personal_global_grant_still_works_across_guilds(tmp_path, monkeypatch):
+    db = _fresh_db(tmp_path, monkeypatch)
+    _fresh_alliance_and_users_db(tmp_path, monkeypatch)
+    _seed_user(db, 42, is_initial=1)
+    PermissionManager._admin_cache = None
+    PermissionManager._bust_role_cache()
+
+    assert PermissionManager.get_admin_alliance_ids(42, 900) == ([], True)
+    assert PermissionManager.get_admin_alliance_ids(42, 901) == ([], True)
+    assert PermissionManager.get_admin_users(42, 901) == [
+        (100, "Alice", 1), (200, "Bob", 2)
+    ]
