@@ -67,8 +67,9 @@ async def get_available_alliances(cog, interaction: discord.Interaction):
 
 
 async def create_gift_code(cog, interaction: discord.Interaction):
-    cog.settings_cursor.execute("SELECT 1 FROM admin WHERE id = ?", (interaction.user.id,))
-    if not cog.settings_cursor.fetchone():
+    # Use the central permission policy, including Discord role-based grants.
+    is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+    if not is_admin:
         await interaction.response.send_message(
             f"{theme.deniedIcon} You are not authorized to create gift codes.",
             ephemeral=True
@@ -128,17 +129,9 @@ async def list_gift_codes(cog, interaction: discord.Interaction):
 
 async def delete_gift_code(cog, interaction: discord.Interaction):
     try:
-        with closing(sqlite3.connect('db/settings.sqlite')) as settings_conn:
-            settings_cursor = settings_conn.cursor()
-
-            settings_cursor.execute("""
-                SELECT 1 FROM admin
-                WHERE id = ? AND is_initial = 1
-            """, (interaction.user.id,))
-
-            is_admin = settings_cursor.fetchone()
-
-        if not is_admin:
+        # Deleting codes requires Global Admin, including a global role grant.
+        _, is_global = PermissionManager.is_admin(interaction.user.id)
+        if not is_global:
             await interaction.response.send_message(
                 embed=discord.Embed(
                     title=f"{theme.deniedIcon} Unauthorized Access",
