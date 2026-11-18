@@ -386,44 +386,54 @@ class MainMenu(commands.Cog):
         from .command_center import show_alliance_workspace
         await show_alliance_workspace(self, interaction, alliance_id)
 
+    @staticmethod
+    def _alliance_settings_snapshot(alliance_id: int):
+        """Read-only per-alliance configuration and member aggregates.
+
+        Creates its own SQLite connections so callers may safely use a worker
+        thread; the queries and their returned values match the former UI code.
+        """
+        with sqlite3.connect('db/alliance.sqlite') as db:
+            row = db.execute(
+                "SELECT name, kid, COALESCE(state_locked, 0), COALESCE(multistate, 0) "
+                "FROM alliance_list WHERE alliance_id = ?",
+                (alliance_id,),
+            ).fetchone()
+        if row is None:
+            return None
+
+        with sqlite3.connect('db/alliance.sqlite') as db:
+            arow = db.execute(
+                "SELECT COALESCE(auto_remove_on_transfer, 0) "
+                "FROM alliancesettings WHERE alliance_id = ?",
+                (alliance_id,),
+            ).fetchone()
+
+        with sqlite3.connect('db/users.sqlite') as db:
+            member_stats = db.execute(
+                "SELECT COUNT(*), AVG(furnace_lv), MAX(furnace_lv) "
+                "FROM users WHERE alliance = ?",
+                (alliance_id,),
+            ).fetchone()
+
+        return row, bool(arow[0]) if arow else False, member_stats
+
     async def show_alliance_settings(self, interaction: discord.Interaction, alliance_id: int):
         """Per-alliance hub — all per-alliance actions for one alliance."""
         try:
             if await _deny_alliance_access(interaction, alliance_id):
                 return
-            with sqlite3.connect('db/alliance.sqlite') as db:
-                cursor = db.cursor()
-                cursor.execute(
-                    "SELECT name, kid, COALESCE(state_locked, 0), COALESCE(multistate, 0) "
-                    "FROM alliance_list WHERE alliance_id = ?",
-                    (alliance_id,),
-                )
-                row = cursor.fetchone()
-            if not row:
+            snapshot = await asyncio.to_thread(
+                self._alliance_settings_snapshot, alliance_id,
+            )
+            if snapshot is None:
                 await interaction.response.send_message(
                     f"{theme.deniedIcon} Alliance {alliance_id} not found.",
                     ephemeral=True,
                 )
                 return
-            alliance_name, alliance_kid, state_locked, multistate = row
-
-            with sqlite3.connect('db/alliance.sqlite') as db:
-                cursor = db.cursor()
-                cursor.execute(
-                    "SELECT COALESCE(auto_remove_on_transfer, 0) FROM alliancesettings WHERE alliance_id = ?",
-                    (alliance_id,),
-                )
-                arow = cursor.fetchone()
-            auto_remove = bool(arow[0]) if arow else False
-
-            with sqlite3.connect('db/users.sqlite') as db:
-                cursor = db.cursor()
-                cursor.execute(
-                    "SELECT COUNT(*), AVG(furnace_lv), MAX(furnace_lv) "
-                    "FROM users WHERE alliance = ?",
-                    (alliance_id,),
-                )
-                count, avg_fl, max_fl = cursor.fetchone()
+            (alliance_name, alliance_kid, state_locked, multistate), auto_remove, member_stats = snapshot
+            count, avg_fl, max_fl = member_stats
             count = count or 0
 
             if count > 0:
@@ -445,11 +455,14 @@ class MainMenu(commands.Cog):
             else:
                 state_line = f"{theme.globeIcon} **State:** _not set_"
 
-            tier = PermissionManager.get_tier(interaction.user.id)
-            accessible, _ = PermissionManager.get_admin_alliances(
-                interaction.user.id, interaction.guild_id
+            tier = await asyncio.to_thread(
+                PermissionManager.get_tier, interaction.user.id,
             )
-            counts = self._member_counts()
+            accessible, _ = await asyncio.to_thread(
+                PermissionManager.get_admin_alliances,
+                interaction.user.id, interaction.guild_id,
+            )
+            counts = await asyncio.to_thread(self._member_counts)
             alliances_with_counts = [
                 (aid, name, counts.get(str(aid), 0)) for aid, name in accessible
             ]
