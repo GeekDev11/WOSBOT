@@ -303,7 +303,7 @@ async def test_old_alliance_settings_back_goes_to_workspace():
         called.append(alliance_id)
     cog = SimpleNamespace(show_alliance_hub=hub)
     view = AllianceHubView(cog, 25, "EXA", "alliance", [(25, "EXA", 71)])
-    await view.back.callback(SimpleNamespace())
+    await view.back(SimpleNamespace(), None)
     assert called == [25]
 
 
