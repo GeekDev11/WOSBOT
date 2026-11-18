@@ -309,9 +309,10 @@ class ChannelSetupView(discord.ui.View):
         )
 
     async def _on_back(self, interaction: discord.Interaction):
+        # Channel Setup is a child of Alliance Configuration, not Overview.
         main_menu = self.cog.bot.get_cog("MainMenu")
         if main_menu:
-            await main_menu.show_alliance_hub(interaction, self.alliance_id)
+            await main_menu.show_alliance_settings(interaction, self.alliance_id)
         else:
             await interaction.response.send_message(
                 f"{theme.deniedIcon} Main Menu module not found.", ephemeral=True
