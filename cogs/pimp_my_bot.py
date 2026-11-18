@@ -1179,8 +1179,8 @@ class ThemeMenuView(discord.ui.View):
         self.add_item(share_btn)
 
         back_btn = discord.ui.Button(
-            label="Main Menu",
-            emoji=theme.homeIcon or None,
+            label="Back to Appearance",
+            emoji=theme.backIcon or None,
             style=discord.ButtonStyle.secondary,
             custom_id="back_from_themes",
             row=3
