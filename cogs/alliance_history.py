@@ -782,15 +782,16 @@ class HistoryTypeView(discord.ui.View):
     async def combat_power(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.show_member_list_combat_power(interaction, self.alliance_id)
 
-    @discord.ui.button(label="Back to Hub", emoji=f"{theme.backIcon}",
+    @discord.ui.button(label="Back to Rankings & History", emoji=f"{theme.backIcon}",
                        style=discord.ButtonStyle.secondary, row=2)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         main_menu = self.cog.bot.get_cog("MainMenu")
-        if main_menu and hasattr(main_menu, "show_alliance_hub"):
-            await main_menu.show_alliance_hub(interaction, self.alliance_id)
+        if main_menu:
+            from .command_center import show_alliance_insights
+            await show_alliance_insights(main_menu, interaction, self.alliance_id)
         else:
             await interaction.response.send_message(
-                f"{theme.deniedIcon} Hub not available.", ephemeral=True
+                f"{theme.deniedIcon} Rankings & History is unavailable.", ephemeral=True
             )
 
 
