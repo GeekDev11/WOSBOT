@@ -319,3 +319,54 @@ def test_state_scan_screen_mentions_auto_sync_and_the_api_limit(monkeypatch, api
     assert "Auto Sync" not in asyncio.run(build(False, api_on=False))
     assert "daily request limit" in asyncio.run(build(True))
     assert "daily request limit" not in asyncio.run(build(False))
+
+
+@pytest.mark.asyncio
+async def test_member_states_entry_resolves_existing_scan_engine(monkeypatch):
+    """Alliance navigation uses the existing engine; it does not replace it."""
+    from cogs import member_state_service
+    engine = object()
+    opened = []
+
+    async def show_states(cog, interaction):
+        opened.append(cog)
+
+    monkeypatch.setattr(ams, "show_state_management", show_states)
+    bot = types.SimpleNamespace(
+        get_cog=lambda name: engine if name == "GiftOperations" else None
+    )
+    await member_state_service.show_member_states(bot, types.SimpleNamespace())
+    assert opened == [engine]
+
+
+@pytest.mark.asyncio
+async def test_member_states_entry_reports_unavailable_engine():
+    from cogs import member_state_service
+    messages = []
+
+    async def send_message(text, **kwargs):
+        messages.append((text, kwargs))
+
+    bot = types.SimpleNamespace(get_cog=lambda name: None)
+    interaction = types.SimpleNamespace(
+        response=types.SimpleNamespace(send_message=send_message)
+    )
+    await member_state_service.show_member_states(bot, interaction)
+    assert messages and messages[0][1]["ephemeral"] is True
+    assert "state-scan service" in messages[0][0]
+
+
+def test_alliance_member_states_button_uses_service_boundary():
+    """Regression guard against routing the Alliance button via GiftOperations."""
+    from cogs.bot_main_menu import AllianceManagementEntryView
+    source = inspect.getsource(AllianceManagementEntryView.member_states.callback)
+    assert "member_state_service" in source
+    assert "show_member_states" in source
+    assert '"GiftOperations"' not in source
+
+
+def test_gift_operations_retains_old_state_menu_method():
+    """Older entry points remain callable while navigation is refactored."""
+    from cogs.gift_operations import GiftOperations
+    source = inspect.getsource(GiftOperations.show_state_management)
+    assert "alliance_member_states.show_state_management(self, interaction)" in source
