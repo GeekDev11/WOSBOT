@@ -238,11 +238,12 @@ class MainMenu(commands.Cog):
         await asyncio.sleep(DEAD_CLICK_GRACE)  # raw on_interaction listeners and stop()-ing views answer first
         if interaction.response.is_done():
             return
-        # Only a menu /settings opened, for its opener; Discord's older interaction field names the command.
+        # Recover expired menus opened through either canonical command alias.
+        # Never revive a different user's menu.
         origin = getattr(interaction.message, "_interaction", None)
         is_admin, _ = PermissionManager.is_admin(interaction.user.id)
-        if (origin is None or origin.name != "settings" or origin.user.id != interaction.user.id
-                or not is_admin):
+        if (origin is None or origin.name not in ("settings", "center")
+                or origin.user.id != interaction.user.id or not is_admin):
             await interaction.response.send_message(
                 f"{theme.hourglassIcon} This button stopped working because its menu expired "
                 f"or the bot restarted. Open the menu again to continue.",
