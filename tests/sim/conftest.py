@@ -1,6 +1,7 @@
 """Fixtures for the SimCord UI suite. Run with: pytest tests/sim --sim"""
 import logging
 import socket
+import traceback
 
 import pytest
 import pytest_asyncio
@@ -19,7 +20,14 @@ def no_network(monkeypatch):
     def guarded_connect(sock, address):
         if isinstance(address, tuple) and address[0] in LOOPBACK:
             return real_connect(sock, address)
-        attempts.append(address)
+        # Include the call site for diagnosis, without allowing outbound
+        # network access or weakening the per-test no-network assertion.
+        origin = " -> ".join(
+            f"{frame.filename.rsplit('/', 1)[-1]}:{frame.lineno}:{frame.name}"
+            for frame in traceback.extract_stack(limit=9)[:-1]
+            if "/tests/sim/conftest.py" not in frame.filename
+        )
+        attempts.append((address, origin))
         raise OSError(f"network blocked in the SimCord suite: {address}")
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
