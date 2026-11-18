@@ -84,7 +84,7 @@ async def test_click_on_expired_menu_is_answered(sim):
     'stopped working' note; the test pins that a dead click is answered, not left failing."""
     hub = (await sim.click(await sim.open_settings(), "Gift Code Center")).screen[0]
     await _expire(sim, _menu_seconds())
-    click = await sim.click(sim.current(hub), labels(hub, enabled_only=True)[0])
+    click = await sim.click(sim.current(hub), "Back to Home")
     assert not click.problems()
     message, ephemeral = click.screen
     assert ephemeral and STOPPED_WORKING in message.content
@@ -101,7 +101,7 @@ async def test_menus_never_expire_when_timeout_is_zero(sim):
 
 
 async def _open_remove_confirmation(sim, target):
-    permissions = (await sim.click(await sim.open_settings(), "Permissions")).screen[0]
+    permissions = await sim.walk("Administration & Settings", "Permission Management")
     admin = (await sim.select(permissions, "Open an admin…", target)).screen[0]
     return (await sim.click(admin, "Remove Admin")).screen[0]
 
@@ -118,18 +118,21 @@ async def test_expired_confirmation_is_replaced_by_notice(sim):
     assert PermissionManager.get_tier(sim.users["server"].id) == TIER_SERVER
 
 
-@pytest.mark.parametrize("hub", ["Alliances", "Permissions", "Maintenance"])
-async def test_menu_that_fails_to_open_says_so(sim, monkeypatch, hub):
-    import cogs.bot_main_menu as main_menu
+@pytest.mark.parametrize("center", [
+    "Alliance Command Center", "Intelligence Center", "Administration & Settings",
+])
+async def test_menu_that_fails_to_open_says_so(sim, monkeypatch, center):
+    import cogs.command_center as center_module
 
     async def broken_edit(*args, **kwargs):
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setattr(main_menu, "safe_edit_message", broken_edit)
-    click = await sim.click(await sim.open_settings(), hub)
-    assert click.result.acknowledged
+    monkeypatch.setattr(center_module, "safe_edit_message", broken_edit)
+    click = await sim.click(await sim.open_settings(), center)
+    assert click.result.acknowledged, (center, click.problems())
+    assert click.screen is not None, center
     message, ephemeral = click.screen
-    assert ephemeral and "couldn't be opened" in message.content
+    assert ephemeral and ("couldn't be opened" in message.content or "could not open" in message.content.lower())
 
 
 async def test_restart_button_relaunches_in_place_in_a_container(sim, monkeypatch):
@@ -140,7 +143,7 @@ async def test_restart_button_relaunches_in_place_in_a_container(sim, monkeypatc
     monkeypatch.setattr(os, "execl", lambda *args: relaunched.append(args))
     monkeypatch.setattr(bot_health, "is_container", lambda: True)
     monkeypatch.setattr(sys, "platform", "linux")  # hosting panels run Linux containers
-    health = await sim.walk("Maintenance", "Bot Health")
+    health = await sim.walk("Administration & Settings", "Bot Health")
     confirm = (await sim.click(health, "Restart Bot")).screen[0]
     click = await sim.click(confirm, "Confirm Restart")
     await sim.env.advance_time(5)
