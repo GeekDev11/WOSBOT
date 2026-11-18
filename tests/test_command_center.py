@@ -934,3 +934,46 @@ async def test_non_global_role_cannot_delete_gift_code(monkeypatch):
     )
     assert replies and replies[0][1]["ephemeral"] is True
     assert "Global Admin" in replies[0][1]["embed"].description
+
+
+def test_gift_code_listing_pages_without_exceeding_embed_limit():
+    from datetime import datetime
+    from types import SimpleNamespace
+    from cogs.gift_views import GiftCodeListView
+
+    codes = [(f"CODE{i:03d}", datetime(2026, 11, 18), i) for i in range(42)]
+    view = GiftCodeListView(SimpleNamespace(), 123, codes)
+    first = view.build_embed()
+    assert len(first.fields) == 15
+    assert "Page 1/3" in first.description
+    assert view.previous.disabled is True
+    assert view.next.disabled is False
+
+    view.page = 2
+    view._update_buttons()
+    last = view.build_embed()
+    assert len(last.fields) == 12
+    assert last.fields[-1].name == "Code: CODE041"
+    assert view.next.disabled is True
+    assert any(getattr(x, "label", None) == "Back to Gift Center"
+               for x in view.children)
+
+
+@pytest.mark.asyncio
+async def test_gift_code_list_next_updates_embed(monkeypatch):
+    from datetime import datetime
+    from types import SimpleNamespace
+    from cogs.gift_views import GiftCodeListView
+
+    codes = [(f"CODE{i:03d}", datetime(2026, 11, 18), i) for i in range(18)]
+    view = GiftCodeListView(SimpleNamespace(), 123, codes)
+    edited = []
+
+    async def edit_message(**kwargs):
+        edited.append(kwargs)
+
+    await view.next.callback(SimpleNamespace(
+        response=SimpleNamespace(edit_message=edit_message)))
+    assert view.page == 1
+    assert len(edited[0]["embed"].fields) == 3
+    assert "Page 2/2" in edited[0]["embed"].description
