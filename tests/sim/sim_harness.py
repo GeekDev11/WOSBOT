@@ -7,6 +7,7 @@ import sqlite3
 import sys
 from contextlib import asynccontextmanager, closing
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import discord
@@ -216,6 +217,24 @@ async def running(scenario: str = "populated", *, bot_admin: bool = True):
         async with simcord.run(bot) as env:
             for cog in production_cogs():
                 await bot.load_extension(f"cogs.{cog}")
+                # discord.py loads extensions into fresh module objects. Stubs
+                # installed against imports in a pytest fixture do not survive
+                # that module reload. Isolate external startup monitoring on
+                # the *actual loaded instances*, before the next load yields.
+                if cog == "bot_health":
+                    health = bot.get_cog("BotHealth")
+                    if health is not None:
+                        health.api_status_loop.cancel()
+                        offline = {"status": "warning", "message": "Offline simulation"}
+                        health._cached_wos_api = dict(offline)
+                        health._cached_gift_api = dict(offline)
+                        health._api_cache_at = datetime.now(timezone.utc)
+                elif cog == "gift_operations":
+                    gift = bot.get_cog("GiftOperations")
+                    if gift is not None and getattr(gift, "api", None) is not None:
+                        poll = getattr(gift.api, "_api_check_task", None)
+                        if poll is not None:
+                            poll.cancel()
             await bot.tree.sync()
             guild = env.create_guild("WOS Test")
             sim = Sim(env, bot, guild, guild.create_text_channel("general"))
