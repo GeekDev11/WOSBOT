@@ -420,3 +420,38 @@ async def test_bulk_state_service_preserves_every_member_catchup(monkeypatch):
         ("catchup", 2),
         ("catchup", 3),
     ]
+
+
+@pytest.mark.asyncio
+async def test_member_states_back_missing_main_menu_acknowledges():
+    """A missing MainMenu must not leave Discord showing interaction failed."""
+    sent = []
+
+    async def send_message(message, **kwargs):
+        sent.append((message, kwargs))
+
+    bot = types.SimpleNamespace(get_cog=lambda name: None)
+    view = ams.StateManagementView(types.SimpleNamespace(bot=bot), 123)
+    interaction = types.SimpleNamespace(
+        response=types.SimpleNamespace(send_message=send_message)
+    )
+    await view._on_back(interaction)
+    assert len(sent) == 1
+    assert sent[0][1]["ephemeral"] is True
+    assert "/settings" in sent[0][0]
+
+
+@pytest.mark.asyncio
+async def test_member_states_back_returns_manage_alliances_when_available():
+    """Normal Back navigation still uses the existing Manage Alliances handler."""
+    opened = []
+
+    async def show_manage(interaction):
+        opened.append(interaction)
+
+    menu = types.SimpleNamespace(show_alliance_admin_tools=show_manage)
+    bot = types.SimpleNamespace(get_cog=lambda name: menu if name == "MainMenu" else None)
+    view = ams.StateManagementView(types.SimpleNamespace(bot=bot), 123)
+    interaction = types.SimpleNamespace()
+    await view._on_back(interaction)
+    assert opened == [interaction]
