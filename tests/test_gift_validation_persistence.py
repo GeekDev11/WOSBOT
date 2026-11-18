@@ -241,3 +241,59 @@ def test_history_scan_embed_needs_code_label(monkeypatch):
     results = asyncio.run(gr.scan_historical_messages(cog, _Chan([labeled, unlabeled]), 5))
 
     assert results["new_codes"] == ["SUMMER2026"], "only Code:-labeled text may match"
+
+
+def test_daily_cleanup_preserves_invalid_code_redemption_history():
+    """A code older than seven days is not evidence its records may be deleted."""
+    mc = _giftcode_db()
+    mc.executemany(
+        "INSERT INTO gift_codes (giftcode, date, validation_status) VALUES (?, ?, ?)",
+        [
+            ("EXPIRED1", "2025-01-01", "invalid"),
+            ("VALID1", "2025-01-01", "validated"),
+            ("PENDING1", "2025-01-01", "pending"),
+        ],
+    )
+    mc.executemany(
+        "INSERT INTO user_giftcodes (fid, giftcode, status) VALUES (?, ?, ?)",
+        [
+            (123, "EXPIRED1", "TIME_ERROR"),
+            (456, "EXPIRED1", "SUCCESS"),
+            (789, "VALID1", "RECEIVED"),
+        ],
+    )
+    mc.commit()
+    cog = _mk_cog(mc)
+
+    asyncio.run(gr.cleanup_old_invalid_codes(cog))
+
+    assert mc.execute(
+        "SELECT giftcode, validation_status FROM gift_codes ORDER BY giftcode"
+    ).fetchall() == [
+        ("EXPIRED1", "invalid"),
+        ("PENDING1", "pending"),
+        ("VALID1", "validated"),
+    ]
+    assert mc.execute(
+        "SELECT fid, giftcode, status FROM user_giftcodes ORDER BY fid"
+    ).fetchall() == [
+        (123, "EXPIRED1", "TIME_ERROR"),
+        (456, "EXPIRED1", "SUCCESS"),
+        (789, "VALID1", "RECEIVED"),
+    ]
+
+
+def test_pending_member_redemption_does_not_offer_invalid_code():
+    """An invalid code is hidden from active redemption without being deleted."""
+    mc = _giftcode_db()
+    mc.executemany(
+        "INSERT INTO gift_codes (giftcode, date, validation_status) VALUES (?, ?, ?)",
+        [
+            ("EXPIRED1", "2025-01-01", "invalid"),
+            ("CURRENT1", "2026-11-18", "validated"),
+        ],
+    )
+    mc.commit()
+
+    assert gr.pending_codes_for_member(_mk_cog(mc), 123) == ["CURRENT1"]
+    assert mc.execute("SELECT COUNT(*) FROM gift_codes").fetchone()[0] == 2
