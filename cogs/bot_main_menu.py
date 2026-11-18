@@ -275,6 +275,22 @@ class MainMenu(commands.Cog):
                 ).fetchall()
             }
 
+    @staticmethod
+    def _missing_state_count(visible_ids) -> int:
+        """Read-only alliance state summary, safe to run outside the event loop."""
+        if not visible_ids:
+            return 0
+        placeholders = ",".join("?" * len(visible_ids))
+        try:
+            with sqlite3.connect('db/users.sqlite', timeout=30.0) as udb:
+                return udb.execute(
+                    f"SELECT COUNT(*) FROM users WHERE alliance IN ({placeholders}) "
+                    f"AND (kid IS NULL OR state_mismatch_at IS NOT NULL)",
+                    [str(a) for a in visible_ids],
+                ).fetchone()[0] or 0
+        except sqlite3.Error:
+            return 0
+
     async def show_alliance_management(self, interaction: discord.Interaction):
         """Compatibility route for existing Back callbacks: use the new layout."""
         from .command_center import open_section
@@ -284,8 +300,9 @@ class MainMenu(commands.Cog):
         """Entry to Alliances — pick an alliance to manage, or run a bulk
         action across alliances (gated by tier)."""
         try:
-            tier = PermissionManager.get_effective_tier(
-                interaction.user.id, interaction.guild_id
+            tier = await asyncio.to_thread(
+                PermissionManager.get_effective_tier,
+                interaction.user.id, interaction.guild_id,
             )
             if tier == TIER_NONE:
                 await interaction.response.send_message(
@@ -294,11 +311,12 @@ class MainMenu(commands.Cog):
                 )
                 return
 
-            alliances, _ = PermissionManager.get_admin_alliances(
-                interaction.user.id, interaction.guild_id
+            alliances, _ = await asyncio.to_thread(
+                PermissionManager.get_admin_alliances,
+                interaction.user.id, interaction.guild_id,
             )
 
-            counts = self._member_counts()
+            counts = await asyncio.to_thread(self._member_counts)
             alliances_with_counts = [
                 (alliance_id, name, counts.get(str(alliance_id), 0))
                 for alliance_id, name in alliances
@@ -315,18 +333,9 @@ class MainMenu(commands.Cog):
             visible_ids = [aid for aid, _, _ in alliances_with_counts]
             total_members = sum(count for _, _, count in alliances_with_counts)
             # No state on file, or one the game API rejected.
-            needs_state = 0
-            if visible_ids:
-                placeholders = ",".join("?" * len(visible_ids))
-                try:
-                    with sqlite3.connect('db/users.sqlite', timeout=30.0) as udb:
-                        needs_state = udb.execute(
-                            f"SELECT COUNT(*) FROM users WHERE alliance IN ({placeholders}) "
-                            f"AND (kid IS NULL OR state_mismatch_at IS NOT NULL)",
-                            [str(a) for a in visible_ids],
-                        ).fetchone()[0] or 0
-                except sqlite3.Error:
-                    needs_state = 0
+            needs_state = await asyncio.to_thread(
+                self._missing_state_count, visible_ids,
+            )
             servers_visible = (
                 len(self.bot.guilds) if tier in (TIER_OWNER, TIER_GLOBAL) else 1
             )
