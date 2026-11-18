@@ -405,6 +405,8 @@ class AttendanceHubView(discord.ui.View):
             placeholder = f"{theme.refreshIcon} Switch alliance…"
             if not choices:
                 return                          # single alliance → nothing to switch
+        if not choices:
+            return  # Empty state: keep Settings, Back to Events and Main Menu.
         options = [
             discord.SelectOption(
                 label=name[:50], value=str(aid),
@@ -1953,10 +1955,8 @@ class Attendance(commands.Cog):
             return
         alliances, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild.id)
         if not alliances:
-            error_embed = self._create_error_embed(
-                f"{theme.deniedIcon} No Alliances Found",
-                "No alliances found for your permissions.")
-            await self._edit_or_send(interaction, embed=error_embed, view=None)
+            # Keep the hub navigable when no alliance is configured.
+            await self.show_attendance_hub(interaction, None)
             return
         # Single alliance → auto-select it; multiple → open with none chosen so
         # the admin picks from the dropdown (actions stay disabled until then).
@@ -1979,7 +1979,12 @@ class Attendance(commands.Cog):
         alliances_with_counts = self._get_alliances_with_counts(alliances)
         alliance_name = await self._get_alliance_name(alliance_id) if alliance_id is not None else None
         if alliance_id is None:
-            lead = "Select an alliance from the dropdown to begin."
+            lead = (
+                "Select an alliance from the dropdown to begin."
+                if alliances_with_counts else
+                "No alliances are assigned to you yet. Ask an administrator to "
+                "create or assign an alliance. Settings and navigation remain available."
+            )
             title = f"{theme.listIcon} Attendance"
         else:
             lead = f"Acting on **{alliance_name}**. Use the dropdown to switch alliance."
