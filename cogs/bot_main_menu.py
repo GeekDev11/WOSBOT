@@ -792,13 +792,6 @@ class AllianceHubView(discord.ui.View):
         self._build_select()
         self._build_lock_toggle()
         self._build_auto_remove_toggle()
-        # Configuration only: duplicate member, troop and history shortcuts
-        # remain available via the new Alliance Command Center.
-        for item in tuple(self.children):
-            if isinstance(item, discord.ui.Button) and item.label in {
-                "Manage Members", "Troop Quality", "History", "Power Rankings",
-            }:
-                self.remove_item(item)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return not await _deny_alliance_access(interaction, self.alliance_id)
@@ -906,15 +899,6 @@ class AllianceHubView(discord.ui.View):
 
     # ── Primary actions (row 1, green) ──
 
-    @discord.ui.button(label="Manage Members", emoji=theme.membersIcon,
-                       style=discord.ButtonStyle.success, row=1)
-    async def manage_members(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "AllianceMemberOperations",
-            "show_manage_members_for", self.alliance_id,
-            missing_label="Member Management",
-        )
-
     @discord.ui.button(label="Channel Setup", emoji=theme.announceIcon,
                        style=discord.ButtonStyle.success, row=1)
     async def channel_setup(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -922,15 +906,6 @@ class AllianceHubView(discord.ui.View):
             interaction, self.cog.bot, "AllianceChannels",
             "show_channel_setup_for", self.alliance_id,
             missing_label="Channel Setup",
-        )
-
-    @discord.ui.button(label="Troop Quality", emoji="🛡️",
-                       style=discord.ButtonStyle.success, row=1)
-    async def troop_quality(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "TroopQuality",
-            "show_troop_quality_for", self.alliance_id,
-            missing_label="Troop Quality",
         )
 
     # ── Secondary actions (row 2) ──
@@ -951,24 +926,6 @@ class AllianceHubView(discord.ui.View):
             interaction, self.cog.bot, "Alliance",
             "show_edit_state_for", self.alliance_id,
             missing_label="Alliance",
-        )
-
-    @discord.ui.button(label="History", emoji=theme.listIcon,
-                       style=discord.ButtonStyle.secondary, row=2)
-    async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "AllianceHistory",
-            "show_history_for", self.alliance_id,
-            missing_label="Alliance History",
-        )
-
-    @discord.ui.button(label="Power Rankings", emoji=theme.chartIcon,
-                       style=discord.ButtonStyle.secondary, row=2)
-    async def power_rankings(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "AllianceMemberOperations",
-            "show_power_rankings_for", self.alliance_id,
-            missing_label="Alliance Members",
         )
 
     # ── Nav (row 4) ──
