@@ -359,7 +359,7 @@ async def test_member_states_entry_reports_unavailable_engine():
 def test_alliance_member_states_button_uses_service_boundary():
     """Regression guard against routing the Alliance button via GiftOperations."""
     from cogs.bot_main_menu import AllianceManagementEntryView
-    source = inspect.getsource(AllianceManagementEntryView.member_states.callback)
+    source = inspect.getsource(AllianceManagementEntryView.member_states)
     assert "member_state_service" in source
     assert "show_member_states" in source
     assert '"GiftOperations"' not in source
