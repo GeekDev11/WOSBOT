@@ -64,7 +64,12 @@ class _Message:
 
 def _id_channel_cog():
     cog = id_channel.AllianceIDChannel.__new__(id_channel.AllianceIDChannel)
-    cog.bot = SimpleNamespace(get_cog=lambda name: object(), user=SimpleNamespace(id=99))
+    # Gift Operations is available for state probing; Player Sync is not
+    # loaded in this fixture, so never pretend a generic object is its cog.
+    cog.bot = SimpleNamespace(
+        get_cog=lambda name: object() if name == "GiftOperations" else None,
+        user=SimpleNamespace(id=99),
+    )
     cog.get_guild_settings = lambda guild_id: {"delete_after": 5, "scan_enabled": 1, "scan_limit": 50}
     cog._seen, cog._backlog_task = set(), None
 
