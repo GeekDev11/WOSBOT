@@ -2676,21 +2676,10 @@ class MaintenanceView(discord.ui.View):
         self.is_global = is_global
 
         # Gate Global-Admin-only buttons by stable custom_id, not label text.
-        global_only = {"check_updates", "backup_system", "bot_health", "bot_presence", "bot_profile",
-                       "toggle_remote_ocr"}
+        global_only = {"check_updates", "bot_presence", "toggle_remote_ocr"}
         for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id in global_only:
                 child.disabled = not is_global
-            if isinstance(child, discord.ui.Button) and child.custom_id == "leave_server":
-                child.disabled = not is_owner
-
-        # The Administration center has dedicated Health, Backup, Profile and
-        # Server Settings entries. Hide only these duplicate navigation buttons;
-        # the handlers and older command routes remain available.
-        duplicates = {"backup_system", "bot_health", "bot_profile", "leave_server"}
-        for child in tuple(self.children):
-            if isinstance(child, discord.ui.Button) and child.custom_id in duplicates:
-                self.remove_item(child)
 
         # Reflect current External OCR state on its toggle (dynamic label/style).
         try:
@@ -2715,48 +2704,6 @@ class MaintenanceView(discord.ui.View):
         pass
 
     @discord.ui.button(
-        label="Backup System",
-        emoji=theme.archiveIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="backup_system",
-        row=0
-    )
-    async def backup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            backup_cog = self.cog.bot.get_cog("BackupOperations")
-            if backup_cog:
-                await backup_cog.show_backup_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Backup System module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Backup System: {e}")
-            print(f"Error loading Backup System: {e}")
-
-    @discord.ui.button(
-        label="Bot Health",
-        emoji=theme.heartIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="bot_health",
-        row=0
-    )
-    async def bot_health_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            health_cog = self.cog.bot.get_cog("BotHealth")
-            if health_cog:
-                await health_cog.show_health_menu(interaction)
-            else:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Bot Health module not found.",
-                    ephemeral=True
-                )
-        except Exception as e:
-            logger.error(f"Error loading Bot Health: {e}")
-            print(f"Error loading Bot Health: {e}")
-
-    @discord.ui.button(
         label="Bot Presence",
         emoji=theme.robotIcon,
         style=discord.ButtonStyle.primary,
@@ -2776,26 +2723,6 @@ class MaintenanceView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error loading Bot Presence: {e}")
             print(f"Error loading Bot Presence: {e}")
-
-    @discord.ui.button(
-        label="Bot Profile",
-        emoji="❄️",
-        style=discord.ButtonStyle.primary,
-        custom_id="bot_profile",
-        row=2
-    )
-    async def profile_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        _, is_global = PermissionManager.is_admin(interaction.user.id)
-        if not is_global:
-            await interaction.response.send_message("Global Admin only.", ephemeral=True)
-            return
-        profile_cog = self.cog.bot.get_cog("BotProfile")
-        if profile_cog:
-            await profile_cog.show_profile(interaction)
-        else:
-            await interaction.response.send_message(
-                "Bot Profile module is unavailable.", ephemeral=True
-            )
 
     @discord.ui.button(
         label="Request Support",
@@ -2856,16 +2783,6 @@ class MaintenanceView(discord.ui.View):
                 f"{theme.deniedIcon} Global Admin only.", ephemeral=True)
             return
         await interaction.response.send_modal(ExternalOcrModal(self.cog, clicker_is_global))
-
-    @discord.ui.button(
-        label="Leave a Server",
-        emoji=theme.shutdownDoorIcon,
-        style=discord.ButtonStyle.secondary,
-        custom_id="leave_server",
-        row=2
-    )
-    async def leave_server_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(interaction, self.cog.bot, "BotHealth", "show_servers", missing_label="Bot Health")
 
     @discord.ui.button(label="Back to Administration", emoji="↩️",
                        style=discord.ButtonStyle.secondary, row=3)
