@@ -27,14 +27,20 @@ def _menu_seconds():
 
 async def test_non_admin_is_refused(sim):
     result = await sim.users["member"].slash(sim.channel, "settings")
-    assert result.response.ephemeral
-    assert not result.response.message.components
+    # The shared entry defers the command before checking roles.
+    reply = result.followups[-1] if result.followups else result.response
+    assert result.acknowledged and reply is not None
+    assert reply.ephemeral
+    assert not reply.message.components
+    assert "Administrator permission required" in reply.message.content
 
 
 async def test_missing_administrator_is_explained(sim_without_admin):
     result = await sim_without_admin.users["owner"].slash(sim_without_admin.channel, "settings")
-    assert result.response.ephemeral
-    assert "Administrator" in result.response.content
+    reply = result.followups[-1] if result.followups else result.response
+    assert result.acknowledged and reply is not None
+    assert reply.ephemeral
+    assert "Administrator" in reply.message.content
 
 
 async def _refused_hubs(sim, tier):
