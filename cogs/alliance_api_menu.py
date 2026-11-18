@@ -317,9 +317,13 @@ class PlayerSyncView(_SyncView):
         await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
 
     async def _on_back(self, interaction):
+        # Player Sync has one canonical home: Administration & Settings.
+        # The older alliance-menu shortcut remains callable but no longer
+        # changes the parent destination depending on where it was opened.
         main_menu = self.cog.bot.get_cog("MainMenu")
         if main_menu:
-            await main_menu.show_alliance_management(interaction)
+            from .command_center import open_section
+            await open_section(main_menu, interaction, "admin")
 
 
 class AlliancePickView(_SyncView):
