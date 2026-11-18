@@ -274,7 +274,8 @@ class ProfileView(discord.ui.View):
             return
         main = self.cog.bot.get_cog("MainMenu")
         if main:
-            await main.show_maintenance(interaction)
+            from .command_center import show_appearance_entry
+            await show_appearance_entry(main, interaction)
 
 
 class ConfirmResetView(discord.ui.View):
