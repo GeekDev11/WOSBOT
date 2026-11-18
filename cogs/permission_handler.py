@@ -265,6 +265,31 @@ class PermissionManager:
         return TIER_ALLIANCE if alliance_count else TIER_SERVER
 
     @staticmethod
+    def get_effective_tier(user_id: int, guild_id: int | None = None) -> str:
+        """Highest personal/role tier in the current guild, for menu presentation.
+
+        Discord role grants are guild-bound; do not take a cached grant from
+        a different server and promote a user in the current server.
+        Authorization for individual alliances is still enforced separately
+        by get_admin_alliance_ids().
+        """
+        personal = PermissionManager.get_tier(user_id)
+        grant = PermissionManager._cached_role_grant(user_id)
+        role_tier = TIER_NONE
+        if grant and guild_id is not None and grant.get("guild_id") == guild_id:
+            if grant.get("is_global"):
+                role_tier = TIER_GLOBAL
+            elif grant.get("server"):
+                role_tier = TIER_SERVER
+            elif grant.get("is_admin") and grant.get("alliance_ids"):
+                role_tier = TIER_ALLIANCE
+        priority = {
+            TIER_NONE: 0, TIER_ALLIANCE: 1, TIER_SERVER: 2,
+            TIER_GLOBAL: 3, TIER_OWNER: 4,
+        }
+        return max((personal, role_tier), key=priority.__getitem__)
+
+    @staticmethod
     def add_admin(user_id: int, *, tier: str, alliance_ids: Optional[List[int]] = None) -> None:
         """Insert a new admin at the given tier. If no owner exists yet
         (brand-new install), the first admin gets is_owner=1 automatically."""
