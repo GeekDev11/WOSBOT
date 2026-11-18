@@ -1564,13 +1564,14 @@ class ThemeMenuView(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def back_to_settings(self, interaction: discord.Interaction):
-        """Return to main settings menu."""
+        """Return to Appearance, the parent of Themes & Colors."""
         if not await check_interaction_user(interaction, self.original_user_id):
             return
 
         main_menu_cog = interaction.client.get_cog("MainMenu")
         if main_menu_cog:
-            await main_menu_cog.show_main_menu(interaction)
+            from .command_center import show_appearance_entry
+            await show_appearance_entry(main_menu_cog, interaction)
         else:
             await interaction.response.send_message(
                 f"{theme.deniedIcon} Could not return to settings menu.",
