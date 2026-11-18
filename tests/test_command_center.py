@@ -303,7 +303,7 @@ async def test_old_alliance_settings_back_goes_to_workspace():
         called.append(alliance_id)
     cog = SimpleNamespace(show_alliance_hub=hub)
     view = AllianceHubView(cog, 25, "EXA", "alliance", [(25, "EXA", 71)])
-    await view.back(SimpleNamespace(), None)
+    await view.back.callback(SimpleNamespace())
     assert called == [25]
 
 
@@ -797,7 +797,7 @@ async def test_bot_profile_back_returns_to_appearance(monkeypatch):
         bot=SimpleNamespace(get_cog=lambda name: menu),
     )
     view = ProfileView(cog)
-    await view.back(SimpleNamespace(), None)
+    await view.back.callback(SimpleNamespace())
     assert returned == ["appearance"]
 
 
