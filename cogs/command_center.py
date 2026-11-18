@@ -101,22 +101,43 @@ async def open_cog(cog, interaction, name, method, *args):
 
 
 async def invoke_slash(cog, interaction, cog_name, command_name, **values):
-    """Dispatch through the original command callback, preserving API budget code."""
-    target = cog.bot.get_cog(cog_name)
-    command = getattr(type(target), command_name, None) if target else None
-    callback = getattr(command, "callback", None)
-    if callback is None:
+    """Run the explicitly exposed feature service, never a raw slash callback.
+
+    Menu selection is administrator-gated by CenterSectionView. Feature services
+    retain the original validation, API budgets, and response formatting.
+    """
+    services = {
+        ("WosPlayerHistory", "woshistory"): "show_woshistory",
+        ("WosStateScout", "scout"): "show_scout",
+        ("WosSvs", "wossvs"): "show_wossvs",
+        ("WosAllianceIntel", "wosalliance"): "show_wosalliance",
+    }
+    method = services.get((cog_name, command_name))
+    if method is None:
         await missing(interaction, command_name)
         return
+    target = cog.bot.get_cog(cog_name)
+    action = getattr(target, method, None) if target is not None else None
+    if not callable(action):
+        await missing(interaction, command_name)
+        return
+    if not PermissionManager.is_admin(interaction.user.id)[0]:
+        await interaction.response.send_message(
+            "Administrator permission required.", ephemeral=True,
+        )
+        return
     try:
-        await callback(target, interaction, **values)
+        await action(interaction, **values)
     except Exception:
-        logger.exception("Command Center slash route failed: %s.%s", cog_name, command_name)
+        logger.exception("Command Center feature failed: %s.%s", cog_name, method)
         if not interaction.response.is_done():
-            await interaction.response.send_message("Unable to open this tool. Check Bot Health.", ephemeral=True)
+            await interaction.response.send_message(
+                "Unable to open this tool. Check Bot Health.", ephemeral=True,
+            )
         else:
-            await interaction.followup.send("Unable to open this tool. Check Bot Health.", ephemeral=True)
-
+            await interaction.followup.send(
+                "Unable to open this tool. Check Bot Health.", ephemeral=True,
+            )
 
 
 class ResultNavigationView(discord.ui.View):
