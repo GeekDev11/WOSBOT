@@ -105,7 +105,7 @@ class SubmissionView(discord.ui.View):
 
     def embed(self):
         lines = [
-            f"**Chief ID:** \`{self.fid}\`",
+            f"**Chief ID:** `{self.fid}`",
             "Please verify your screenshot results before saving:",
             "",
         ]
