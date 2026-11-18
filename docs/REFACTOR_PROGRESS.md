@@ -12,6 +12,14 @@ This is a preservation-first refactor. Keep existing commands, SQLite data, API 
 - [ ] **Phase 5: remove obsolete code** — Removed known invisible button definitions and duplicate /settings implementation. **Open:** complete reference/reachability audit before removing other legacy views; retain compatibility handlers where needed.
 - [ ] **Phase 6: regression testing** — Updated `test_settings_installation.py`, `test_command_center.py`, and `tests/sim/test_hubs.py`; added owner-bootstrap and shared-service regression tests. **New:** scanned all 70 cog Python files for invalid backtick escapes; fixed all eight observed occurrences across the two troop-quality modules, added a guard test, and added role-tier tests. **New:** Extended the existing `.github/workflows/chief-stalker-tests.yml` syntax-validation and focused-test commands to cover `cogs/member_state_service.py`, `cogs/alliance_member_states.py`, and the new `tests/test_member_states_menu.py` cases, plus gift-validation persistence regressions. Pull requests touching these files now also match the workflow's path filter. **Open:** execute tests against this head; no successful run has yet been verified (latest observed Actions run remains on a 2026-11-16 commit).
 
+## Phase 4 follow-up — Alliance SQLite UI reads (2026-11-18)
+
+- Moved Manage Alliances' effective-tier lookup, scoped-alliance lookup, member counts, and missing/wrong-state counts into `asyncio.to_thread`, avoiding synchronous SQLite operations on the Discord event loop. Preserved its query predicates and displayed totals.
+- Extracted a read-only `MainMenu._alliance_settings_snapshot` helper for Alliance Settings. Alliance configuration, auto-removal settings, and COUNT/AVG/MAX member aggregates now load off-thread with fresh SQLite connections.
+- Added `tests/test_command_center.py` fixtures for empty/multi-alliance summary counts, normal/empty/missing configuration records, and explicit off-thread regression guards.
+- No database writes, permission grants, Gift Code engine, redemption scheduler, or Gift Code menus were changed in this follow-up.
+- **Verification pending:** CI still has not reported a run for the latest modified-branch commit; verify the focused tests and live Discord behavior before closing Phase 4.
+
 ## Gift-code expiration and history audit (2026-11-18)
 
 - Confirmed: `GiftOperations.periodic_validation_loop` runs every two hours and checks up to 20 pending/validated codes per run using the game API. Conclusive code-level invalid responses mark codes `invalid`.
