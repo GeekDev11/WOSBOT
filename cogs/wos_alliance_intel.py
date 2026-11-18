@@ -194,6 +194,9 @@ class WosAllianceIntel(commands.Cog):
     @app_commands.command(name="wosalliance", description="Inspect an alliance roster using Whiteout Stats")
     @app_commands.describe(state_id="State number", tag="Case-sensitive alliance tag")
     async def wosalliance(self, interaction: discord.Interaction, state_id: int, tag: str):
+        return await self.show_wosalliance(interaction, state_id, tag)
+
+    async def show_wosalliance(self, interaction: discord.Interaction, state_id: int, tag: str):
         from .command_center import intelligence_result_view
         await interaction.response.defer(ephemeral=True, thinking=True)
         if state_id <= 0 or not tag or len(tag) > 32:
