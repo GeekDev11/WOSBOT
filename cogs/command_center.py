@@ -471,13 +471,6 @@ class AllianceWorkspaceView(discord.ui.View):
         self.alliance_selector = selector
         selector.callback = self.switch_alliance
         self.add_item(selector)
-        # Overview stays focused on summary and alliance context; each operation
-        # already has a single dedicated entry in Alliance Command Center.
-        redundant = {"Members & Imports", "Troop Quality", "Export Members",
-                     "Rankings & History"}
-        for item in tuple(self.children):
-            if isinstance(item, discord.ui.Button) and item.label in redundant:
-                self.remove_item(item)
 
     async def interaction_check(self, interaction):
         if not await authorized(interaction, self.user_id):
@@ -504,28 +497,9 @@ class AllianceWorkspaceView(discord.ui.View):
                 "Alliance menu action failed. Check Bot Health logs.", ephemeral=True,
             )
 
-    @discord.ui.button(label="Members & Imports", emoji="👥", style=discord.ButtonStyle.primary, row=1)
-    async def members(self, interaction, button):
-        await open_cog(self.cog, interaction, "AllianceMemberOperations",
-                       "show_manage_members_for", self.alliance_id)
-
-    @discord.ui.button(label="Troop Quality", emoji="🛡️", style=discord.ButtonStyle.primary, row=1)
-    async def troops(self, interaction, button):
-        await open_cog(self.cog, interaction, "TroopQuality",
-                       "show_troop_quality_for", self.alliance_id)
-
     @discord.ui.button(label="Alliance Configuration", emoji="⚙️", style=discord.ButtonStyle.secondary, row=2)
     async def configuration(self, interaction, button):
         await self.cog.show_alliance_settings(interaction, self.alliance_id)
-
-    @discord.ui.button(label="Export Members", emoji="📤", style=discord.ButtonStyle.secondary, row=2)
-    async def export(self, interaction, button):
-        await open_cog(self.cog, interaction, "AllianceMemberOperations",
-                       "show_export_members")
-
-    @discord.ui.button(label="Rankings & History", emoji="📊", style=discord.ButtonStyle.secondary, row=3)
-    async def history(self, interaction, button):
-        await show_alliance_insights(self.cog, interaction, self.alliance_id)
 
     @discord.ui.button(label="Manage Alliances", emoji="🗂️", style=discord.ButtonStyle.secondary, row=3)
     async def manage_alliances(self, interaction, button):
