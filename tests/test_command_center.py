@@ -454,7 +454,7 @@ def test_alliance_settings_is_configuration_only_and_preserves_handlers():
                            [(10, "Example", 4)])
     labels = {getattr(item, "label", "") for item in view.children}
     assert {"Channel Setup", "Edit Name", "Set State", "Delete Alliance",
-            "Back to Command Center", "Main Menu"} <= labels
+            "Back to Alliance Overview", "Main Menu"} <= labels
     assert not ({"Manage Members", "Troop Quality", "Power Rankings", "History"} & labels)
     # Hidden duplicate buttons were removed at source, not constructed and stripped.
     assert not hasattr(AllianceHubView, "manage_members")
