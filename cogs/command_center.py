@@ -383,7 +383,20 @@ class MainMenuView(discord.ui.View):
                                        style=discord.ButtonStyle.primary if i == 0 else discord.ButtonStyle.secondary,
                                        custom_id=f"wos_center_{code}", row=i)
             async def clicked(interaction, section=code):
-                await open_section(self.cog, interaction, section)
+                try:
+                    await open_section(self.cog, interaction, section)
+                except Exception:
+                    logger.exception("Command Center failed to open section %s", section)
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(
+                            "This menu couldn't be opened. Check Bot Health logs.",
+                            ephemeral=True,
+                        )
+                    else:
+                        await interaction.followup.send(
+                            "This menu couldn't be opened. Check Bot Health logs.",
+                            ephemeral=True,
+                        )
             button.callback = clicked
             self.add_item(button)
 
