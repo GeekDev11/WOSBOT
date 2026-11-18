@@ -945,7 +945,7 @@ class AllianceHubView(discord.ui.View):
 
     # ── Nav (row 4) ──
 
-    @discord.ui.button(label="Back to Command Center", emoji=theme.backIcon,
+    @discord.ui.button(label="Back to Alliance Overview", emoji=theme.backIcon,
                        style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.show_alliance_hub(interaction, self.alliance_id)
