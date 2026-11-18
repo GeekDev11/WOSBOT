@@ -456,8 +456,13 @@ def test_alliance_settings_is_configuration_only_and_preserves_handlers():
     assert {"Channel Setup", "Edit Name", "Set State", "Delete Alliance",
             "Back to Command Center", "Main Menu"} <= labels
     assert not ({"Manage Members", "Troop Quality", "Power Rankings", "History"} & labels)
-    assert "show_manage_members_for" in inspect.getsource(AllianceHubView.manage_members)
-    assert "show_power_rankings_for" in inspect.getsource(AllianceHubView.power_rankings)
+    # Hidden duplicate buttons were removed at source, not constructed and stripped.
+    assert not hasattr(AllianceHubView, "manage_members")
+    assert not hasattr(AllianceHubView, "power_rankings")
+    from cogs.command_center import route
+    source = inspect.getsource(route)
+    assert '"AllianceMemberOperations", "show_manage_members_for"' in source
+    assert '"AllianceInsights", "show_alliance_insights"' in source
 
 
 def test_alliance_catalog_is_direct_and_attendance_belongs_to_events():
