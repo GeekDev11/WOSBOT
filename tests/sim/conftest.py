@@ -18,6 +18,15 @@ def no_network(monkeypatch):
     """Keep UI simulations offline, including background API synchronization."""
     import asyncio
     from cogs.gift_operationsapi import GiftCodeAPI
+    from cogs.bot_health import BotHealth, STATUS_WARNING
+
+    async def offline_health_probe(self):
+        # Monitoring probes test real external services, not UI routing.
+        # Keep Bot Health's presentation available without network traffic.
+        return {"status": STATUS_WARNING, "message": "Offline simulation"}
+
+    monkeypatch.setattr(BotHealth, "_probe_wos_api", offline_health_probe)
+    monkeypatch.setattr(BotHealth, "_probe_gift_distribution_api", offline_health_probe)
 
     async def idle_external_gift_sync(self):
         # The real cog is loaded so its menus and handlers remain intact,
