@@ -148,17 +148,69 @@ class MainMenu(commands.Cog):
             color=theme.emColor1,
         )
 
+    async def open_entry(self, interaction: discord.Interaction):
+        """Canonical, private entry for /settings and /center.
+
+        Only the Discord application owner can initialize an empty installation.
+        Existing installations continue to use PermissionManager authorization,
+        including role grants.  No menu is posted publicly.
+        """
+        if interaction.guild is not None:
+            member = interaction.guild.me
+            if member is None:
+                await interaction.response.send_message(
+                    "WOSBOT is not installed as a bot member of this server. "
+                    "Install it to the server with bot and applications.commands scopes.",
+                    ephemeral=True,
+                )
+                return
+            if not member.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "The bot role needs Administrator permission to open server settings. "
+                    "Review the role under Server Settings.",
+                    ephemeral=True,
+                )
+                return
+
+        with sqlite3.connect(PermissionManager.SETTINGS_DB, timeout=30.0) as db:
+            has_admin = bool(db.execute("SELECT 1 FROM admin LIMIT 1").fetchone())
+
+        initialized = False
+        if not has_admin:
+            if not await self.bot.is_owner(interaction.user):
+                await interaction.response.send_message(
+                    "Initial setup is restricted to the Discord application owner.",
+                    ephemeral=True,
+                )
+                return
+            # PermissionManager owns owner creation and its database invariants.
+            PermissionManager.add_admin(interaction.user.id, tier=TIER_OWNER)
+            PermissionManager._admin_cache = None
+            initialized = True
+
+        permitted, _ = PermissionManager.is_admin(interaction.user.id)
+        if not permitted:
+            await interaction.response.send_message(
+                "Administrator permission required.", ephemeral=True,
+            )
+            return
+
+        embed = self.build_main_menu_embed()
+        if initialized:
+            embed.add_field(
+                name="First-time setup",
+                value="The Discord application owner has been registered as Bot Owner.",
+                inline=False,
+            )
+        await interaction.response.send_message(
+            embed=embed, view=MainMenuView(self), ephemeral=True,
+        )
+
     @app_commands.command(name="center", description="Open the WOSBOT Command Center")
     @app_commands.allowed_installs(guilds=True, users=True)
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     async def center(self, interaction: discord.Interaction):
-        is_admin, _ = PermissionManager.is_admin(interaction.user.id)
-        if not is_admin:
-            await interaction.response.send_message("Administrator permission required.", ephemeral=True)
-            return
-        await interaction.response.send_message(
-            embed=self.build_main_menu_embed(), view=MainMenuView(self), ephemeral=True,
-        )
+        await self.open_entry(interaction)
 
     async def show_main_menu(self, interaction: discord.Interaction):
         """Display the main settings menu - entry point for all navigation."""
