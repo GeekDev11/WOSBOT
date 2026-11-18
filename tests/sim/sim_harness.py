@@ -77,7 +77,13 @@ class Sim:
         because every live view slows SimCord's settle down."""
         self.drop_open_menus()
         result = await self.users[user].slash(self.channel, "settings")
-        return result.response.message
+        # /settings defers immediately and delivers the menu as a follow-up.
+        # SimCord's immediate response is therefore legitimately None.
+        reply = result.followups[-1] if result.followups else result.response
+        assert result.acknowledged and reply is not None, (
+            f"/settings did not deliver a menu: {result!r}"
+        )
+        return reply.message
 
     def drop_open_menus(self) -> None:
         store = self.bot._connection._view_store
