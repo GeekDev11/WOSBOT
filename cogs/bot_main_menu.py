@@ -585,13 +585,6 @@ class AllianceManagementEntryView(discord.ui.View):
         self.max_page = max(0, (len(alliances_with_counts) - 1) // 25)
         self._build_select()
         self._apply_permission_gates()
-        # Export and Player Sync have dedicated command-center entries.
-        # Keep their callable legacy handlers for slash commands/backward compatibility.
-        for item in tuple(self.children):
-            if isinstance(item, discord.ui.Button) and item.custom_id in {
-                "alliance_entry_export", "alliance_entry_player_sync",
-            }:
-                self.remove_item(item)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         is_admin, _ = PermissionManager.is_admin(interaction.user.id)
@@ -610,10 +603,8 @@ class AllianceManagementEntryView(discord.ui.View):
         gates = {
             "alliance_entry_add": is_server_or_above,
             "alliance_entry_transfer": can_transfer,
-            "alliance_entry_export": is_server_or_above,
             "alliance_entry_registration": is_global_or_above,
             "alliance_entry_member_states": is_global_or_above,
-            "alliance_entry_player_sync": is_global_or_above,
         }
         for child in self.children:
             if isinstance(child, discord.ui.Button):
@@ -721,20 +712,6 @@ class AllianceManagementEntryView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="Export Members",
-        emoji=theme.exportIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="alliance_entry_export",
-        row=2,
-    )
-    async def export_members(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "AllianceMemberOperations",
-            "show_export_members",
-            missing_label="Member Management",
-        )
-
-    @discord.ui.button(
         label="Member States",
         emoji=theme.globeIcon,
         style=discord.ButtonStyle.primary,
@@ -746,20 +723,6 @@ class AllianceManagementEntryView(discord.ui.View):
             interaction, self.cog.bot, "GiftOperations",
             "show_state_management",
             missing_label="Gift Codes",
-        )
-
-    @discord.ui.button(
-        label="Player Sync",
-        emoji=theme.retryIcon,
-        style=discord.ButtonStyle.primary,
-        custom_id="alliance_entry_player_sync",
-        row=3,
-    )
-    async def player_sync(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "AllianceApiSync",
-            "show_player_sync",
-            missing_label="Player Sync",
         )
 
     @discord.ui.button(
