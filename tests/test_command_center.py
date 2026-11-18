@@ -570,3 +570,67 @@ async def test_leave_server_back_returns_to_server_management(monkeypatch):
     interaction = SimpleNamespace()
     await view._on_back(interaction)
     assert received == [interaction]
+
+
+@pytest.mark.asyncio
+async def test_command_center_uses_service_not_raw_slash_callback(monkeypatch):
+    """A menu action calls the shared handler and not the Command.callback object."""
+    from types import SimpleNamespace
+    import cogs.command_center as navigation
+    called = []
+
+    class Scout:
+        async def show_scout(self, interaction, state):
+            called.append(state)
+
+    monkeypatch.setattr(navigation.PermissionManager, "is_admin",
+                        staticmethod(lambda user_id: (True, True)))
+    interaction = SimpleNamespace(user=SimpleNamespace(id=123))
+    center = SimpleNamespace(bot=SimpleNamespace(
+        get_cog=lambda name: Scout() if name == "WosStateScout" else None
+    ))
+    await navigation.invoke_slash(center, interaction, "WosStateScout", "scout", state=1501)
+    assert called == [1501]
+    assert ".callback" not in __import__("inspect").getsource(navigation.invoke_slash)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", [True, False])
+async def test_empty_install_requires_discord_application_owner(tmp_path, monkeypatch, owner):
+    """No non-owner can bootstrap a global administrator from either alias."""
+    import sqlite3
+    from types import SimpleNamespace
+    import cogs.bot_main_menu as menus
+
+    database = tmp_path / "settings.sqlite"
+    with sqlite3.connect(database) as db:
+        db.execute("CREATE TABLE admin (id INTEGER PRIMARY KEY)")
+    monkeypatch.setattr(menus.PermissionManager, "SETTINGS_DB", str(database))
+    monkeypatch.setattr(menus.PermissionManager, "is_admin",
+                        staticmethod(lambda user_id: (True, True)))
+    added, sent = [], []
+
+    def add_admin(user_id, *, tier):
+        added.append((user_id, tier))
+
+    async def is_owner(user):
+        return owner
+
+    async def send_message(*args, **kwargs):
+        sent.append((args, kwargs))
+
+    monkeypatch.setattr(menus.PermissionManager, "add_admin", add_admin)
+    bot = SimpleNamespace(is_owner=is_owner)
+    interaction = SimpleNamespace(
+        guild=None, user=SimpleNamespace(id=123),
+        response=SimpleNamespace(send_message=send_message),
+    )
+    await menus.MainMenu(bot).open_entry(interaction)
+    assert bool(added) is owner
+    if owner:
+        assert added == [(123, menus.TIER_OWNER)]
+        assert sent[0][1]["ephemeral"] is True
+        assert sent[0][1]["view"] is not None
+    else:
+        assert sent[0][1]["ephemeral"] is True
+        assert "application owner" in sent[0][0][0].lower()
