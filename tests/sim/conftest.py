@@ -13,7 +13,17 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    """Asyncio on Windows and the screenshot preview need loopback; everything else is blocked."""
+    """Keep UI simulations offline, including background API synchronization."""
+    import asyncio
+    from cogs.gift_operationsapi import GiftCodeAPI
+
+    async def idle_external_gift_sync(self):
+        # The real cog is loaded so its menus and handlers remain intact,
+        # but UI tests must never contact the shared Gift Code distribution
+        # service in the background. Production code is untouched.
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(GiftCodeAPI, "start_api_check", idle_external_gift_sync)
     attempts = []
     real_connect = socket.socket.connect
 
