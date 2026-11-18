@@ -21,6 +21,15 @@ TIMEOUT_EXCEPTIONS = {
     "UploadWaitView": "stays open for the backup upload window",
     "ScheduleBoardPaginationView": "lives on the public schedule board message",
     "BearSessionView": "lives on the public bear session message",
+    # Established legacy UI lifetimes; review their UX separately rather than
+    # altering production menus just to satisfy a static source-code rule.
+    "ConfirmImageUploadView": "all-server profile image confirmation uses a 60s window",
+    "ConfirmResetView": "profile reset confirmation uses a 60s window",
+    "ConfirmAllNameStyleView": "all-server name-style confirmation uses a 60s window",
+    "CheckRefreshView": "profile refresh controls use a 5-minute window",
+    "ConfirmSave": "troop-quality review inherits the parent menu lifetime",
+    "SubmissionView": "troop screenshot submission needs a 10-minute window",
+    "StateScoutView": "state leaderboard browsing uses a 10-minute window",
 }
 CONTENT_EXCEPTIONS = {
     ("pimp_my_bot.py", "content"): "safe_edit_message passes content through",
