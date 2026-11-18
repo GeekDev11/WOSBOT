@@ -149,68 +149,82 @@ class MainMenu(commands.Cog):
         )
 
     async def open_entry(self, interaction: discord.Interaction):
-        """Canonical, private entry for /settings and /center.
+        """Shared, promptly acknowledged entry for /settings and /center.
 
-        Only the Discord application owner can initialize an empty installation.
-        Existing installations continue to use PermissionManager authorization,
-        including role grants.  No menu is posted publicly.
+        Discord requires an interaction acknowledgement within three seconds.
+        Database, role and application-owner checks may take longer; never run
+        them before acknowledging the command.
         """
-        if interaction.guild is not None:
-            member = interaction.guild.me
-            if member is None:
-                await interaction.response.send_message(
-                    "WOSBOT is not installed as a bot member of this server. "
-                    "A user-installed app can run slash commands without appearing "
-                    "under Server Settings → Roles. Install this application to the "
-                    "server from Discord Developer Portal → Installation using both "
-                    "bot and applications.commands scopes, then check Server Settings → "
-                    "Integrations → Bots and Apps.",
-                    ephemeral=True,
-                )
-                return
-            if not member.guild_permissions.administrator:
-                await interaction.response.send_message(
-                    "WOSBOT is installed as a server member, but its bot role "
-                    "does not have Administrator permission. Review the role under "
-                    "Server Settings → Roles. Only grant Administrator if you "
-                    "intend to give this bot full server access.",
-                    ephemeral=True,
-                )
-                return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            if interaction.guild is not None:
+                member = interaction.guild.me
+                if member is None:
+                    await interaction.followup.send(
+                        "WOSBOT is not installed as a bot member of this server. "
+                        "A user-installed app can run slash commands without appearing "
+                        "under Server Settings → Roles. Install this application to the "
+                        "server from Discord Developer Portal → Installation using both "
+                        "bot and applications.commands scopes, then check Server Settings → "
+                        "Integrations → Bots and Apps.",
+                        ephemeral=True,
+                    )
+                    return
+                if not member.guild_permissions.administrator:
+                    await interaction.followup.send(
+                        "WOSBOT is installed as a server member, but its bot role "
+                        "does not have Administrator permission. Review the role under "
+                        "Server Settings → Roles. Only grant Administrator if you "
+                        "intend to give this bot full server access.",
+                        ephemeral=True,
+                    )
+                    return
 
-        with sqlite3.connect(PermissionManager.SETTINGS_DB, timeout=30.0) as db:
-            has_admin = bool(db.execute("SELECT 1 FROM admin LIMIT 1").fetchone())
+            def has_existing_admin():
+                with sqlite3.connect(PermissionManager.SETTINGS_DB, timeout=30.0) as db:
+                    return bool(db.execute("SELECT 1 FROM admin LIMIT 1").fetchone())
 
-        initialized = False
-        if not has_admin:
-            if not await self.bot.is_owner(interaction.user):
-                await interaction.response.send_message(
-                    "Initial setup is restricted to the Discord application owner.",
-                    ephemeral=True,
+            has_admin = await asyncio.to_thread(has_existing_admin)
+            initialized = False
+            if not has_admin:
+                if not await self.bot.is_owner(interaction.user):
+                    await interaction.followup.send(
+                        "Initial setup is restricted to the Discord application owner.",
+                        ephemeral=True,
+                    )
+                    return
+                await asyncio.to_thread(
+                    PermissionManager.add_admin, interaction.user.id, tier=TIER_OWNER,
                 )
-                return
-            # PermissionManager owns owner creation and its database invariants.
-            PermissionManager.add_admin(interaction.user.id, tier=TIER_OWNER)
-            PermissionManager._admin_cache = None
-            initialized = True
+                PermissionManager._admin_cache = None
+                initialized = True
 
-        permitted, _ = PermissionManager.is_admin(interaction.user.id)
-        if not permitted:
-            await interaction.response.send_message(
-                "Administrator permission required.", ephemeral=True,
+            permitted, _ = await asyncio.to_thread(
+                PermissionManager.is_admin, interaction.user.id,
             )
-            return
+            if not permitted:
+                await interaction.followup.send(
+                    "Administrator permission required.", ephemeral=True,
+                )
+                return
 
-        embed = self.build_main_menu_embed()
-        if initialized:
-            embed.add_field(
-                name="First-time setup",
-                value="The Discord application owner has been registered as Bot Owner.",
-                inline=False,
+            embed = self.build_main_menu_embed()
+            if initialized:
+                embed.add_field(
+                    name="First-time setup",
+                    value="The Discord application owner has been registered as Bot Owner.",
+                    inline=False,
+                )
+            await interaction.followup.send(
+                embed=embed, view=MainMenuView(self), ephemeral=True,
             )
-        await interaction.response.send_message(
-            embed=embed, view=MainMenuView(self), ephemeral=True,
-        )
+        except Exception:
+            logger.exception("Command Center entry failed for /settings or /center")
+            await interaction.followup.send(
+                "Could not open Command Center. Check the bot console for "
+                "'Command Center entry failed' and the traceback.",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="center", description="Open the WOSBOT Command Center")
     @app_commands.allowed_installs(guilds=True, users=True)
