@@ -12,6 +12,13 @@ This is a preservation-first refactor. Keep existing commands, SQLite data, API 
 - [ ] **Phase 5: remove obsolete code** — Removed known invisible button definitions and duplicate /settings implementation. **Open:** complete reference/reachability audit before removing other legacy views; retain compatibility handlers where needed.
 - [ ] **Phase 6: regression testing** — Updated `test_settings_installation.py`, `test_command_center.py`, and `tests/sim/test_hubs.py`; added owner-bootstrap and shared-service regression tests. **New:** scanned all 70 cog Python files for invalid backtick escapes; fixed all eight observed occurrences across the two troop-quality modules, added a guard test, and added role-tier tests. **New:** Extended the existing `.github/workflows/chief-stalker-tests.yml` syntax-validation and focused-test commands to cover `cogs/member_state_service.py`, `cogs/alliance_member_states.py`, and the new `tests/test_member_states_menu.py` cases, plus gift-validation persistence regressions. Pull requests touching these files now also match the workflow's path filter. **Open:** execute tests against this head; no successful run has yet been verified (latest observed Actions run remains on a 2026-11-16 commit).
 
+## Phase 6 full-suite CI expansion (2026-11-18)
+
+- Added a full Python cog syntax compilation and `python -m pytest -q tests` after the existing focused suite in `.github/workflows/chief-stalker-tests.yml`. The full standard suite excludes SimCord by the repository's existing `tests/conftest.py` design.
+- Added a SimCord installation step (`simcord[pytest]>=2.2.1,<3` and `tzdata`) and a separate `python -m pytest -q tests/sim --sim` step to exercise the UI flows and callbacks.
+- CI run [#132](https://github.com/GeekDev11/WOSBOT/actions/runs/44314236092) was initiated automatically from `modified` at commit `00e09aa`; results were pending at the time this section was added.
+- These are test-workflow changes only. No Discord commands, permissions, runtime menus, API calls, or Gift Code redemption code were modified.
+
 ## Phase 5 verified cleanup audit (2026-11-18)
 
 - Reviewed the major menu class/method declarations in `cogs/bot_main_menu.py`, `cogs/command_center.py`, `cogs/pimp_my_bot.py`, `cogs/alliance.py`, and `cogs/bot_health.py`. Repeated callback names such as `back`, `home`, `__init__`, and `on_submit` belong to distinct views or modal classes; they are **not** evidence of duplicate implementations.
