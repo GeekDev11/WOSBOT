@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -38,8 +39,9 @@ def load_roster(name: str = "default") -> list[tuple[int, str]]:
     return [(int(m["fid"]), m["nick"]) for m in data["members"]]
 
 
+@lru_cache(maxsize=128)
 def ocr_image(path: Path, lang: str = "en") -> str:
-    """Run the bot's OCR engine on a PNG fixture and return the raw text."""
+    """Run real OCR once per immutable fixture image and language per test process."""
     import asyncio
     data = path.read_bytes()
     return asyncio.run(bear_track.ocr_bytes(data, lang=lang))
