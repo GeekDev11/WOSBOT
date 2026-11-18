@@ -638,8 +638,16 @@ async def _wait_for_members(fids, seconds=30.0):
     return None
 
 
-async def test_add_members_takes_names_from_player_sync(sim, fake_api):
-    from cogs.pimp_my_bot import theme
+async def test_add_members_takes_names_from_player_sync(sim, fake_api, monkeypatch):
+    # This case covers member-add + Player Sync fields, not WhiteoutStats
+    # troop-tier enrichment. Keep the latter offline without changing the
+    # actual member insertion, nickname or state resolution paths.
+    from cogs import troop_quality_auto
+
+    async def offline_tier_sync(session, fid, alliance_id, **kwargs):
+        return 0
+
+    monkeypatch.setattr(troop_quality_auto, "sync_tiers", offline_tier_sync)
     hub = await _set_up(sim, await _player_sync(sim), fake_api)
     field_paths = await _set_field(sim, await _open_fields(sim, hub), "State", "player.kid")
     await sim.click(field_paths, "Back")
