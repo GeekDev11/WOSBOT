@@ -837,3 +837,36 @@ def test_manage_alliances_has_no_hidden_duplicate_controls():
     assert "alliance_entry_player_sync" not in source
     assert any(key == "sync" for key, *_ in SECTIONS["admin"][2])
     assert any(key == "members" for key, *_ in SECTIONS["alliance"][2])
+
+
+@pytest.mark.parametrize("role,expected", [
+    ({"is_admin": True, "is_global": True, "server": False, "alliance_ids": []}, "global"),
+    ({"is_admin": True, "is_global": False, "server": True, "alliance_ids": []}, "server"),
+    ({"is_admin": True, "is_global": False, "server": False, "alliance_ids": [7]}, "alliance"),
+])
+def test_role_admin_tiers_are_resolved_for_current_guild(monkeypatch, role, expected):
+    from cogs.permission_handler import PermissionManager, TIER_NONE
+    monkeypatch.setattr(PermissionManager, "get_tier",
+                        staticmethod(lambda user_id: TIER_NONE))
+    monkeypatch.setattr(PermissionManager, "_cached_role_grant",
+                        staticmethod(lambda user_id: {**role, "guild_id": 111}))
+    assert PermissionManager.get_effective_tier(123, 111) == expected
+    assert PermissionManager.get_effective_tier(123, 222) == TIER_NONE
+
+
+def test_personal_owner_tier_wins_over_role_grant(monkeypatch):
+    from cogs.permission_handler import PermissionManager, TIER_OWNER
+    monkeypatch.setattr(PermissionManager, "get_tier",
+                        staticmethod(lambda user_id: TIER_OWNER))
+    monkeypatch.setattr(PermissionManager, "_cached_role_grant",
+                        staticmethod(lambda user_id: {
+                            "is_admin": True, "is_global": False, "server": False,
+                            "alliance_ids": [7], "guild_id": 111,
+                        }))
+    assert PermissionManager.get_effective_tier(123, 111) == TIER_OWNER
+
+
+def test_manage_alliances_uses_effective_guild_tier():
+    import inspect
+    from cogs.bot_main_menu import MainMenu
+    assert "get_effective_tier" in inspect.getsource(MainMenu.show_alliance_admin_tools)
