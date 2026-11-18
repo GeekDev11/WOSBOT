@@ -870,3 +870,67 @@ def test_manage_alliances_uses_effective_guild_tier():
     import inspect
     from cogs.bot_main_menu import MainMenu
     assert "get_effective_tier" in inspect.getsource(MainMenu.show_alliance_admin_tools)
+
+
+@pytest.mark.asyncio
+async def test_legacy_gift_menu_opens_canonical_center(monkeypatch):
+    """Old gift menu entry points keep working without a second dashboard."""
+    from types import SimpleNamespace
+    from cogs.gift_operations import GiftOperations
+    import cogs.command_center as center
+    opened = []
+
+    async def open_gifts(main_menu, interaction, section):
+        opened.append((main_menu, section))
+
+    monkeypatch.setattr(center, "open_section", open_gifts)
+    main = object()
+    # Bypass GiftOperations.__init__, which opens live bot databases.
+    gift = object.__new__(GiftOperations)
+    gift.bot = SimpleNamespace(get_cog=lambda name: main if name == "MainMenu" else None)
+    await gift.show_gift_menu(SimpleNamespace())
+    assert opened == [(main, "gifts")]
+
+
+@pytest.mark.asyncio
+async def test_role_admin_can_open_create_gift_modal(monkeypatch):
+    from types import SimpleNamespace
+    import cogs.gift_views as gifts
+
+    monkeypatch.setattr(gifts.PermissionManager, "is_admin",
+                        staticmethod(lambda user_id: (True, False)))
+    shown = []
+
+    async def send_modal(modal):
+        shown.append(modal)
+
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=123),
+        response=SimpleNamespace(send_modal=send_modal),
+    )
+    await gifts.create_gift_code(SimpleNamespace(), interaction)
+    assert len(shown) == 1
+    assert isinstance(shown[0], gifts.CreateGiftCodeModal)
+
+
+@pytest.mark.asyncio
+async def test_non_global_role_cannot_delete_gift_code(monkeypatch):
+    from types import SimpleNamespace
+    import cogs.gift_views as gifts
+
+    monkeypatch.setattr(gifts.PermissionManager, "is_admin",
+                        staticmethod(lambda user_id: (True, False)))
+    replies = []
+
+    async def send_message(*args, **kwargs):
+        replies.append((args, kwargs))
+
+    await gifts.delete_gift_code(
+        SimpleNamespace(),
+        SimpleNamespace(
+            user=SimpleNamespace(id=123),
+            response=SimpleNamespace(send_message=send_message),
+        ),
+    )
+    assert replies and replies[0][1]["ephemeral"] is True
+    assert "Global Admin" in replies[0][1]["embed"].description
