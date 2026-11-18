@@ -93,7 +93,7 @@ async def test_leave_server_leaves_another_server(sim):
     assert [g.name for g in sim.bot.guilds] == ["WOS Test"]
 
     back = await sim.click(sim.current(servers), "Back")
-    assert not back.problems() and title(back.screen[0]).endswith("Maintenance")
+    assert not back.problems() and title(back.screen[0]).endswith("Server Management")
 
 
 async def test_leave_server_is_bot_owner_only(sim):
@@ -382,12 +382,13 @@ async def test_player_sync_limits_and_interval(sim):
     hub = await _player_sync(sim)
     hub = await _saved(sim, hub, "Limits", {"Requests per minute": "60", "Requests per day": "5000"})
     assert "up to 60 requests a minute and 5000 a day." in _description(hub)
-    hub = await _saved(sim, hub, "Interval", {"Hours between syncs (at least 1)": "12"})
-    assert "every 12 hours" in _description(hub)
-    refused = await _submit(sim, hub, "Interval", {"Hours between syncs (at least 1)": "0"})
-    message, ephemeral = refused.screen
-    assert ephemeral and "Enter a whole number of hours" in message.content
-    assert sync.load_setting("interval") == 12
+    # Auto Sync now uses a fixed daily schedule, so the obsolete Interval
+    # modal must not appear. Keep a real UI interaction and verify the status.
+    assert "Daily: 00:00 UTC" in labels(hub)
+    assert "Interval" not in labels(hub)
+    schedule = await sim.click(hub, "Daily: 00:00 UTC")
+    assert not schedule.problems(), schedule.problems()
+    assert "Auto Sync runs at 00:00 UTC daily" in _description(schedule.screen[0])
 
 
 async def test_player_sync_import_and_export(sim):
@@ -504,11 +505,10 @@ async def _sync_channels(sim):
 
 
 async def _channel_setup(sim):
-    from cogs.pimp_my_bot import theme
-    alliances = await sim.walk("Alliances")
-    hub = await sim.select(alliances, f"{theme.allianceIcon} Pick an alliance to manage…", "Test Alliance")
-    assert not hub.problems(), hub.problems()
-    setup = await sim.click(hub.screen[0], "Channel Setup")
+    # Channel Setup moved under the per-alliance Configuration menu.
+    settings = await sim.walk("Alliance Command Center", "Alliance Configuration")
+    assert "Channel Setup" in labels(settings)
+    setup = await sim.click(settings, "Channel Setup")
     assert not setup.problems(), setup.problems()
     return setup.screen[0]
 
@@ -643,11 +643,9 @@ async def test_add_members_takes_names_from_player_sync(sim, fake_api):
     hub = await _set_up(sim, await _player_sync(sim), fake_api)
     field_paths = await _set_field(sim, await _open_fields(sim, hub), "State", "player.kid")
     await sim.click(field_paths, "Back")
-    alliances = await sim.walk("Alliances")
-    alliance_hub = await sim.select(alliances, f"{theme.allianceIcon} Pick an alliance to manage…", "Test Alliance")
-    members = await sim.click(alliance_hub.screen[0], "Manage Members")
-    assert not members.problems(), members.problems()
-    shown = await sim.click(members.screen[0], "Add Members")
+    # Member imports are a dedicated Alliance Command Center destination.
+    members = await sim.walk("Alliance Command Center", "Members & Imports")
+    shown = await sim.click(members, "Add Members")
     added = await sim.submit_modal(shown, {"Enter IDs or paste CSV/TSV data": "20001\n20010"})
     assert not added.problems(), added.problems()
 
