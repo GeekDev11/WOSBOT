@@ -721,11 +721,10 @@ class AllianceManagementEntryView(discord.ui.View):
         row=3,
     )
     async def member_states(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _route_to_cog(
-            interaction, self.cog.bot, "GiftOperations",
-            "show_state_management",
-            missing_label="Gift Codes",
-        )
+        # Alliance-owned entry; the service boundary resolves the existing
+        # state scanner without routing the menu through Gift Operations.
+        from .member_state_service import show_member_states
+        await show_member_states(self.cog.bot, interaction)
 
     @discord.ui.button(
         label="Back to Alliances",
