@@ -2,7 +2,9 @@
 import logging
 import socket
 import traceback
+from urllib.parse import urlsplit
 
+import aiohttp
 import pytest
 import pytest_asyncio
 
@@ -26,6 +28,22 @@ def no_network(monkeypatch):
     monkeypatch.setattr(GiftCodeAPI, "start_api_check", idle_external_gift_sync)
     attempts = []
     real_connect = socket.socket.connect
+    real_http_request = aiohttp.ClientSession._request
+
+    async def guarded_http_request(session, method, url, **kwargs):
+        parsed = urlsplit(str(url))
+        if parsed.hostname in LOOPBACK:
+            return await real_http_request(session, method, url, **kwargs)
+        trace = " -> ".join(
+            f"{frame.filename.rsplit('/', 1)[-1]}:{frame.lineno}:{frame.name}"
+            for frame in traceback.extract_stack(limit=18)
+            if "site-packages/aiohttp" not in frame.filename
+            and "/tests/sim/conftest.py" not in frame.filename
+        )
+        attempts.append((f"HTTP {method} {url}", trace))
+        raise OSError(f"offline SimCord blocked {method} {url}")
+
+    monkeypatch.setattr(aiohttp.ClientSession, "_request", guarded_http_request)
 
     def guarded_connect(sock, address):
         if isinstance(address, tuple) and address[0] in LOOPBACK:
