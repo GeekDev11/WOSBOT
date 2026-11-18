@@ -10,9 +10,7 @@ SKIP_BUTTONS = {
     "Check for Updates": "downloads a release and restarts the bot",
 }
 # (scenario, hub, button or None for the hub itself): reason. A fixed bug fails until removed here.
-KNOWN_BUGS = {
-    ("empty", "Attendance", None): "'No Alliances Found' replaces the menu with no buttons",
-}
+KNOWN_BUGS = {}
 
 
 async def _hub_problems(sim, hub):
