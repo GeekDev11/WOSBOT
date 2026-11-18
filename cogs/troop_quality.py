@@ -221,7 +221,7 @@ def format_tier(tier, skill):
 
 
 def format_member_line(fid, name, data):
-    return (f"**{discord.utils.escape_markdown((name or str(fid))[:80])}** · ID: \`{fid}\`\n"
+    return (f"**{discord.utils.escape_markdown((name or str(fid))[:80])}** · ID: `{fid}`\n"
             + "  ·  ".join(f"{t.title()}: {format_tier(*data.get(t, (None, None)))}"
                          for t in TROOPS))
 
@@ -404,7 +404,7 @@ class MemberPicker(QualityView):
         embed=member_embed(self.name, ("**Bulk Edit** · " if self.bulk else "**Individual Edit** · ")
                  + f"{len(members)} matching members · Page {self.page+1}/{max(1,(len(members)+PAGE_SIZE-1)//PAGE_SIZE)}"
                  + (f"\n**Selected:** {len(self.selected)}" if self.bulk else ""))
-        embed.description += "\n" + ("\n".join(f"• {discord.utils.escape_markdown(name or str(fid))} · \`{fid}\`"
+        embed.description += "\n" + ("\n".join(f"• {discord.utils.escape_markdown(name or str(fid))} · `{fid}`"
                                    for fid,name in page) or "No matching members.")
         return embed
 
@@ -472,7 +472,7 @@ class MemberPicker(QualityView):
 def editor_embed(name,fids,changes,prior):
     embed=discord.Embed(title=f"🛡️ Troop Quality · {name}",
                         description=(f"Editing **{len(fids)}** member(s)\n"
-                         + (f"Chief ID: \`{fids[0]}\`\n" if len(fids)==1 else "")
+                         + (f"Chief ID: `{fids[0]}`\n" if len(fids)==1 else "")
                          + "Choose each troop's highest tier and T12 skill.\n"
                          + ("**Unchanged** leaves bulk records untouched.\n" if len(fids)>1 else "")))
     for troop in TROOPS:
