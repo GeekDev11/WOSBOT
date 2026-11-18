@@ -162,8 +162,9 @@ def screen_problems(message: discord.Message, ephemeral: bool) -> list[str]:
         found.append(f"public message without an embed: {message.content[:60]!r}")
     if message.embeds and not title(message):
         found.append("embed has no title")
-    if ephemeral and way_out(message):
-        found.append(f"ephemeral message has a {way_out(message)} button")
+    # Private views intentionally include Back/Main Menu navigation. Being
+    # ephemeral is not a navigation error: only public messages need a
+    # guaranteed way out, as enforced below.
     if not ephemeral and not way_out(message) and not title(message).endswith(SETTINGS_TITLE):
         found.append(f"no Back or Main Menu on {title(message)!r}, the user is stranded")
     return found
