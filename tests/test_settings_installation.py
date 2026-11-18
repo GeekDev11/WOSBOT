@@ -27,5 +27,7 @@ def test_settings_and_center_use_same_private_entry():
     assert "await main_menu.open_entry(interaction)" in alliance
     assert "view=MainMenuView(self), ephemeral=True" in main
     assert "await self.bot.is_owner(interaction.user)" in main
-    assert "PermissionManager.add_admin(interaction.user.id, tier=TIER_OWNER)" in main
+    # Owner registration is intentionally offloaded so it cannot block Discord.
+    assert "PermissionManager.add_admin, interaction.user.id, tier=TIER_OWNER" in main
+    assert "await asyncio.to_thread(" in main
     assert "INSERT INTO admin (id, is_initial)" not in alliance
