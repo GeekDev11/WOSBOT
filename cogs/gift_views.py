@@ -88,6 +88,80 @@ async def create_gift_code(cog, interaction: discord.Interaction):
             )
 
 
+class GiftCodeListView(discord.ui.View):
+    """Paged gift-code listing; never exceed Discord's 25 embed-field limit."""
+
+    PAGE_SIZE = 15
+
+    def __init__(self, cog, user_id: int, codes, page: int = 0):
+        super().__init__(timeout=menu_timeout())
+        self.cog = cog
+        self.user_id = user_id
+        self.codes = list(codes)
+        self.page = max(0, min(page, self.max_page))
+        self._update_buttons()
+
+    @property
+    def max_page(self):
+        return max(0, (len(self.codes) - 1) // self.PAGE_SIZE)
+
+    def _update_buttons(self):
+        self.previous.disabled = self.page == 0
+        self.next.disabled = self.page == self.max_page
+
+    def build_embed(self):
+        embed = discord.Embed(
+            title=f"{theme.giftIcon} Active Gift Codes",
+            description=f"Currently active and valid gift codes. "
+                        f"Showing {len(self.codes)} total · Page {self.page + 1}/{self.max_page + 1}.",
+            color=theme.emColor1,
+        )
+        start = self.page * self.PAGE_SIZE
+        for code, date, used_count in self.codes[start:start + self.PAGE_SIZE]:
+            embed.add_field(
+                name=f"Code: {str(code)[:95]}",
+                value=f"Created: {date}\nUsed by: {used_count} users"[:1024],
+                inline=False,
+            )
+        return embed
+
+    async def interaction_check(self, interaction):
+        if not await check_interaction_user(interaction, self.user_id):
+            return False
+        is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+        if not is_admin:
+            await interaction.response.send_message(
+                "Administrator permission required.", ephemeral=True,
+            )
+        return is_admin
+
+    @discord.ui.button(label="Previous", emoji=theme.backIcon,
+                       style=discord.ButtonStyle.secondary, row=0)
+    async def previous(self, interaction, button):
+        self.page = max(0, self.page - 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Next", emoji=theme.forwardIcon,
+                       style=discord.ButtonStyle.secondary, row=0)
+    async def next(self, interaction, button):
+        self.page = min(self.max_page, self.page + 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Back to Gift Center", emoji=theme.backIcon,
+                       style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction, button):
+        from .command_center import open_section
+        main = self.cog.bot.get_cog("MainMenu")
+        if main is not None:
+            await open_section(main, interaction, "gifts")
+        else:
+            await interaction.response.send_message(
+                "Gift Code Center is unavailable.", ephemeral=True,
+            )
+
+
 async def list_gift_codes(cog, interaction: discord.Interaction):
     cog.cursor.execute("""
         SELECT
@@ -101,30 +175,17 @@ async def list_gift_codes(cog, interaction: discord.Interaction):
         GROUP BY gc.giftcode
         ORDER BY gc.date DESC
     """)
-
     codes = cog.cursor.fetchall()
-
     if not codes:
         await interaction.response.send_message(
             "No active gift codes found in the database.",
-            ephemeral=True
+            ephemeral=True,
         )
         return
-
-    embed = discord.Embed(
-        title=f"{theme.giftIcon} Active Gift Codes",
-        description="Currently active and valid gift codes.",
-        color=theme.emColor1
+    view = GiftCodeListView(cog, interaction.user.id, codes)
+    await interaction.response.send_message(
+        embed=view.build_embed(), view=view, ephemeral=True,
     )
-
-    for code, date, used_count in codes:
-        embed.add_field(
-            name=f"Code: {code}",
-            value=f"Created: {date}\nUsed by: {used_count} users",
-            inline=False
-        )
-
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def delete_gift_code(cog, interaction: discord.Interaction):
