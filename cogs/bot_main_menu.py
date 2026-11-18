@@ -332,8 +332,10 @@ class MainMenu(commands.Cog):
             description = (
                 "**Manage Alliances**\n"
                 + "\n".join(overview_lines) + "\n\n"
-                "Pick an alliance or use Add Alliance, Transfer, Export, "
-                "Member States or Player Sync below.\n"
+                "Pick an alliance or use Add Alliance, Self-Registration, "
+                "Transfer Members or Member States below.\n"
+                "Export Members is under Members & Imports; Player Sync is "
+                "under Administration.\n"
                 "Main Menu returns to the five-center layout."
             )
             if not alliances_with_counts:
@@ -768,12 +770,11 @@ class AllianceManagementEntryView(discord.ui.View):
 
 
 class AllianceHubView(discord.ui.View):
-    """Per-alliance hub. Layout:
-      row 0: alliance switch dropdown
-      row 1: Manage Members | Channel Setup
-      row 2: Edit Name | Set State | History | Power Rankings
-      row 3: State Lock | Auto-remove Transfers   (long toggle labels, own row)
-      row 4: Back | Delete Alliance
+    """Per-alliance configuration only.
+
+    Alliance switching, Channel Setup, Edit Name, Set State, state-lock and
+    auto-remove toggles, Delete Alliance, Back and Main Menu. Members, troop
+    quality, history and rankings are owned by the Alliance Command Center.
     """
 
     def __init__(self, cog, alliance_id: int, alliance_name: str,
