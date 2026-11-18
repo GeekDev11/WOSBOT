@@ -810,3 +810,30 @@ async def test_theme_back_returns_to_appearance(monkeypatch):
     assert "show_appearance_entry" in source
     build = inspect.getsource(ThemeMenuView._build_components)
     assert "Back to Appearance" in build
+
+
+def test_no_invalid_backtick_escapes_in_cogs():
+    """Backticks inside Python strings must not have invalid backslash escapes."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "cogs"
+    offenders = [
+        str(path.relative_to(root.parent))
+        for path in root.glob("*.py")
+        if chr(92) + "`" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"Invalid Python backtick escape(s) in: {offenders}"
+
+
+def test_manage_alliances_has_no_hidden_duplicate_controls():
+    """Export and Player Sync have canonical menus, not stripped button definitions."""
+    import inspect
+    from cogs.bot_main_menu import AllianceManagementEntryView
+    from cogs.command_center import SECTIONS
+
+    assert not hasattr(AllianceManagementEntryView, "export_members")
+    assert not hasattr(AllianceManagementEntryView, "player_sync")
+    source = inspect.getsource(AllianceManagementEntryView.__init__)
+    assert "alliance_entry_export" not in source
+    assert "alliance_entry_player_sync" not in source
+    assert any(key == "sync" for key, *_ in SECTIONS["admin"][2])
+    assert any(key == "members" for key, *_ in SECTIONS["alliance"][2])
