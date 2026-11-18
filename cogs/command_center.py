@@ -20,7 +20,6 @@ SECTIONS = {
         ("overview", "Alliance Overview", "Member totals and alliance summary"),
         ("members", "Members & Imports", "Manage, edit, transfer and import members"),
         ("troops", "Troop Quality", "Recorded tiers and troop submissions"),
-        ("imports", "Export Members", "Export alliance roster and selected columns"),
         ("history", "Rankings & History", "Alliance rankings and recorded changes"),
         ("management", "Manage Alliances", "Add alliances, transfers and registration"),
         ("settings", "Alliance Configuration", "Name, state, channels and transfer rules"),
@@ -40,14 +39,12 @@ SECTIONS = {
         ("bear", "Bear Tracking", "Damage, screenshots and history"),
         ("minister", "Minister Scheduling", "Appointments and archives"),
         ("attendance", "Attendance Management", "Record and correct participation"),
-        ("reports", "Event Reports", "Recorded attendance reports and exports"),
     )),
     "gifts": ("Gift Code Center", "🎁", (
         ("dashboard", "Manage Gift Codes", "Add, list or remove gift codes"),
         ("redeem", "Redeem Gift Codes", "Run the existing redemption flow"),
         ("results", "Redemption Results", "View completed and pending redemptions"),
         ("automation", "Gift Code Settings", "Redemption automation, priority and validation"),
-        ("channels", "Gift Channels", "Announcement and redemption logs"),
     )),
     "admin": ("Administration & Settings", "⚙️", (
         ("permissions", "Permission Management", "Owners, roles and alliance scope"),
