@@ -84,7 +84,17 @@ jobs:
           # import/collection instead of silently hanging the entire suite.
           while IFS= read -r test_file; do
             echo "::group::Full suite: ${test_file}"
-            timeout --signal=TERM 90s python -m pytest -q -x --timeout=45 --timeout-method=thread "${test_file}" || {
+            file_budget=90
+            test_budget=45
+            case "${test_file}" in
+              tests/test_attendance_ocr_layer2.py|tests/test_layer2_ocr.py)
+                # Real screenshot OCR is intentionally slow and covers
+                # many images. Keep it enabled with a separate larger budget.
+                file_budget=1200
+                test_budget=900
+                ;;
+            esac
+            timeout --signal=TERM "${file_budget}s" python -m pytest -q -x --timeout="${test_budget}" --timeout-method=thread "${test_file}" || {
               code=$?
               echo "::error file=${test_file}::Full-suite test file failed or stalled (exit ${code})."
               exit "${code}"
