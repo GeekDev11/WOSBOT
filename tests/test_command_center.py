@@ -1067,3 +1067,29 @@ def test_alliance_settings_reads_outside_discord_event_loop():
     assert "asyncio.to_thread" in source
     assert "self._alliance_settings_snapshot" in source
     assert "self._member_counts" in source
+
+
+@pytest.mark.asyncio
+async def test_main_center_button_responds_when_route_raises(monkeypatch):
+    """An unexpected section-render failure must never leave the click unanswered."""
+    from types import SimpleNamespace
+    import cogs.command_center as center
+
+    messages = []
+
+    async def broken_section(cog, interaction, section):
+        raise RuntimeError("simulated rendering failure")
+
+    async def send_message(message, **kwargs):
+        messages.append((message, kwargs))
+
+    monkeypatch.setattr(center, "open_section", broken_section)
+    interaction = SimpleNamespace(
+        response=SimpleNamespace(is_done=lambda: False, send_message=send_message),
+    )
+    view = center.MainMenuView(SimpleNamespace())
+    await view.children[0].callback(interaction)
+
+    assert len(messages) == 1
+    assert messages[0][1]["ephemeral"] is True
+    assert "couldn't be opened" in messages[0][0]
