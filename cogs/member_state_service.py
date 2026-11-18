@@ -8,6 +8,8 @@ GiftOperations; keep those processes intact while separating navigation.
 import discord
 
 from . import alliance_member_states
+from . import gift_redemption
+from . import gift_state_resolver as state_resolver
 from .pimp_my_bot import theme
 
 
@@ -27,3 +29,29 @@ async def show_member_states(bot, interaction: discord.Interaction):
         return
 
     await alliance_member_states.show_state_management(engine, interaction)
+
+
+async def set_member_state_and_catch_up(engine, fid: int, kid: int, nickname: str):
+    """Persist a single state, then queue the same missed-code catch-up as before."""
+    import asyncio
+
+    await asyncio.to_thread(state_resolver.set_user_kid, fid, kid)
+    engine.logger.info(f"GiftOps: admin set state {kid} for FID {fid} ({nickname})")
+    return gift_redemption.enqueue_member_redemption(engine, fid, nickname)
+
+
+async def set_members_state_and_catch_up(engine, fids, kid: int):
+    """Persist a bulk state update and enqueue catch-up for every listed member."""
+    import asyncio
+
+    # Take a stable snapshot so the update and catch-up use identical members.
+    member_ids = list(fids)
+    await asyncio.to_thread(state_resolver.set_user_kid_many, member_ids, kid)
+    caught = sum(
+        1 for fid in member_ids
+        if gift_redemption.enqueue_member_redemption(engine, fid)
+    )
+    engine.logger.info(
+        f"GiftOps: admin set state {kid} for {len(member_ids)} listed member(s)"
+    )
+    return caught
