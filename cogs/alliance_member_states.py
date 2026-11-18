@@ -201,7 +201,7 @@ class StateManagementView(_MenuView):
     async def _on_back(self, interaction: discord.Interaction):
         main_menu = self.cog.bot.get_cog("MainMenu")
         if main_menu:
-            await main_menu.show_alliance_management(interaction)
+            await main_menu.show_alliance_admin_tools(interaction)
 
 
 class MembersToFixView(_PagedView):
