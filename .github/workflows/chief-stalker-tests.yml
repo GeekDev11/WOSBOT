@@ -108,7 +108,7 @@ jobs:
         id: simcord_suite
         continue-on-error: true
         run: |
-          python -m pytest -vv -x --timeout=45 --timeout-method=thread tests/sim --sim
+          python -m pytest -vv --maxfail=30 --timeout=45 --timeout-method=thread tests/sim --sim
       - name: Check complete regression gates
         if: always()
         run: |
