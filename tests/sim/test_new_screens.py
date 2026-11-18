@@ -100,13 +100,13 @@ async def test_leave_server_is_bot_owner_only(sim):
     global_menu = await sim.walk("Administration & Settings", "Server Management", user="global")
     assert "Leave a Server" not in labels(global_menu)
 
-    # The owner-only button exists on the owner's private screen. A global
-    # admin attempting to use that private view is rejected by its owner gate.
+    # The owner-only button exists on a private view. Other administrators
+    # cannot even click that private Discord message, independently of the
+    # explicit Bot Owner permission gate.
     owner_menu = await sim.walk("Administration & Settings", "Server Management")
     assert "Leave a Server" in labels(owner_menu, enabled_only=True)
-    refused = await sim.click(owner_menu, "Leave a Server", user="global")
-    message, ephemeral = refused.screen
-    assert ephemeral and "another administrator" in message.content
+    with pytest.raises(Exception, match="not visible to this user"):
+        await sim.click(owner_menu, "Leave a Server", user="global")
 
 
 async def test_health_settings_save_both_timeouts(sim):
