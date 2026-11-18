@@ -761,3 +761,52 @@ async def test_permissions_back_returns_to_administration(monkeypatch):
     view = AdminManagerView(SimpleNamespace(), 123)
     await view._on_back(SimpleNamespace())
     assert destinations == ["admin"]
+
+
+@pytest.mark.asyncio
+async def test_channel_setup_back_returns_to_alliance_configuration():
+    from types import SimpleNamespace
+    from cogs.alliance_channels import ChannelSetupView
+    opened = []
+
+    async def show_settings(interaction, alliance_id):
+        opened.append(alliance_id)
+
+    parent = SimpleNamespace(show_alliance_settings=show_settings)
+    cog = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: parent))
+    view = ChannelSetupView(42, "VEN", cog)
+    await view._on_back(SimpleNamespace())
+    assert opened == [42]
+
+
+@pytest.mark.asyncio
+async def test_bot_profile_back_returns_to_appearance(monkeypatch):
+    from types import SimpleNamespace
+    import cogs.command_center as navigation
+    from cogs.bot_profile import ProfileView
+
+    returned = []
+
+    async def fake_appearance(menu, interaction):
+        returned.append("appearance")
+
+    monkeypatch.setattr(navigation, "show_appearance_entry", fake_appearance)
+    menu = object()
+    cog = SimpleNamespace(
+        allowed=lambda interaction: True,
+        bot=SimpleNamespace(get_cog=lambda name: menu),
+    )
+    view = ProfileView(cog)
+    await view.back(SimpleNamespace(), None)
+    assert returned == ["appearance"]
+
+
+@pytest.mark.asyncio
+async def test_theme_back_returns_to_appearance(monkeypatch):
+    """Guard the route and button label without requiring theme DB fixtures."""
+    import inspect
+    from cogs.pimp_my_bot import ThemeMenuView
+    source = inspect.getsource(ThemeMenuView.back_to_settings)
+    assert "show_appearance_entry" in source
+    build = inspect.getsource(ThemeMenuView._build_components)
+    assert "Back to Appearance" in build
