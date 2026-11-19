@@ -648,6 +648,13 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
         return True
     if answer.status == 200:
         await asyncio.to_thread(_apply, fid, alliance, read_player(answer.payload, profile), result)
+        # Reuse this successful API response for opt-in membership monitoring.
+        # This never changes users.alliance or removes anyone from the home roster.
+        try:
+            from . import membership_service
+            await asyncio.to_thread(membership_service.observe, fid, int(alliance), answer.payload)
+        except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+            logger.warning("Membership observation could not be stored for %s: %s", fid, exc)
         try:
             await asyncio.to_thread(save_observation, fid, answer.payload)
         except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
