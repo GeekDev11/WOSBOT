@@ -327,7 +327,20 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
     with closing(connect()) as db:
         old=db.execute("SELECT * FROM observations WHERE fid=?", (fid,)).fetchone()
         if old and old["observed_at"] >= stamp:
-            return "stale"
+            # Older versions stored 'baseline' and 'baseline_state' without
+            # creating action cases. When the provider returns the same cached
+            # snapshot, upgrade only those legacy classifications in place.
+            # Never reinterpret changed or older data as a fresh observation.
+            legacy = old["status"] in ("baseline", "baseline_state")
+            same_snapshot = (
+                old["home_alliance"] == home_alliance
+                and old["state_id"] == state
+                and old["game_alliance_id"] == aid
+                and (old["game_tag"] or "") == tag
+                and old["observed_at"] == stamp
+            )
+            if not (legacy and same_snapshot):
+                return "stale"
         if old and old["home_alliance"] != home_alliance:
             old=None
         # Initial sync is a genuine observation, not a blanket exemption.
