@@ -2358,6 +2358,24 @@ class AllianceMemberOperations(commands.Cog):
             headers = [col[1] for col in selected_columns]
 
             if prefiltered_members is not None:
+                # A cached selection is never an authorization source: confirm each
+                # Chief's *current* alliance against the live permission scope.
+                selected_fids = [int(member['fid']) for member in prefiltered_members]
+                if selected_fids:
+                    placeholders = ",".join("?" for _ in selected_fids)
+                    with sqlite3.connect("db/users.sqlite") as db:
+                        current = {
+                            int(fid): int(aid) for fid, aid in db.execute(
+                                f"SELECT fid, alliance FROM users WHERE fid IN ({placeholders})",
+                                selected_fids,
+                            ).fetchall() if aid is not None
+                        }
+                    prefiltered_members = [
+                        member for member in prefiltered_members
+                        if int(member['fid']) in current
+                        and (is_global or current[int(member['fid'])] in set(map(int, allowed_ids)))
+                        and (alliance_id == "all" or current[int(member['fid'])] == int(alliance_id))
+                    ]
                 filtered_columns = [col for col in selected_columns if col[0] != 'alliance_name']
                 db_columns = [col[0] for col in filtered_columns]
                 headers = [col[1] for col in filtered_columns]
