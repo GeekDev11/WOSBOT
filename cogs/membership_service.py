@@ -299,9 +299,15 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                 ts=float(cached)/1000 if float(cached)>1_000_000_000_000 else float(cached)
                 measured=datetime.fromtimestamp(ts,timezone.utc)
             elif isinstance(cached,str) and cached.strip():
-                measured=datetime.fromisoformat(cached.strip().replace("Z","+00:00"))
-                if measured.tzinfo is None:
-                    measured=measured.replace(tzinfo=timezone.utc)
+                raw=cached.strip()
+                if raw.isdigit():
+                    ts=float(raw)
+                    measured=datetime.fromtimestamp(
+                        ts/1000 if ts>1_000_000_000_000 else ts,timezone.utc)
+                else:
+                    measured=datetime.fromisoformat(raw.replace("Z","+00:00"))
+                    if measured.tzinfo is None:
+                        measured=measured.replace(tzinfo=timezone.utc)
             else:
                 measured=None
             if measured is not None:
