@@ -250,7 +250,7 @@ def test_legacy_views_do_not_mix_back_and_home():
         "attendance.py", "bear_track.py", "minister_menu.py",
         "gift_views.py", "gift_redemption_results.py",
         "notification_system.py", "notification_schedule.py",
-        "bot_backup.py",
+        "bot_backup.py", "membership_tracking.py",
     }
     bad = []
     for f, cls in VIEWS:
