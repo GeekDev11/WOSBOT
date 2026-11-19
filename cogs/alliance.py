@@ -687,6 +687,15 @@ class Alliance(commands.Cog):
                 return
 
             alliance_name = alliance_data[0]
+            # Never delete an alliance belonging to another Discord server.
+            home = alliance_identity.verified_identity(alliance_id)
+            if (interaction.guild_id is None or not home or home[0] is None
+                    or int(home[0]) != int(interaction.guild_id)
+                    or not PermissionManager.can_access_alliance(
+                        interaction.user.id, interaction.guild_id, alliance_id)):
+                await interaction.response.send_message(
+                    "Alliance deletion: access denied for this server.", ephemeral=True)
+                return
 
             with sqlite3.connect('db/alliance.sqlite', timeout=30.0) as conn:
                 cursor = conn.cursor()
@@ -788,6 +797,15 @@ class Alliance(commands.Cog):
                         alliance_count = cursor.rowcount
 
                         conn.commit()
+
+                    # Remove movement cases and observations after the alliance row
+                    # has been deleted, so no old cases can appear in other servers.
+                    from . import membership_service
+                    try:
+                        await asyncio.to_thread(membership_service.purge_alliance, alliance_id)
+                    except Exception:
+                        logger.exception("Failed to purge membership tracking for deleted alliance %s", alliance_id)
+                        # The next bot startup will retry legacy-orphan cleanup.
 
                     cleanup_embed = discord.Embed(
                         title=f"{theme.verifiedIcon} Alliance Successfully Deleted",
