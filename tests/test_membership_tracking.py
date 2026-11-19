@@ -290,7 +290,7 @@ def test_membership_case_display_uses_current_home_roster_name(dbs):
 
 def test_unchanged_api_timestamp_preserves_previous_classification(dbs):
     m.observe(101,1,player(1501,777,"XYZ"),stamp(0))
-    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="stale"
+    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="unchanged"
     assert m.observation_summary([1])=={"review":1}
     assert len(m.list_cases([1]))==1
 
@@ -339,4 +339,34 @@ def test_changed_or_older_api_snapshot_does_not_upgrade_legacy_baseline(dbs):
                    (101,1,1600,555,"XYZ",stamp(2),stamp(2),"baseline_state"))
     assert m.observe(101,1,player(1600,444,"ABC"),stamp(2))=="stale"
     assert m.observe(101,1,player(1600,555,"XYZ"),stamp(1))=="stale"
+    assert m.list_cases([1])==[]
+
+
+def test_legacy_baseline_reclassified_using_stored_observation_when_api_cache_older(dbs):
+    import sqlite3
+    m.observe(101,1,player(1501,1,"VEN"),stamp(2))
+    with sqlite3.connect(dbs[0]) as db:
+        db.execute("UPDATE observations SET state_id=?,game_alliance_id=?,game_tag=?,status=? "
+                   "WHERE fid=?", (1600,7001,"XYZ","baseline_state",101))
+    # Cached provider response is older and contradictory: only the existing
+    # accepted observation can be used to upgrade the legacy classification.
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(1))=="state_transfer"
+    assert m.observation_summary([1])=={"state_transfer":1}
+    assert m.list_cases([1])[0]["to_state"]==1600
+    with sqlite3.connect(dbs[0]) as db:
+        row=db.execute("SELECT state_id,game_alliance_id,observed_at FROM observations WHERE fid=101").fetchone()
+    assert row==(1600,7001,stamp(2))
+    assert m.dashboard(10,[1])["active"]==1
+
+
+def test_same_snapshot_returns_unchanged_not_stale(dbs):
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(2))=="home"
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(2))=="unchanged"
+    assert m.list_cases([1])==[]
+    assert m.tracking_coverage([1])["results"]["unchanged"]==1
+
+
+def test_older_different_snapshot_remains_stale(dbs):
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(2))=="home"
+    assert m.observe(101,1,player(1600,7001,"XYZ"),stamp(1))=="stale"
     assert m.list_cases([1])==[]
