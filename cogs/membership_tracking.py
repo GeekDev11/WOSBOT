@@ -69,6 +69,10 @@ class TrackingView(discord.ui.View):
     async def transfers(self, interaction, button):
         await self.cog.show_cases(interaction, transfers_only=True)
 
+    @discord.ui.button(label="Movement History", emoji="📜", style=discord.ButtonStyle.secondary, row=2)
+    async def history(self, interaction, button):
+        await self.cog.show_history(interaction)
+
     @discord.ui.button(label="Tracking Settings", emoji="⚙️", style=discord.ButtonStyle.secondary, row=2)
     async def settings(self, interaction, button):
         await self.cog.show_settings(interaction)
@@ -399,6 +403,24 @@ class MembershipTracking(commands.Cog):
         embed=discord.Embed(title="🕒 Active Temporary Visits",
             description=("\n".join(lines) if lines else "No recorded temporary visitors.")+
                         "\n\nAll visitors remain active in their managed home roster.",
+            color=theme.emColor1)
+        await safe_edit_message(interaction,embed=embed,
+                                view=Subview(self,interaction.user.id),content=None)
+
+    async def show_history(self,interaction):
+        if not allowed(interaction):
+            return await deny(interaction)
+        ids,_=scope(interaction)
+        if not ids:
+            ids=[int(aid) for aid,_ in PermissionManager.get_admin_alliances(
+                interaction.user.id,interaction.guild_id)[0]]
+        history=await asyncio.to_thread(service.list_history,ids)
+        lines=[("#"+str(c["id"])+" · Chief "+str(c["fid"])+" · "+
+                str(c["decision"] or "resolved")+" · by "+str(c["decided_by"] or "system"))
+               for c in history]
+        embed=discord.Embed(title="📜 Membership Movement History",
+            description=("\n".join(lines) if lines else "No resolved movement cases yet.")+
+                        "\n\nAll decisions are preserved for audit, even when a member leaves.",
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
                                 view=Subview(self,interaction.user.id),content=None)
