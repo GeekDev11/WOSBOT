@@ -15,10 +15,16 @@ def dbs(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "DB", str(tracking))
     monkeypatch.setattr(m, "ALLIANCE_DB", str(alliance))
     monkeypatch.setattr(m, "USERS_DB", str(users))
+    from cogs import alliance_identity
+    monkeypatch.setattr(alliance_identity, "DB", str(alliance))
     with sqlite3.connect(alliance) as db:
         db.execute("CREATE TABLE alliance_list (alliance_id INTEGER,discord_server_id INTEGER,kid INTEGER,name TEXT)")
         db.executemany("INSERT INTO alliance_list VALUES (?,?,?,?)",
                        [(1,10,1501,"VEN"),(2,10,1501,"ABC"),(3,20,1600,"XYZ")])
+    alliance_identity.migrate()
+    with sqlite3.connect(alliance) as db:
+        db.execute("UPDATE alliance_list SET game_aid=1,game_tag='VEN' WHERE alliance_id=1")
+        db.execute("UPDATE alliance_list SET game_aid=2,game_tag='ABC' WHERE alliance_id=2")
     with sqlite3.connect(users) as db:
         db.execute("CREATE TABLE users (fid INTEGER PRIMARY KEY,alliance INTEGER,nickname TEXT)")
         db.execute("INSERT INTO users VALUES (101,1,'Chief')")
@@ -326,8 +332,8 @@ def test_legacy_baseline_matching_home_is_not_false_departure(dbs):
         db.execute("INSERT INTO observations "
                    "(fid,home_alliance,state_id,game_alliance_id,game_tag,observed_at,"
                    "first_seen_at,status) VALUES (?,?,?,?,?,?,?,?)",
-                   (101,1,1501,123,"VEN",stamp(0),stamp(0),"baseline"))
-    assert m.observe(101,1,player(1501,123,"VEN"),stamp(0))=="home"
+                   (101,1,1501,1,"VEN",stamp(0),stamp(0),"baseline"))
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(0))=="home"
     assert m.list_cases([1])==[]
 
 
@@ -402,3 +408,34 @@ def test_incomplete_alliance_without_aid_is_not_unaffiliated(dbs):
 def test_null_alliance_explicitly_and_without_fallback_is_unaffiliated(dbs):
     payload={"player":{"kid":1501,"alliance":None}}
     assert m.observe(101,1,payload,stamp(0))=="unaffiliated"
+
+
+def test_verified_game_identity_matches_aid_despite_display_name_and_tag_case(dbs):
+    from cogs import alliance_identity
+    with sqlite3.connect(dbs[1]) as db:
+        db.execute("UPDATE alliance_list SET name='BikiniGangFarms',game_tag='ven' WHERE alliance_id=1")
+    # AID is authoritative after verification even if game's tag changes.
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(0))=="home"
+    assert m.list_cases([1])==[]
+
+
+def test_unverified_home_does_not_guess_by_similar_display_name(dbs):
+    with sqlite3.connect(dbs[1]) as db:
+        db.execute("UPDATE alliance_list SET game_aid=NULL,game_tag=NULL WHERE alliance_id=1")
+    assert m.observe(101,1,player(1501,55,"ven"),stamp(0))=="unverified_home"
+    assert m.list_cases([1])==[]
+
+
+def test_linking_existing_identity_resolves_false_departure_case(dbs):
+    from cogs import alliance_identity
+    m.observe(101,1,player(1501,999,"EOS"),stamp(0))
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(1))=="home"
+    # Recreate previously opened case from older unverified tracking.
+    with sqlite3.connect(dbs[0]) as db:
+        db.execute("UPDATE observations SET status='review' WHERE fid=101")
+        db.execute("INSERT INTO movement_cases(fid,home_alliance,from_state,to_state,"
+                   "game_alliance_id,game_tag,category,observed_at,updated_at) "
+                   "VALUES (101,1,1501,1501,1,'VEN','review',?,?)",
+                   (stamp(1),stamp(1)))
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(1))=="home"
+    assert m.list_cases([1])==[]
