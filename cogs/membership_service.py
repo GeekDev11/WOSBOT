@@ -496,3 +496,16 @@ def list_history(allowed_alliances,limit=25):
             "SELECT * FROM movement_cases WHERE home_alliance IN ("+ph+") "
             "AND status='resolved' ORDER BY decided_at DESC LIMIT ?",
             (*ids,limit)).fetchall()]
+
+
+def current_visitors(home_alliance):
+    """Chief ID -> destination label; visitors stay in the regular users roster."""
+    home=home_info(home_alliance)
+    if not home or not is_enabled(home[0]):
+        return {}
+    with closing(connect()) as db:
+        rows=db.execute("SELECT fid,game_tag,game_alliance_id FROM visits "
+                        "WHERE home_alliance=? AND ended_at IS NULL",
+                        (home_alliance,)).fetchall()
+    return {int(r["fid"]): str(r["game_tag"] or r["game_alliance_id"] or "Unknown")
+            for r in rows}
