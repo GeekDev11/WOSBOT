@@ -666,6 +666,16 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
                 logger.warning("Player Sync: optional troop retrieval failed for %s: %s", fid, exc)
     else:
         logger.info(f"Player Sync: API has no data for {fid} (HTTP {answer.status})")
+        # A completed Player Sync can contain HTTP 404/other no-data profiles.
+        # Record this without interpreting it as a member leaving the alliance.
+        try:
+            from . import membership_service
+            home = await asyncio.to_thread(membership_service.home_info, int(alliance))
+            if home and await asyncio.to_thread(membership_service.is_enabled, home[0]):
+                await asyncio.to_thread(membership_service.record_attempt,
+                                        fid, int(alliance), "http_" + str(answer.status))
+        except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+            logger.warning("Membership no-data diagnostic failed for %s: %s", fid, exc)
         await asyncio.to_thread(mark_synced, fid, utc_now())
         await asyncio.to_thread(record_no_data, fid, alliance, result)
     result.checked += 1
