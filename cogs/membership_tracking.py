@@ -149,6 +149,39 @@ class RegistryModal(discord.ui.Modal, title="Add Temporary Alliance"):
         await self.cog.show_registry(interaction)
 
 
+
+class RuleScopePickView(Subview):
+    def __init__(self,cog,owner,choices,state_wide):
+        super().__init__(cog,owner)
+        self.state_wide=state_wide
+        options=[discord.SelectOption(
+            label=(("State "+str(value)) if state_wide else name)[:100],
+            value=str(value)) for value,name in choices[:25]]
+        picker=discord.ui.Select(
+            placeholder=("Choose state" if state_wide else "Choose home alliance"),
+            options=options,row=0)
+        async def select(interaction):
+            aid=int(picker.values[0])
+            if state_wide:
+                if not allowed(interaction,server=True):
+                    return await deny(interaction)
+                current_states={int(row[1]) for _,_name in visible_alliances(interaction)
+                                if (row:=service.home_info(_)) and row[1] is not None}
+                if aid not in current_states:
+                    return await deny(interaction)
+                await interaction.response.send_modal(RegistryModal(cog,aid))
+            else:
+                if not allowed(interaction,aid):
+                    return await deny(interaction)
+                home=service.home_info(aid)
+                if not home or home[1] is None:
+                    return await interaction.response.send_message(
+                        "This alliance has no home state set.",ephemeral=True)
+                await interaction.response.send_modal(RegistryModal(cog,int(home[1]),aid))
+        picker.callback=select
+        self.add_item(picker)
+
+
 class RegistryView(Subview):
     def __init__(self, cog, owner, rules, states, own_alliances, elevated):
         super().__init__(cog, owner)
@@ -179,12 +212,26 @@ class RegistryView(Subview):
             return await interaction.response.send_message(
                 "Set an alliance home state before adding a temporary destination.",
                 ephemeral=True)
-        await interaction.response.send_modal(RegistryModal(self.cog,self.states[0]))
+        if len(self.states)==1:
+            return await interaction.response.send_modal(RegistryModal(self.cog,self.states[0]))
+        embed=discord.Embed(title="Choose State",
+            description="Select a managed state for the temporary alliance rule.",
+            color=theme.emColor1)
+        await safe_edit_message(interaction,embed=embed,
+            view=RuleScopePickView(self.cog,interaction.user.id,
+                [(state,str(state)) for state in self.states],True),content=None)
 
     @discord.ui.button(label="Add for My Alliance", style=discord.ButtonStyle.secondary, row=0)
     async def add_scoped(self, interaction, button):
         if not self.own_alliances:
             return await deny(interaction)
+        if len(self.own_alliances)>1:
+            choices=[(aid,str(aid)) for aid in self.own_alliances]
+            embed=discord.Embed(title="Choose Home Alliance",
+                description="The temporary approval will apply to the selected home alliance only.",
+                color=theme.emColor1)
+            return await safe_edit_message(interaction,embed=embed,
+                view=RuleScopePickView(self.cog,interaction.user.id,choices,False),content=None)
         aid=self.own_alliances[0]
         info=service.home_info(aid)
         if not info or info[1] is None:
