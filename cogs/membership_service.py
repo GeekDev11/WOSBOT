@@ -333,6 +333,9 @@ def observe(fid, home_alliance, payload, observed_at=None):
             _close_visit(db,fid,home_alliance,stamp)
             _close_case(db,fid,home_alliance,"returned",stamp)
         elif status in ("review","state_transfer","unaffiliated"):
+            # A prior approved visit ended when the player moved to an
+            # unapproved destination or another state; do not show it as active.
+            _close_visit(db,fid,home_alliance,stamp)
             current=db.execute("SELECT id FROM movement_cases WHERE fid=? AND home_alliance=? "
                                "AND status='pending'", (fid,home_alliance)).fetchone()
             if current:
@@ -448,6 +451,7 @@ def apply_roster_action(case_id, version, actor_id, source_alliances, action,
             db.rollback()
             return False
         stamp=now()
+        _close_visit(db,case["fid"],home,stamp)
         if action=="move":
             updated=db.execute("UPDATE home_users.users SET alliance=? WHERE fid=? AND alliance=?",
                                (int(destination_alliance),case["fid"],home)).rowcount
