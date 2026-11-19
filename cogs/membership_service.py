@@ -85,6 +85,15 @@ def initialize():
             );
             CREATE UNIQUE INDEX IF NOT EXISTS one_open_visit
                 ON visits(fid, home_alliance) WHERE ended_at IS NULL;
+            CREATE TABLE IF NOT EXISTS retired_members (
+                fid INTEGER NOT NULL,
+                home_alliance INTEGER NOT NULL,
+                case_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                retired_at TEXT NOT NULL,
+                PRIMARY KEY(fid, case_id)
+            );
             CREATE TABLE IF NOT EXISTS decisions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 case_id INTEGER NOT NULL,
@@ -368,3 +377,72 @@ def decide(case_id, version, actor_id, allowed_alliances, action, detail=""):
                    (case_id,row["fid"],row["home_alliance"],actor_id,action,detail[:200],stamp))
         db.commit()
         return True
+
+
+def apply_roster_action(case_id, version, actor_id, source_alliances, action,
+                        destination_alliance=None, destination_alliances=()):
+    """Confirmed, version-guarded roster mutation with a recovery snapshot.
+
+    Both permission scopes are supplied by the UI after guild-aware authorization.
+    The users database and action journal share one SQLite ATTACH transaction.
+    """
+    if action not in ("move", "archive", "remove"):
+        raise ValueError("Invalid roster action")
+    initialize()
+    with closing(connect()) as db:
+        db.execute("ATTACH DATABASE ? AS home_users", (USERS_DB,))
+        db.execute("BEGIN IMMEDIATE")
+        case=db.execute("SELECT * FROM movement_cases WHERE id=? AND status='pending' AND version=?",
+                        (case_id,version)).fetchone()
+        if not case or int(case["home_alliance"]) not in set(map(int,source_alliances)):
+            db.rollback()
+            return False
+        home=int(case["home_alliance"])
+        if action=="move":
+            if (destination_alliance is None or
+                int(destination_alliance)==home or
+                int(destination_alliance) not in set(map(int,destination_alliances))):
+                db.rollback()
+                return False
+        member=db.execute("SELECT * FROM home_users.users WHERE fid=? AND alliance=?",
+                          (case["fid"],home)).fetchone()
+        if member is None:
+            db.rollback()
+            return False
+        stamp=now()
+        if action=="move":
+            updated=db.execute("UPDATE home_users.users SET alliance=? WHERE fid=? AND alliance=?",
+                               (int(destination_alliance),case["fid"],home)).rowcount
+            detail="Moved to managed alliance "+str(destination_alliance)
+        else:
+            snapshot={k:member[k] for k in member.keys()}
+            db.execute("INSERT INTO retired_members(fid,home_alliance,case_id,action,snapshot_json,retired_at) "
+                       "VALUES (?,?,?,?,?,?)",
+                       (case["fid"],home,case_id,action,json.dumps(snapshot,default=str),stamp))
+            updated=db.execute("DELETE FROM home_users.users WHERE fid=? AND alliance=?",
+                               (case["fid"],home)).rowcount
+            detail="Retained recoverable roster snapshot"
+        if updated!=1:
+            db.rollback()
+            return False
+        db.execute("UPDATE movement_cases SET status='resolved',decision=?,decided_by=?,"
+                   "decided_at=?,updated_at=?,version=version+1 WHERE id=?",
+                   (action,actor_id,stamp,stamp,case_id))
+        db.execute("INSERT INTO decisions(case_id,fid,home_alliance,actor_id,action,detail,created_at) "
+                   "VALUES (?,?,?,?,?,?,?)",
+                   (case_id,case["fid"],home,actor_id,action,detail,stamp))
+        db.commit()
+        return True
+
+
+def list_history(allowed_alliances,limit=25):
+    initialize()
+    ids=list(map(int,allowed_alliances))
+    if not ids:
+        return []
+    ph=",".join("?" for _ in ids)
+    with closing(connect()) as db:
+        return [dict(r) for r in db.execute(
+            "SELECT * FROM movement_cases WHERE home_alliance IN ("+ph+") "
+            "AND status='resolved' ORDER BY decided_at DESC LIMIT ?",
+            (*ids,limit)).fetchall()]
