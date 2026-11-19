@@ -144,3 +144,18 @@ def test_individual_temporary_remains_exempt_on_next_sync(dbs):
     assert m.decide(case["id"],case["version"],42,[1],"temporary")
     assert m.observe(101,1,player(1501,777,"XYZ"),stamp(2))=="temporary"
     assert m.list_cases([1])==[]
+
+
+def test_explicitly_unaffiliated_player_generates_review(dbs):
+    m.observe(101,1,player(1501,1,"VEN"),stamp(0))
+    assert m.observe(101,1,{"player":{"kid":1501,"alliance":None}},stamp(1))=="unaffiliated"
+    case=m.list_cases([1])[0]
+    assert case["category"]=="unaffiliated"
+    assert m.dashboard(10,[1])["active"]==1
+    assert not m.decide(case["id"],case["version"],42,[1],"temporary")
+
+
+def test_omitted_alliance_field_is_not_departure_evidence(dbs):
+    m.observe(101,1,player(1501,1,"VEN"),stamp(0))
+    assert m.observe(101,1,{"player":{"kid":1501}},stamp(1))=="unknown"
+    assert m.list_cases([1])==[]
