@@ -83,6 +83,10 @@ class TrackingView(discord.ui.View):
     async def transfers(self, interaction, button):
         await self.cog.show_cases(interaction, transfers_only=True)
 
+    @discord.ui.button(label="Reconcile Now", emoji="🔄", style=discord.ButtonStyle.secondary, row=2)
+    async def reconcile(self, interaction, button):
+        await self.cog.open_reconcile(interaction)
+
     @discord.ui.button(label="Movement History", emoji="📜", style=discord.ButtonStyle.secondary, row=2)
     async def history(self, interaction, button):
         await self.cog.show_history(interaction)
@@ -99,6 +103,34 @@ class TrackingView(discord.ui.View):
     @discord.ui.button(label="Main Menu", emoji="🏠", style=discord.ButtonStyle.secondary, row=3)
     async def home(self, interaction, button):
         await self.cog.bot.get_cog("MainMenu").show_main_menu(interaction)
+
+
+class ReconcilePickView(discord.ui.View):
+    def __init__(self,cog,owner,alliances):
+        super().__init__(timeout=menu_timeout())
+        self.cog,self.owner=cog,owner
+        picker=discord.ui.Select(placeholder="Choose alliance to reconcile",
+            options=[discord.SelectOption(label=name[:80],value=str(aid))
+                     for aid,name in alliances[:25]],row=0)
+        async def selected(interaction):
+            if interaction.user.id!=owner or not allowed(interaction,server=True):
+                return await deny(interaction)
+            aid=int(picker.values[0])
+            if aid not in {a for a,_ in visible_alliances(interaction)}:
+                return await deny(interaction)
+            await cog.queue_reconcile(interaction,aid)
+        picker.callback=selected
+        self.add_item(picker)
+
+    async def interaction_check(self,interaction):
+        if interaction.user.id!=self.owner or not allowed(interaction,server=True):
+            await deny(interaction)
+            return False
+        return True
+
+    @discord.ui.button(label="Back to Tracking",style=discord.ButtonStyle.secondary,row=1)
+    async def back(self,interaction,button):
+        await self.cog.show_tracking(interaction)
 
 
 class Subview(discord.ui.View):
@@ -407,6 +439,34 @@ class MembershipTracking(commands.Cog):
     def __init__(self,bot):
         self.bot=bot
         service.initialize()
+
+    async def queue_reconcile(self,interaction,alliance_id):
+        if not allowed(interaction,alliance_id,server=True):
+            return await deny(interaction)
+        api=self.bot.get_cog("AllianceApiSync")
+        if api is None:
+            return await interaction.response.send_message(
+                "Player Sync is not loaded.",ephemeral=True)
+        result=api.queue_sync(alliance_id=alliance_id)
+        labels={"queued":"Reconciliation queued through Player Sync.",
+                "busy":"A Player Sync run is already queued or active.",
+                "unavailable":"The bot process queue is unavailable."}
+        await interaction.response.send_message(labels.get(result,str(result)),ephemeral=True)
+
+    async def open_reconcile(self,interaction):
+        if not allowed(interaction,server=True):
+            return await deny(interaction)
+        allies=visible_alliances(interaction)
+        if not allies:
+            return await interaction.response.send_message("No managed alliances on this server.",ephemeral=True)
+        if len(allies)==1:
+            return await self.queue_reconcile(interaction,allies[0][0])
+        embed=discord.Embed(title="Reconcile Members",
+            description="Choose a managed alliance. This runs the existing Player Sync "
+                        "and uses its API quota and request budget.",
+            color=theme.emColor1)
+        await safe_edit_message(interaction,embed=embed,
+            view=ReconcilePickView(self,interaction.user.id,allies),content=None)
 
     async def show_tracking(self,interaction):
         if not allowed(interaction):
