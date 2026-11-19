@@ -562,12 +562,23 @@ class MembershipTracking(commands.Cog):
         coverage=await asyncio.to_thread(service.tracking_coverage,ids)
         enabled=await asyncio.to_thread(service.is_enabled,interaction.guild_id)
         remaining=max(0,stats["active"]-coverage["observed"])
+        attempted=coverage["attempted"]
+        rejected={key:count for key,count in coverage["results"].items()
+                  if key in ("missing_player","missing_alliance","invalid_alliance",
+                             "missing_aid","missing_state","invalid_identity",
+                             "stale_api","invalid_timestamp","unknown",
+                             "membership_changed","error")}
+        diagnostics=(", ".join(str(count)+" "+key.replace("_"," ")
+                               for key,count in sorted(rejected.items()))
+                     if rejected else "None reported")
         status=("Monitoring enabled" if enabled else "OFF — enable in Tracking Settings")
         instructions=(
             "Tracking is OFF. The alliance's State Lock does not enable movement detection. "
             "Open Tracking Settings to enable it, then use Sync Now."
             if not enabled else
-            ("No API membership observations yet. Use Sync Now to check your managed members."
+            (("No usable API membership observations yet. " +
+              ("Sync responded, but membership fields were missing or stale. Review the diagnostics above."
+               if attempted else "Use Sync Now to check your managed members."))
              if coverage["observed"]==0 else
              ("Some members still need observations. Use Sync Now to check them."
               if remaining else
@@ -576,8 +587,10 @@ class MembershipTracking(commands.Cog):
         embed=discord.Embed(title="🛡️ Membership Tracking",
             description=("**Status:** "+status+"\n"
                          "**Active home members:** "+str(stats["active"])+"\n"
-                         "**Members with observations:** "+str(coverage["observed"])+"\n"
+                         "**Members with usable observations:** "+str(coverage["observed"])+"\n"
+                         "**Members attempted by tracking:** "+str(attempted)+"\n"
                          "**Not yet observed:** "+str(remaining)+"\n"
+                         "**Unclassified responses:** "+diagnostics+"\n"
                          "**Last API observation:** "+str(coverage["latest"] or "None")+"\n"
                          "**Temporary visits:** "+str(stats["visiting"])+" (included in active)\n"
                          "**Pending cases:** "+str(stats["pending"])+"\n"
