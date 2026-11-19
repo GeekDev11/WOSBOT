@@ -43,6 +43,15 @@ def initialize():
                 created_at TEXT NOT NULL,
                 UNIQUE(guild_id, state_id, game_alliance_id, scope_alliance_id)
             );
+            CREATE TABLE IF NOT EXISTS tracking_attempts (
+                fid INTEGER NOT NULL,
+                home_alliance INTEGER NOT NULL,
+                result TEXT NOT NULL,
+                checked_at TEXT NOT NULL,
+                PRIMARY KEY(fid, home_alliance)
+            );
+            CREATE INDEX IF NOT EXISTS tracking_attempts_home_idx
+                ON tracking_attempts(home_alliance, result);
             CREATE TABLE IF NOT EXISTS observations (
                 fid INTEGER PRIMARY KEY,
                 home_alliance INTEGER NOT NULL,
@@ -230,7 +239,26 @@ def _close_case(db, fid, home, reason, stamp):
                (reason,stamp,stamp,fid,home))
 
 
+def record_attempt(fid, home_alliance, result):
+    """Track sync coverage even when the response cannot be classified."""
+    initialize()
+    with closing(connect()) as db:
+        db.execute("INSERT INTO tracking_attempts(fid,home_alliance,result,checked_at) "
+                   "VALUES (?,?,?,?) ON CONFLICT(fid,home_alliance) DO UPDATE SET "
+                   "result=excluded.result,checked_at=excluded.checked_at",
+                   (int(fid),int(home_alliance),str(result)[:50],now()))
+        db.commit()
+
+
 def observe(fid, home_alliance, payload, observed_at=None):
+    """Return a classified observation and store diagnostics for every enabled sync."""
+    status = _observe_core(fid, home_alliance, payload, observed_at)
+    if status != "disabled":
+        record_attempt(fid,home_alliance,status)
+    return status
+
+
+def _observe_core(fid, home_alliance, payload, observed_at=None):
     """Consume successful API data; uncertain/missing alliance identity is not a departure."""
     home = home_info(home_alliance)
     if not home or home[0] is None or home[1] is None or not is_enabled(home[0]):
@@ -240,9 +268,9 @@ def observe(fid, home_alliance, payload, observed_at=None):
     initialize()
     player = payload.get("player", payload) if isinstance(payload,dict) else None
     if not isinstance(player,dict):
-        return "unknown"
+        return "missing_player"
     if "alliance" not in player:
-        return "unknown"  # omitted API section is not proof of leaving
+        return "missing_alliance"  # omitted API section is not proof of leaving
     data=player["alliance"]
     if data is None:
         aid=0  # explicitly unaffiliated
@@ -254,13 +282,13 @@ def observe(fid, home_alliance, payload, observed_at=None):
         aid=int(raw)
         tag=str(data.get("abbr") or data.get("tag") or "")[:20]
     else:
-        return "unknown"
+        return "invalid_alliance"
     state=player.get("kid",player.get("state"))
     if not isinstance(state,(int,str)) or not str(state).isdigit():
-        return "unknown"
+        return "missing_state"
     state,guild,home_state=int(state),int(home[0]),int(home[1])
     if aid<0 or state<=0:
-        return "unknown"
+        return "invalid_identity"
     stamp=observed_at or now()
     # Prefer the provider's observation timestamp to the local fetch time, so
     # repeated cached responses cannot falsely count as new confirmations.
@@ -279,10 +307,10 @@ def observe(fid, home_alliance, payload, observed_at=None):
             if measured is not None:
                 age=datetime.now(timezone.utc)-measured
                 if age>timedelta(hours=6) or age<timedelta(minutes=-5):
-                    return "stale"
+                    return "stale_api"
                 stamp=measured.astimezone(timezone.utc).isoformat(timespec="seconds")
         except (ValueError,TypeError,OverflowError,OSError):
-            return "unknown"
+            return "invalid_timestamp"
     with closing(connect()) as db:
         old=db.execute("SELECT * FROM observations WHERE fid=?", (fid,)).fetchone()
         if old and old["observed_at"] >= stamp:
@@ -384,17 +412,22 @@ def dashboard(guild_id, allowed_alliances):
 
 
 def tracking_coverage(allowed_alliances):
-    """How many home members have a usable, stored API membership observation."""
+    """Accepted observations and attempted syncs are counted separately."""
     ids=list(map(int,allowed_alliances))
     if not ids:
-        return {"observed":0,"latest":None}
+        return {"observed":0,"latest":None,"attempted":0,"results":{}}
     initialize()
     ph=",".join("?" for _ in ids)
     with closing(connect()) as db:
         row=db.execute(
             "SELECT COUNT(*), MAX(observed_at) FROM observations "
             "WHERE home_alliance IN ("+ph+")",ids).fetchone()
-    return {"observed":int(row[0]),"latest":row[1]}
+        attempts=db.execute(
+            "SELECT result, COUNT(*) FROM tracking_attempts "
+            "WHERE home_alliance IN ("+ph+") GROUP BY result",ids).fetchall()
+    return {"observed":int(row[0]),"latest":row[1],
+            "attempted":sum(int(r[1]) for r in attempts),
+            "results":{str(r[0]):int(r[1]) for r in attempts}}
 
 
 def list_cases(allowed_alliances, status="pending", limit=25, offset=0, category=None):
