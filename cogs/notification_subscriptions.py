@@ -161,15 +161,19 @@ class AlertPicker(discord.ui.View):
 class NotificationSubscriptions(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        with _connection() as conn:
-            pass
-
-    def available_roles(self, guild: discord.Guild):
+        # Cache mappings: the notification scheduler can run many times per second.
         with _connection() as conn:
             rows = conn.execute(
-                "SELECT event_type, role_id FROM notification_subscription_roles WHERE guild_id = ? ORDER BY event_type",
-                (guild.id,),
+                "SELECT guild_id, event_type, role_id FROM notification_subscription_roles"
             ).fetchall()
+        self._role_mapping = {(guild_id, event): role_id for guild_id, event, role_id in rows}
+
+    def available_roles(self, guild: discord.Guild):
+        rows = sorted(
+            (event, role_id)
+            for (guild_id, event), role_id in self._role_mapping.items()
+            if guild_id == guild.id
+        )
         return [
             (event, role)
             for event, role_id in rows
@@ -178,12 +182,7 @@ class NotificationSubscriptions(commands.Cog):
         ]
 
     def role_for_event(self, guild_id: int, event_type: str):
-        with _connection() as conn:
-            row = conn.execute(
-                "SELECT role_id FROM notification_subscription_roles WHERE guild_id = ? AND event_type = ?",
-                (guild_id, event_type or "Custom"),
-            ).fetchone()
-        return row[0] if row else None
+        return self._role_mapping.get((guild_id, event_type or "Custom"))
 
     def summary(self, member: discord.Member):
         entries = self.available_roles(member.guild)
@@ -238,6 +237,7 @@ class NotificationSubscriptions(commands.Cog):
                 "ON CONFLICT(guild_id, event_type) DO UPDATE SET role_id=excluded.role_id",
                 (interaction.guild_id, event, role.id),
             )
+        self._role_mapping[(interaction.guild_id, event)] = role.id
         await interaction.response.send_message(
             f"**{event}** notifications now mention {role.mention}.\n"
             "Members can subscribe or unsubscribe with **/alerts**. "
@@ -261,6 +261,7 @@ class NotificationSubscriptions(commands.Cog):
                 "DELETE FROM notification_subscription_roles WHERE guild_id = ? AND event_type = ?",
                 (interaction.guild_id, event),
             )
+        self._role_mapping.pop((interaction.guild_id, event), None)
         await interaction.response.send_message(
             f"Removed subscription role mapping for **{event}** ({cur.rowcount} mapping removed). "
             "The original notification mention setting now applies again.",
