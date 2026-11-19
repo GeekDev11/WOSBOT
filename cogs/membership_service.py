@@ -378,16 +378,18 @@ def dashboard(guild_id, allowed_alliances):
     return dict(active=active,visiting=visiting,pending=pending,transfers=transfers)
 
 
-def list_cases(allowed_alliances, status="pending", limit=25):
+def list_cases(allowed_alliances, status="pending", limit=25, offset=0, category=None):
     initialize()
     ids=list(map(int,allowed_alliances))
     if not ids:
         return []
     ph=",".join("?" for _ in ids)
+    clause=" AND category=?" if category else ""
+    args=(*ids,status,*((category,) if category else ()),limit,offset)
     with closing(connect()) as db:
         return [dict(row) for row in db.execute(
             "SELECT * FROM movement_cases WHERE home_alliance IN ("+ph+") AND status=? "
-            "ORDER BY updated_at DESC LIMIT ?", (*ids,status,limit)).fetchall()]
+            +clause+" ORDER BY updated_at DESC LIMIT ? OFFSET ?",args).fetchall()]
 
 
 def list_visits(allowed_alliances, limit=25):
