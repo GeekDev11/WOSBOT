@@ -1028,6 +1028,8 @@ async def route(cog, interaction, section, key):
                 cog, interaction, "AllianceInsights", "show_alliance_insights", "Rankings & History")
         if key == "management":
             return await cog.show_alliance_admin_tools(interaction)
+        if key == "tracking":
+            return await open_cog(cog, interaction, "MembershipTracking", "show_tracking")
         if key == "settings":
             return await show_alliance_settings_entry(cog, interaction)
         return await open_section(cog, interaction, "alliance")
