@@ -134,6 +134,11 @@ def add_temporary(guild_id, state_id, aid, tag, actor_id, scope_alliance_id=None
     guild_id, state_id, aid = int(guild_id), int(state_id), int(aid)
     if min(guild_id, state_id, aid) <= 0 or not str(tag).strip():
         raise ValueError("Valid state, game alliance ID and tag are required")
+    with sqlite3.connect(ALLIANCE_DB) as adb:
+        managed = adb.execute("SELECT 1 FROM alliance_list WHERE discord_server_id=? AND kid=? LIMIT 1",
+                              (guild_id, state_id)).fetchone()
+    if not managed:
+        raise ValueError("This server does not manage an alliance in the selected state")
     if scope_alliance_id is not None:
         home = home_info(int(scope_alliance_id))
         if not home or int(home[0]) != guild_id or int(home[1]) != state_id:
@@ -243,8 +248,22 @@ def observe(fid, home_alliance, payload, observed_at=None):
             status="state_transfer"
         elif _temporary(db,guild,state,aid,home_alliance):
             status="temporary"
+        elif db.execute("SELECT 1 FROM visits WHERE fid=? AND home_alliance=? AND "
+                        "state_id=? AND game_alliance_id=? AND ended_at IS NULL "
+                        "AND origin='individual' LIMIT 1",
+                        (fid,home_alliance,state,aid)).fetchone():
+            status="temporary"
         elif old["state_id"]==state and old["game_alliance_id"]==aid:
-            status=old["status"]
+            if old["status"] == "temporary":
+                status="review"  # revoked state-wide temporary approval
+            elif old["status"] in ("review","state_transfer"):
+                resolved=db.execute("SELECT decision FROM movement_cases WHERE fid=? AND "
+                                    "home_alliance=? AND status='resolved' AND "
+                                    "game_alliance_id=? AND to_state=? ORDER BY id DESC LIMIT 1",
+                                    (fid,home_alliance,aid,state)).fetchone()
+                status="kept" if resolved and resolved["decision"]=="keep" else old["status"]
+            else:
+                status=old["status"]
         elif tag and tag.casefold()==str(home[2]).casefold():
             status="home"
         else:
@@ -327,6 +346,9 @@ def decide(case_id, version, actor_id, allowed_alliances, action, detail=""):
         row=db.execute("SELECT * FROM movement_cases WHERE id=? AND status='pending' AND version=?",
                        (case_id,version)).fetchone()
         if not row or int(row["home_alliance"]) not in set(map(int,allowed_alliances)):
+            db.rollback()
+            return False
+        if action=="temporary" and (row["category"]=="state_transfer" or not row["game_alliance_id"]):
             db.rollback()
             return False
         stamp=now()
