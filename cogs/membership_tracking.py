@@ -25,12 +25,8 @@ def allowed(interaction, alliance_id=None, server=False):
     if server and not high:
         return False
     if alliance_id is not None:
-        if high:
-            if server:
-                return True
-            return PermissionManager.can_access_alliance(
-                interaction.user.id, interaction.guild_id, alliance_id)
-        return int(alliance_id) in ids
+        return PermissionManager.can_access_alliance(
+            interaction.user.id, interaction.guild_id, alliance_id)
     return bool(ids) or high
 
 
