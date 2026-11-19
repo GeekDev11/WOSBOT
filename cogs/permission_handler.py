@@ -70,6 +70,23 @@ class PermissionManager:
         return is_admin, is_global
 
     @staticmethod
+    def is_global_admin(user_id: int, guild_id: int | None = None) -> bool:
+        """Global permission for this interaction's guild (personal globals work in DMs)."""
+        admin_map = PermissionManager._admin_map()
+        if admin_map.get(int(user_id)) == 1:
+            return True
+        grant = PermissionManager._cached_role_grant(user_id)
+        return bool(guild_id is not None and grant
+                    and grant.get("guild_id") == guild_id
+                    and grant.get("is_global"))
+
+    @staticmethod
+    def can_access_alliance(user_id: int, guild_id: int | None, alliance_id: int) -> bool:
+        """Enforce alliance scope at the operation, not just when constructing menus."""
+        ids, is_global = PermissionManager.get_admin_alliance_ids(user_id, guild_id)
+        return is_global or int(alliance_id) in set(map(int, ids))
+
+    @staticmethod
     def get_admin_alliance_ids(user_id: int, guild_id: int) -> Tuple[List[int], bool]:
         """Return only personal grants and role grants from the requested guild.
 
@@ -107,7 +124,18 @@ class PermissionManager:
                 ).fetchall()], False
 
         role_ids = role_grant["alliance_ids"] if role_grant else []
-        return sorted(set(user_assigned) | set(role_ids)), False
+        assigned = sorted(set(map(int, user_assigned)) | set(map(int, role_ids)))
+        if guild_id is None or not assigned:
+            return [], False
+        # Reject assignments for alliances hosted by another Discord server.
+        with closing(sqlite3.connect(PermissionManager.ALLIANCE_DB)) as adb:
+            placeholders = ",".join("?" for _ in assigned)
+            rows = adb.execute(
+                f"SELECT alliance_id FROM alliance_list WHERE discord_server_id = ? "
+                f"AND alliance_id IN ({placeholders})",
+                (guild_id, *assigned),
+            ).fetchall()
+        return sorted(int(row[0]) for row in rows), False
 
     @staticmethod
     def get_admin_alliances(user_id: int, guild_id: int) -> Tuple[List[Tuple], bool]:
