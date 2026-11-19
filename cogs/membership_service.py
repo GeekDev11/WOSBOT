@@ -118,6 +118,41 @@ def initialize():
         db.commit()
 
 
+
+def purge_alliance(alliance_id):
+    """Delete tracking data for a removed managed alliance, including case history."""
+    initialize()
+    aid = int(alliance_id)
+    with closing(connect()) as db:
+        db.execute("BEGIN IMMEDIATE")
+        for table in ("tracking_attempts", "observations", "movement_cases",
+                      "visits", "retired_members", "decisions"):
+            db.execute("DELETE FROM " + table + " WHERE home_alliance=?", (aid,))
+        db.execute("DELETE FROM temporary_alliances WHERE scope_alliance_id=?", (aid,))
+        db.commit()
+
+
+def prune_deleted_alliances():
+    """Remove legacy orphan tracking data without touching active alliances."""
+    if not os.path.isfile(ALLIANCE_DB):
+        return
+    initialize()
+    with sqlite3.connect(ALLIANCE_DB, timeout=30) as adb:
+        existing = {int(row[0]) for row in adb.execute(
+            "SELECT alliance_id FROM alliance_list")}
+    with closing(connect()) as db:
+        orphans = set()
+        for table in ("tracking_attempts", "observations", "movement_cases",
+                      "visits", "retired_members", "decisions"):
+            orphans.update(int(row[0]) for row in db.execute(
+                "SELECT DISTINCT home_alliance FROM " + table))
+        orphans.update(int(row[0]) for row in db.execute(
+            "SELECT DISTINCT scope_alliance_id FROM temporary_alliances "
+            "WHERE scope_alliance_id IS NOT NULL"))
+    for aid in sorted(orphans - existing):
+        purge_alliance(aid)
+
+
 def is_enabled(guild_id):
     if guild_id is None or not os.path.isfile(DB):
         return False
