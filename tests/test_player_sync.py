@@ -1511,3 +1511,27 @@ def test_load_connection_does_not_guess_paid_or_standard_plan(monkeypatch):
     read, key = sync.load_connection()
     assert read["per_minute"] == 30 and read["per_day"] == 1000
     assert key == "example-key"
+
+
+def test_whiteoutstats_player_sync_includes_base_without_extra_requests():
+    from urllib.parse import parse_qs,urlsplit
+    profile=_profile(base_url="https://api.whiteoutstats.com",
+                     player_path="/v1/players/{id}?include=heroes&wait=20")
+    url=sync.player_url(profile,123)
+    query=parse_qs(urlsplit(url).query)
+    assert query["include"]==["base,heroes"]
+    assert query["wait"]==["20"]
+    assert profile["player_path"]=="/v1/players/{id}?include=heroes&wait=20"
+
+
+def test_whiteoutstats_player_sync_does_not_duplicate_base_section():
+    from urllib.parse import parse_qs,urlsplit
+    profile=_profile(base_url="https://api.whiteoutstats.com",
+                     player_path="/v1/players/{id}?include=base,heroes")
+    url=sync.player_url(profile,456)
+    assert parse_qs(urlsplit(url).query)["include"]==["base,heroes"]
+
+
+def test_custom_provider_player_sync_url_is_unchanged():
+    profile=_profile(player_path="/v1/players/{id}?include=heroes")
+    assert sync.player_url(profile,789)=="https://api.example.com/v1/players/789?include=heroes"
