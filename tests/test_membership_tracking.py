@@ -159,3 +159,36 @@ def test_omitted_alliance_field_is_not_departure_evidence(dbs):
     m.observe(101,1,player(1501,1,"VEN"),stamp(0))
     assert m.observe(101,1,{"player":{"kid":1501}},stamp(1))=="unknown"
     assert m.list_cases([1])==[]
+
+
+def test_enabled_tracking_blocks_legacy_player_sync_auto_removal(dbs,monkeypatch):
+    import asyncio
+    from cogs import alliance_api_sync as sync
+    monkeypatch.setattr(m,"home_info",lambda aid:(10,1501,"VEN"))
+    monkeypatch.setattr(m,"is_enabled",lambda guild:True)
+    monkeypatch.setattr(sync,"_write_state",lambda fid,kid:True)
+
+    async def unexpected(*args,**kwargs):
+        raise AssertionError("legacy automatic removal must not run")
+
+    monkeypatch.setattr(sync,"maybe_remove_transferred_member",unexpected)
+    result=sync.RunResult(transfers=[sync.Transfer("1",101,"Chief",1600,pending=True)])
+    assert asyncio.run(sync.remove_transfers(None,result))==set()
+    assert result.kingdom_changed==[101]
+
+
+def test_tracking_does_not_allow_cross_server_temporary_registry(dbs):
+    with pytest.raises(ValueError):
+        m.add_temporary(10,1600,8001,"XYZ",42)
+    with pytest.raises(ValueError):
+        m.add_temporary(10,1501,8001,"S01",42,scope_alliance_id=3)
+
+
+def test_approved_visit_to_unregistered_destination_closes_visit(dbs):
+    m.add_temporary(10,1501,9001,"S01",42)
+    m.observe(101,1,player(1501,1,"VEN"),stamp(0))
+    m.observe(101,1,player(1501,9001,"S01"),stamp(1))
+    assert m.dashboard(10,[1])["visiting"]==1
+    assert m.observe(101,1,player(1501,888,"XYZ"),stamp(2))=="review"
+    assert m.dashboard(10,[1])["visiting"]==0
+    assert len(m.list_cases([1]))==1
