@@ -141,9 +141,7 @@ class MainMenu(commands.Cog):
         return discord.Embed(
             title=f"{theme.settingsIcon} Stalker 2.0 · Command Center",
             description=(
-                "**Choose a center below.**\n"
-                "Select your destination, then choose a tool from its dropdown.\n\n"
-                "_Your existing commands, records and permissions are preserved._"
+                "Choose a command center."
             ),
             color=theme.emColor1,
         )
@@ -357,11 +355,7 @@ class MainMenu(commands.Cog):
             description = (
                 "**Manage Alliances**\n"
                 + "\n".join(overview_lines) + "\n\n"
-                "Pick an alliance or use Add Alliance, Self-Registration, "
-                "Transfer Members or Member States below.\n"
-                "Export Members is under Members & Imports; Player Sync is "
-                "under Administration.\n"
-                "Main Menu returns to the five-center layout."
+                "Choose an alliance or an action below."
             )
             if not alliances_with_counts:
                 description += (
@@ -558,10 +552,7 @@ class MainMenu(commands.Cog):
             embed = discord.Embed(
                 title=f"{theme.robotIcon} Administration · Maintenance Tools",
                 description=(
-                    "Check updates, manage bot presence, configure external OCR, "
-                    "or find support and project information.\n\n"
-                    "Backup, Health, Profile and Server Settings have their own "
-                    "Administration entries."
+                    "Bot updates, presence and support."
                 ),
                 color=theme.emColor1,
             )
