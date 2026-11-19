@@ -79,9 +79,9 @@ class TrackingView(discord.ui.View):
     async def transfers(self, interaction, button):
         await self.cog.show_cases(interaction, transfers_only=True)
 
-    @discord.ui.button(label="Reconcile Now", emoji="🔄", style=discord.ButtonStyle.secondary, row=2)
-    async def reconcile(self, interaction, button):
-        await self.cog.open_reconcile(interaction)
+    @discord.ui.button(label="Sync Now", emoji="🔄", style=discord.ButtonStyle.secondary, row=2)
+    async def sync_now(self, interaction, button):
+        await self.cog.open_sync(interaction)
 
     @discord.ui.button(label="Movement History", emoji="📜", style=discord.ButtonStyle.secondary, row=2)
     async def history(self, interaction, button):
@@ -105,7 +105,7 @@ class ReconcilePickView(discord.ui.View):
     def __init__(self,cog,owner,alliances):
         super().__init__(timeout=menu_timeout())
         self.cog,self.owner=cog,owner
-        picker=discord.ui.Select(placeholder="Choose alliance to reconcile",
+        picker=discord.ui.Select(placeholder="Choose alliance to sync",
             options=[discord.SelectOption(label=name[:80],value=str(aid))
                      for aid,name in alliances[:25]],row=0)
         async def selected(interaction):
@@ -114,7 +114,7 @@ class ReconcilePickView(discord.ui.View):
             aid=int(picker.values[0])
             if aid not in {a for a,_ in visible_alliances(interaction)}:
                 return await deny(interaction)
-            await cog.queue_reconcile(interaction,aid)
+            await cog.queue_membership_sync(interaction,aid)
         picker.callback=selected
         self.add_item(picker)
 
@@ -149,33 +149,105 @@ class Subview(discord.ui.View):
         await self.cog.bot.get_cog("MainMenu").show_main_menu(interaction)
 
 
+class RegistryConfirmView(discord.ui.View):
+    """User-bound confirmation for the AID resolved by the official API."""
+    def __init__(self, cog, owner, guild_id, resolved, scope_alliance_id):
+        super().__init__(timeout=confirm_timeout())
+        self.cog, self.owner, self.guild_id = cog, owner, guild_id
+        self.resolved, self.scope_alliance_id = resolved, scope_alliance_id
+
+    async def interaction_check(self, interaction):
+        if (interaction.user.id != self.owner or interaction.guild_id != self.guild_id
+                or not allowed(interaction, self.scope_alliance_id,
+                               server=self.scope_alliance_id is None)):
+            await deny(interaction)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm Temporary Alliance", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction, button):
+        state = self.resolved.state_id
+        managed = visible_alliances(interaction)
+        if self.scope_alliance_id is None:
+            states = {int(info[1]) for aid, _ in managed
+                      if (info := service.home_info(aid)) and info[1] is not None}
+            if state not in states:
+                return await deny(interaction)
+        else:
+            home = service.home_info(self.scope_alliance_id)
+            if (not home or int(home[0]) != self.guild_id or
+                    home[1] is None or int(home[1]) != state):
+                return await deny(interaction)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await asyncio.to_thread(service.add_temporary, self.guild_id, state,
+                                    self.resolved.aid, self.resolved.tag,
+                                    interaction.user.id, self.scope_alliance_id)
+        except (ValueError, TypeError, OSError) as exc:
+            return await interaction.followup.send(
+                "Unable to register this alliance: " + str(exc), ephemeral=True)
+        self.disable_all_items()
+        await interaction.followup.send(
+            "Registered **" + _preview(self.resolved.tag) + "** in State **" +
+            str(state) + "** as " +
+            ("state-wide" if self.scope_alliance_id is None else "home-alliance-only") +
+            ". Home roster memberships remain unchanged.", ephemeral=True)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        self.disable_all_items()
+        await interaction.response.send_message(
+            "Registration cancelled. Nothing was saved.", ephemeral=True)
+
+
 class RegistryModal(discord.ui.Modal, title="Add Temporary Alliance"):
     def __init__(self, cog, state_id, alliance_id=None):
         super().__init__()
         self.cog, self.home_state, self.scope_alliance_id = cog, state_id, alliance_id
         self.state = discord.ui.TextInput(label="State ID", default=str(state_id), max_length=7)
-        self.aid = discord.ui.TextInput(label="In-game alliance ID (AID)", max_length=20)
-        self.tag = discord.ui.TextInput(label="Alliance tag", max_length=20)
+        self.tag = discord.ui.TextInput(label="Alliance tag (case-sensitive)", max_length=20)
         self.add_item(self.state)
-        self.add_item(self.aid)
         self.add_item(self.tag)
 
     async def on_submit(self, interaction):
-        if not allowed(interaction, self.scope_alliance_id, server=self.scope_alliance_id is None):
+        if not allowed(interaction, self.scope_alliance_id,
+                       server=self.scope_alliance_id is None):
             return await deny(interaction)
         try:
             state = int(self.state.value)
-            aid = int(self.aid.value)
-            if self.scope_alliance_id is not None and state != self.home_state:
-                raise ValueError("Alliance-specific rules must match the home state")
-            await asyncio.to_thread(service.add_temporary, interaction.guild_id,
-                                    state, aid, self.tag.value, interaction.user.id,
-                                    self.scope_alliance_id)
+            if state <= 0:
+                raise ValueError("Enter a valid state ID.")
+            if self.scope_alliance_id is not None:
+                home = service.home_info(self.scope_alliance_id)
+                if not home or int(home[0]) != interaction.guild_id or int(home[1]) != state:
+                    raise ValueError("The state must match your managed home alliance.")
+            else:
+                states = {int(info[1]) for aid, _ in visible_alliances(interaction)
+                          if (info := service.home_info(aid)) and info[1] is not None}
+                if state not in states:
+                    raise ValueError("Select a state managed by this Discord server.")
         except (ValueError, TypeError) as exc:
-            return await interaction.response.send_message(
-                "Could not add temporary alliance: " + str(exc), ephemeral=True)
-        await self.cog.show_registry(interaction)
-
+            return await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        from .membership_alliance_lookup import resolve
+        resolved, error = await resolve(self.cog.bot, state, self.tag.value)
+        if error:
+            return await interaction.followup.send(error, ephemeral=True)
+        embed = discord.Embed(
+            title="Confirm Temporary Alliance",
+            description=("**State:** " + str(resolved.state_id) +
+                         "\n**Tag:** " + _preview(resolved.tag) +
+                         "\n**Name:** " + _preview(resolved.name) +
+                         "\n**Verified AID:** " + str(resolved.aid) +
+                         "\n**Scope:** " +
+                         ("State-wide" if self.scope_alliance_id is None
+                          else "Home alliance " + str(self.scope_alliance_id)) +
+                         "\n\nVisiting members stay active on their home roster."),
+            color=theme.emColor1)
+        await interaction.followup.send(
+            embed=embed, view=RegistryConfirmView(
+                self.cog, interaction.user.id, interaction.guild_id,
+                resolved, self.scope_alliance_id), ephemeral=True)
 
 
 class RuleScopePickView(Subview):
@@ -450,7 +522,7 @@ class MembershipTracking(commands.Cog):
         self.bot=bot
         service.initialize()
 
-    async def queue_reconcile(self,interaction,alliance_id):
+    async def queue_membership_sync(self,interaction,alliance_id):
         if not allowed(interaction,alliance_id,server=True):
             return await deny(interaction)
         api=self.bot.get_cog("AllianceApiSync")
@@ -458,21 +530,21 @@ class MembershipTracking(commands.Cog):
             return await interaction.response.send_message(
                 "Player Sync is not loaded.",ephemeral=True)
         result=api.queue_sync(alliance_id=alliance_id)
-        labels={"queued":"Reconciliation queued through Player Sync.",
+        labels={"queued":"Sync queued through Player Sync.",
                 "busy":"A Player Sync run is already queued or active.",
                 "unavailable":"The bot process queue is unavailable."}
         await interaction.response.send_message(labels.get(result,str(result)),ephemeral=True)
 
-    async def open_reconcile(self,interaction):
+    async def open_sync(self,interaction):
         if not allowed(interaction,server=True):
             return await deny(interaction)
         allies=visible_alliances(interaction)
         if not allies:
             return await interaction.response.send_message("No managed alliances on this server.",ephemeral=True)
         if len(allies)==1:
-            return await self.queue_reconcile(interaction,allies[0][0])
-        embed=discord.Embed(title="Reconcile Members",
-            description="Choose a managed alliance. This runs the existing Player Sync "
+            return await self.queue_membership_sync(interaction,allies[0][0])
+        embed=discord.Embed(title="Sync Members",
+            description="Choose a managed alliance to sync. This runs the existing Player Sync "
                         "and uses its API quota and request budget.",
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
@@ -573,7 +645,7 @@ class MembershipTracking(commands.Cog):
                  " · Home "+str(r["scope_alliance_id"]))) for r in rules]
         embed=discord.Embed(title="🛡️ Temporary Alliance Registry",
              description=("\n".join(lines[:20]) if lines else "No approved temporary destinations.")+
-                         "\n\nProvide the in-game **AID**, not a local WOSBOT alliance ID.",
+                         "\n\nEnter only the state and alliance tag. WhiteoutStats resolves the AID automatically before confirmation.",
              color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
              view=RegistryView(self,interaction.user.id,rules,states,ids,high),content=None)
