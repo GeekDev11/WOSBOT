@@ -327,19 +327,24 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
     with closing(connect()) as db:
         old=db.execute("SELECT * FROM observations WHERE fid=?", (fid,)).fetchone()
         if old and old["observed_at"] >= stamp:
-            # Older versions stored 'baseline' and 'baseline_state' without
-            # creating action cases. When the provider returns the same cached
-            # snapshot, upgrade only those legacy classifications in place.
-            # Never reinterpret changed or older data as a fresh observation.
-            legacy = old["status"] in ("baseline", "baseline_state")
-            same_snapshot = (
+            same_identity = (
                 old["home_alliance"] == home_alliance
                 and old["state_id"] == state
                 and old["game_alliance_id"] == aid
-                and (old["game_tag"] or "") == tag
-                and old["observed_at"] == stamp
             )
-            if not (legacy and same_snapshot):
+            legacy = old["status"] in ("baseline", "baseline_state")
+            if legacy:
+                # Reclassify the last ACCEPTED record, not an older provider
+                # response. Never replace its observation time or identity.
+                # This also repairs legacy rows whose stored timestamp came
+                # from a prior fetch rather than the provider's cached_at.
+                state = int(old["state_id"])
+                aid = int(old["game_alliance_id"])
+                tag = old["game_tag"] or ""
+                stamp = old["observed_at"]
+            elif same_identity:
+                return "unchanged"
+            else:
                 return "stale"
         if old and old["home_alliance"] != home_alliance:
             old=None
