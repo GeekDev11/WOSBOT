@@ -34,6 +34,20 @@ def allowed(interaction, alliance_id=None, server=False):
     return bool(ids) or high
 
 
+def visible_alliances(interaction):
+    """Keep server-scoped views inside the active guild even for global admins."""
+    if interaction.guild_id is None:
+        return []
+    choices=PermissionManager.get_admin_alliances(
+        interaction.user.id,interaction.guild_id)[0]
+    result=[]
+    for aid,name in choices:
+        info=service.home_info(aid)
+        if info and info[0] is not None and int(info[0])==int(interaction.guild_id):
+            result.append((int(aid),name))
+    return result
+
+
 async def deny(interaction):
     await interaction.response.send_message("Membership tracking: access denied.", ephemeral=True)
 
@@ -190,8 +204,7 @@ class ConfirmActionView(Subview):
         if not allowed(interaction,src):
             return await deny(interaction)
         ids,_=scope(interaction)
-        visible={int(aid) for aid,_ in PermissionManager.get_admin_alliances(
-            interaction.user.id,interaction.guild_id)[0]}
+        visible={int(aid) for aid,_ in visible_alliances(interaction)}
         if src not in visible:
             return await deny(interaction)
         destination_ids=set()
@@ -273,8 +286,7 @@ class CaseView(Subview):
             if action in ("archive","remove"):
                 return await confirm_roster_action(cog,interaction,case,action)
             if action=="move":
-                visible=PermissionManager.get_admin_alliances(
-                    interaction.user.id,interaction.guild_id)[0]
+                visible=visible_alliances(interaction)
                 candidates=[(int(aid),name) for aid,name in visible
                             if int(aid)!=int(case["home_alliance"]) and
                             (service.home_info(aid) or [None])[0]==interaction.guild_id]
@@ -354,8 +366,7 @@ class MembershipTracking(commands.Cog):
             return await deny(interaction)
         ids,_=scope(interaction)
         if not ids:
-            ids=[int(aid) for aid,_ in PermissionManager.get_admin_alliances(
-                interaction.user.id,interaction.guild_id)[0]]
+            ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         stats=await asyncio.to_thread(service.dashboard,interaction.guild_id,ids)
         enabled=await asyncio.to_thread(service.is_enabled,interaction.guild_id)
         embed=discord.Embed(title="🛡️ Membership Tracking",
@@ -375,8 +386,7 @@ class MembershipTracking(commands.Cog):
             return await deny(interaction)
         ids,_=scope(interaction)
         if not ids:
-            ids=[int(aid) for aid,_ in PermissionManager.get_admin_alliances(
-                interaction.user.id,interaction.guild_id)[0]]
+            ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         cases=await asyncio.to_thread(service.list_cases,ids)
         if transfers_only:
             cases=[c for c in cases if c["category"]=="state_transfer"]
@@ -395,8 +405,7 @@ class MembershipTracking(commands.Cog):
             return await deny(interaction)
         ids,_=scope(interaction)
         if not ids:
-            ids=[int(aid) for aid,_ in PermissionManager.get_admin_alliances(
-                interaction.user.id,interaction.guild_id)[0]]
+            ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         visits=await asyncio.to_thread(service.list_visits,ids)
         lines=[("Chief "+str(v["fid"])+" · Home "+str(v["home_alliance"])+" → "+
                 _preview(v["game_tag"] or v["game_alliance_id"])) for v in visits[:20]]
@@ -412,8 +421,7 @@ class MembershipTracking(commands.Cog):
             return await deny(interaction)
         ids,_=scope(interaction)
         if not ids:
-            ids=[int(aid) for aid,_ in PermissionManager.get_admin_alliances(
-                interaction.user.id,interaction.guild_id)[0]]
+            ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         history=await asyncio.to_thread(service.list_history,ids)
         lines=[("#"+str(c["id"])+" · Chief "+str(c["fid"])+" · "+
                 str(c["decision"] or "resolved")+" · by "+str(c["decided_by"] or "system"))
@@ -430,8 +438,7 @@ class MembershipTracking(commands.Cog):
             return await deny(interaction)
         ids,high=scope(interaction)
         if not ids:
-            ids=[int(aid) for aid,_ in PermissionManager.get_admin_alliances(
-                interaction.user.id,interaction.guild_id)[0]]
+            ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         rules=await asyncio.to_thread(service.temporary_list,interaction.guild_id,ids,high)
         homes=[service.home_info(aid) for aid in ids]
         states=sorted({int(h[1]) for h in homes if h and h[1] is not None})
