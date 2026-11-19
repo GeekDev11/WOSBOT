@@ -91,6 +91,10 @@ class TrackingView(discord.ui.View):
     async def settings(self, interaction, button):
         await self.cog.show_settings(interaction)
 
+    @discord.ui.button(label="Sync Diagnostics", emoji="🔎", style=discord.ButtonStyle.secondary, row=3)
+    async def diagnostics(self, interaction, button):
+        await self.cog.show_diagnostics(interaction)
+
     @discord.ui.button(label="Back to Alliances", emoji="↩️", style=discord.ButtonStyle.secondary, row=3)
     async def back(self, interaction, button):
         from .command_center import open_section
@@ -611,6 +615,25 @@ class MembershipTracking(commands.Cog):
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
                                 view=TrackingView(self,interaction.user.id),content=None)
+
+    async def show_diagnostics(self,interaction):
+        if not allowed(interaction):
+            return await deny(interaction)
+        ids,_=scope(interaction)
+        if not ids:
+            ids=[int(aid) for aid,_ in visible_alliances(interaction)]
+        failures=await asyncio.to_thread(service.list_unclassified,ids)
+        lines=[("Chief "+str(row["fid"])+" · "+row["result"].replace("_"," ")+
+                " · Home "+str(row["home_alliance"]))
+               for row in failures]
+        embed=discord.Embed(title="🔎 Membership Sync Diagnostics",
+            description=(("\n".join(lines) if lines else "No unclassified sync attempts recorded.")+
+                         "\n\nThese are **not** confirmed departures. "
+                         "Check Player Sync's API connection and run Sync Now again "
+                         "when the source provides usable membership data."),
+            color=theme.emColor1)
+        await safe_edit_message(interaction,embed=embed,
+                                view=Subview(self,interaction.user.id),content=None)
 
     async def show_cases(self,interaction,transfers_only=False,page=0):
         if not allowed(interaction):
