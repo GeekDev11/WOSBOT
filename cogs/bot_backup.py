@@ -531,6 +531,10 @@ class BackupChoiceView(discord.ui.View):
         self.cog = cog
         self.user_id = user_id
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return (interaction.user.id == self.user_id
+                and await _global_admin_check(interaction))
+
     @discord.ui.button(label="Send to DM", emoji=f"{theme.messageIcon}", style=discord.ButtonStyle.primary)
     async def send_dm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
@@ -837,6 +841,8 @@ class _BackupNumberModal(discord.ui.Modal):
         self.add_item(self.input)
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not await _global_admin_check(interaction):
+            return
         try:
             value = int(self.input.value.strip())
         except ValueError:
@@ -878,6 +884,8 @@ class _RetentionModal(discord.ui.Modal):
         self.add_item(self.manual_input)
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not await _global_admin_check(interaction):
+            return
         try:
             auto = int(self.auto_input.value.strip())
             manual = int(self.manual_input.value.strip())
@@ -913,6 +921,8 @@ class BackupPasswordModal(discord.ui.Modal, title="Set Backup Password"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not await _global_admin_check(interaction):
+            return
         password_value = self.password.value.strip()
         
         conn = sqlite3.connect(self.cog.db_path)
