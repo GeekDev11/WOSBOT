@@ -493,9 +493,12 @@ class CaseListView(Subview):
                 discord.SelectOption(
                     label=("#"+str(c["id"])+" · "+_preview(names.get(c["fid"],str(c["fid"]))))[:100],
                     value=str(c["id"]),
-                    description=(str(c["fid"])+" · "+c["category"]+" · "+
-                                 (c["game_tag"] or ("Unaffiliated" if c["category"]=="unaffiliated"
-                                                    else "Alliance not reported")))[:100])
+                    description=(str(c["fid"])+" · State "+
+                                 str(c["from_state"] if c["from_state"] is not None else "?")+
+                                 " → "+str(c["to_state"] if c["to_state"] is not None else "?")+
+                                 " · "+(c["game_tag"] or
+                                         ("Unaffiliated" if c["category"]=="unaffiliated"
+                                          else "Alliance not reported")))[:100])
                 for c in cases[:25]])
             async def select(interaction):
                 selected=next((c for c in cases if c["id"]==int(picker.values[0])),None)
@@ -665,9 +668,12 @@ class MembershipTracking(commands.Cog):
         cases=items[:25]
         names=await asyncio.to_thread(service.member_names,[case["fid"] for case in cases])
         lines=[("#"+str(c["id"])+" · "+_preview(names.get(c["fid"],str(c["fid"])))+
-                " · "+str(c["fid"])+" · "+c["category"]+" · "+
-                _preview(c["game_tag"] or ("Unaffiliated" if c["category"]=="unaffiliated"
-                         else "Alliance not reported")))
+                " · "+str(c["fid"])+" · "+c["category"]+
+                " · State "+str(c["from_state"] if c["from_state"] is not None else "?")+
+                " → "+str(c["to_state"] if c["to_state"] is not None else "?")+
+                " · "+_preview(c["game_tag"] or
+                              ("Unaffiliated" if c["category"]=="unaffiliated"
+                               else "Alliance not reported")))
                for c in cases]
         embed=discord.Embed(title="📋 "+("State Transfer Reviews" if transfers_only else "Pending Member Actions"),
             description=("\n".join(lines) if lines else "No pending cases.")+
