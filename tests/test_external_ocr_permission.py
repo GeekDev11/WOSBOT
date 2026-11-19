@@ -13,7 +13,7 @@ from types import SimpleNamespace
 bm = importlib.import_module("cogs.bot_main_menu")
 
 
-def _interaction(user_id=42):
+def _interaction(user_id=42, guild_id=900):
     sent = []
     modals = []
 
@@ -25,6 +25,7 @@ def _interaction(user_id=42):
 
     return SimpleNamespace(
         user=SimpleNamespace(id=user_id),
+        guild_id=guild_id,
         response=SimpleNamespace(
             send_message=send_message,
             send_modal=send_modal,
@@ -37,6 +38,10 @@ def _set_admin(monkeypatch, is_global):
     monkeypatch.setattr(
         bm.PermissionManager, "is_admin",
         staticmethod(lambda uid: (is_global, is_global)),
+    )
+    monkeypatch.setattr(
+        bm.PermissionManager, "is_global_admin",
+        staticmethod(lambda uid, guild_id=None: is_global and guild_id == 900),
     )
 
 
