@@ -293,3 +293,50 @@ def test_unchanged_api_timestamp_preserves_previous_classification(dbs):
     assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="stale"
     assert m.observation_summary([1])=={"review":1}
     assert len(m.list_cases([1]))==1
+
+
+def test_legacy_baseline_state_reclassified_with_same_cached_timestamp(dbs):
+    # Previously accepted snapshot must be upgraded without waiting for a new
+    # provider cache timestamp. No member is removed or transferred.
+    with sqlite3.connect(dbs[0]) as db:
+        db.execute("INSERT INTO observations "
+                   "(fid,home_alliance,state_id,game_alliance_id,game_tag,observed_at,"
+                   "first_seen_at,status) VALUES (?,?,?,?,?,?,?,?)",
+                   (101,1,1600,555,"XYZ",stamp(0),stamp(0),"baseline_state"))
+    assert m.observe(101,1,player(1600,555,"XYZ"),stamp(0))=="state_transfer"
+    assert len(m.list_cases([1]))==1
+    assert m.dashboard(10,[1])["transfers"]==1
+    with sqlite3.connect(dbs[2]) as db:
+        assert db.execute("SELECT alliance FROM users WHERE fid=101").fetchone()[0]==1
+
+
+def test_legacy_baseline_external_alliance_reclassified_with_same_snapshot(dbs):
+    with sqlite3.connect(dbs[0]) as db:
+        db.execute("INSERT INTO observations "
+                   "(fid,home_alliance,state_id,game_alliance_id,game_tag,observed_at,"
+                   "first_seen_at,status) VALUES (?,?,?,?,?,?,?,?)",
+                   (101,1,1501,777,"XYZ",stamp(0),stamp(0),"baseline"))
+    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="review"
+    assert len(m.list_cases([1]))==1
+    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="stale"
+
+
+def test_legacy_baseline_matching_home_is_not_false_departure(dbs):
+    with sqlite3.connect(dbs[0]) as db:
+        db.execute("INSERT INTO observations "
+                   "(fid,home_alliance,state_id,game_alliance_id,game_tag,observed_at,"
+                   "first_seen_at,status) VALUES (?,?,?,?,?,?,?,?)",
+                   (101,1,1501,123,"VEN",stamp(0),stamp(0),"baseline"))
+    assert m.observe(101,1,player(1501,123,"VEN"),stamp(0))=="home"
+    assert m.list_cases([1])==[]
+
+
+def test_changed_or_older_api_snapshot_does_not_upgrade_legacy_baseline(dbs):
+    with sqlite3.connect(dbs[0]) as db:
+        db.execute("INSERT INTO observations "
+                   "(fid,home_alliance,state_id,game_alliance_id,game_tag,observed_at,"
+                   "first_seen_at,status) VALUES (?,?,?,?,?,?,?,?)",
+                   (101,1,1600,555,"XYZ",stamp(2),stamp(2),"baseline_state"))
+    assert m.observe(101,1,player(1600,444,"ABC"),stamp(2))=="stale"
+    assert m.observe(101,1,player(1600,555,"XYZ"),stamp(1))=="stale"
+    assert m.list_cases([1])==[]
