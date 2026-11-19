@@ -4,6 +4,7 @@ This service never changes users.alliance or deletes member rows. Its database i
 separate so an API observation cannot mutate the authoritative home roster.
 """
 import json
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -109,12 +110,14 @@ def initialize():
 
 
 def is_enabled(guild_id):
-    if guild_id is None:
+    if guild_id is None or not os.path.isfile(DB):
         return False
-    initialize()
-    with closing(connect()) as db:
-        row = db.execute("SELECT enabled FROM settings WHERE guild_id=?", (guild_id,)).fetchone()
-        return bool(row and row["enabled"])
+    try:
+        with closing(connect()) as db:
+            row = db.execute("SELECT enabled FROM settings WHERE guild_id=?", (guild_id,)).fetchone()
+            return bool(row and row["enabled"])
+    except sqlite3.Error:
+        return False
 
 
 def set_enabled(guild_id, enabled):
@@ -229,12 +232,12 @@ def _close_case(db, fid, home, reason, stamp):
 
 def observe(fid, home_alliance, payload, observed_at=None):
     """Consume successful API data; uncertain/missing alliance identity is not a departure."""
-    initialize()
     home = home_info(home_alliance)
     if not home or home[0] is None or home[1] is None or not is_enabled(home[0]):
         return "disabled"
     if member_home(fid) != int(home_alliance):
         return "membership_changed"
+    initialize()
     player = payload.get("player", payload) if isinstance(payload,dict) else None
     if not isinstance(player,dict):
         return "unknown"
