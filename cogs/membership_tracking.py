@@ -174,6 +174,82 @@ class RegistryView(Subview):
         await interaction.response.send_modal(RegistryModal(self.cog,int(info[1]),aid))
 
 
+
+class ConfirmActionView(Subview):
+    def __init__(self,cog,owner,case,action,destination=None):
+        super().__init__(cog,owner)
+        self.case,self.action,self.destination=case,action,destination
+
+    @discord.ui.button(label="Confirm Membership Action",style=discord.ButtonStyle.danger,row=0)
+    async def confirm(self,interaction,button):
+        src=int(self.case["home_alliance"])
+        if not allowed(interaction,src):
+            return await deny(interaction)
+        ids,_=scope(interaction)
+        visible={int(aid) for aid,_ in PermissionManager.get_admin_alliances(
+            interaction.user.id,interaction.guild_id)[0]}
+        if src not in visible:
+            return await deny(interaction)
+        destination_ids=set()
+        if self.action=="move":
+            dest=self.destination
+            if dest not in visible:
+                return await deny(interaction)
+            info=service.home_info(dest)
+            if not info or int(info[0])!=int(interaction.guild_id):
+                return await deny(interaction)
+            destination_ids.add(dest)
+        try:
+            success=await asyncio.to_thread(service.apply_roster_action,
+                self.case["id"],self.case["version"],interaction.user.id,
+                [src],self.action,self.destination,destination_ids)
+        except Exception:
+            log.exception("Membership action failed")
+            return await interaction.response.send_message(
+                "Action failed without confirmation. Check Bot Health logs.",ephemeral=True)
+        if not success:
+            return await interaction.response.send_message(
+                "Member moved or this case changed. Open the queue again.",ephemeral=True)
+        await self.cog.show_cases(interaction)
+
+    @discord.ui.button(label="Cancel",style=discord.ButtonStyle.secondary,row=0)
+    async def cancel(self,interaction,button):
+        await self.cog.show_cases(interaction)
+
+
+class MoveDestinationView(Subview):
+    def __init__(self,cog,owner,case,destinations):
+        super().__init__(cog,owner)
+        opts=[discord.SelectOption(label=name[:75],value=str(aid),
+                                   description="Managed alliance ID "+str(aid))
+              for aid,name in destinations[:25]]
+        picker=discord.ui.Select(placeholder="Choose new home alliance",options=opts,row=0)
+        async def selected(interaction):
+            src=int(case["home_alliance"])
+            dest=int(picker.values[0])
+            if not allowed(interaction,src) or not allowed(interaction,dest):
+                return await deny(interaction)
+            await confirm_roster_action(cog,interaction,case,"move",dest)
+        picker.callback=selected
+        self.add_item(picker)
+
+
+async def confirm_roster_action(cog,interaction,case,action,dest=None):
+    detail={
+        "move":"The member's managed home alliance will change to "+str(dest)+".",
+        "archive":"The member leaves the active roster. A recoverable snapshot is saved.",
+        "remove":"The member is removed from the active roster. A recovery snapshot is retained."
+    }[action]
+    embed=discord.Embed(
+        title="Confirm "+action.title()+" · Chief "+str(case["fid"]),
+        description="**Home alliance:** "+str(case["home_alliance"])+"\n"+
+                    detail+"\n\nThis action modifies the managed roster. "
+                    "The decision and actor are recorded for audit.",
+        color=theme.emColor1)
+    await safe_edit_message(interaction,embed=embed,
+        view=ConfirmActionView(cog,interaction.user.id,case,action,dest),content=None)
+
+
 class CaseView(Subview):
     def __init__(self,cog,owner,case,transfers_only=False):
         super().__init__(cog,owner)
@@ -181,12 +257,32 @@ class CaseView(Subview):
         self.transfers_only=transfers_only
         picker=discord.ui.Select(placeholder="Resolve case",row=1,options=[
             discord.SelectOption(label="Keep active in home roster",value="keep"),
-            discord.SelectOption(label="Mark temporary visit",value="temporary")
+            discord.SelectOption(label="Mark temporary visit",value="temporary"),
+            discord.SelectOption(label="Move to managed alliance",value="move"),
+            discord.SelectOption(label="Archive from active roster",value="archive"),
+            discord.SelectOption(label="Remove from active roster",value="remove")
         ])
         async def select(interaction):
             if not allowed(interaction,case["home_alliance"]):
                 return await deny(interaction)
             action=picker.values[0]
+            if action in ("archive","remove"):
+                return await confirm_roster_action(cog,interaction,case,action)
+            if action=="move":
+                visible=PermissionManager.get_admin_alliances(
+                    interaction.user.id,interaction.guild_id)[0]
+                candidates=[(int(aid),name) for aid,name in visible
+                            if int(aid)!=int(case["home_alliance"]) and
+                            (service.home_info(aid) or [None])[0]==interaction.guild_id]
+                if not candidates:
+                    return await interaction.response.send_message(
+                        "No other authorized managed alliance is available.",ephemeral=True)
+                embed=discord.Embed(title="Move Member",
+                                    description="Select the new managed home alliance. "
+                                                "This is a permanent move, not a temporary visit.",
+                                    color=theme.emColor1)
+                return await safe_edit_message(interaction,embed=embed,
+                    view=MoveDestinationView(cog,interaction.user.id,case,candidates),content=None)
             if action=="temporary" and case["category"]=="state_transfer":
                 return await interaction.response.send_message(
                     "State transfers require a separate decision; temporary visits are same-state only.",
@@ -224,9 +320,9 @@ class CaseListView(Subview):
                                  "**State:** "+str(selected["from_state"])+" → "+str(selected["to_state"])+"\n"
                                  "**Observed:** "+_preview(selected["game_tag"] or "Unknown")+"\n"
                                  "**Type:** "+selected["category"]+"\n\n"
-                                 "Keep retains active membership. Mark Temporary opens a visit. "
-                                 "Permanent Move, Archive and Remove are deliberately unavailable until "
-                                 "data-preserving migration and confirmation adapters pass testing."),
+                                 "Keep retains active membership. Temporary preserves the home roster. "
+                                 "Move, Archive and Remove require an additional confirmation "
+                                 "and preserve an audited recovery record."),
                     color=theme.emColor1)
                 await safe_edit_message(interaction,embed=embed,
                     view=CaseView(cog,interaction.user.id,selected,transfers_only))
@@ -337,7 +433,8 @@ class MembershipTracking(commands.Cog):
                          "Only Server Admin and above can enable monitoring.\n"
                          "First successful observation establishes each player's baseline.\n"
                          "Tracked movement opens review cases; it never automatically removes anyone.\n"
-                         "Move / Archive / Remove are not activated in this safety-first release."),
+                         "Permanent roster changes require administrator confirmation "
+                         "and are journaled with recovery snapshots."),
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
                                 view=SettingsView(self,interaction.user.id),content=None)
