@@ -527,6 +527,11 @@ class MembershipTracking(commands.Cog):
     async def queue_membership_sync(self,interaction,alliance_id):
         if not allowed(interaction,alliance_id,server=True):
             return await deny(interaction)
+        if not await asyncio.to_thread(service.is_enabled,interaction.guild_id):
+            return await interaction.response.send_message(
+                "Membership Tracking is OFF. Enable it in Tracking Settings before using Sync Now; "
+                "the alliance State Lock does not enable movement monitoring.",
+                ephemeral=True)
         api=self.bot.get_cog("AllianceApiSync")
         if api is None:
             return await interaction.response.send_message(
