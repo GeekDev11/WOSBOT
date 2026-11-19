@@ -4,6 +4,7 @@ The scheduler continues to post events publicly. Only members who have elected
 to receive pings are mentioned when an event has a configured subscription role.
 """
 import logging
+from contextlib import contextmanager
 import os
 import sqlite3
 
@@ -18,6 +19,7 @@ DB_PATH = "db/beartime.sqlite"
 EVENT_NAMES = tuple(EVENT_CONFIG) + ("Custom",)
 
 
+@contextmanager
 def _connection():
     os.makedirs("db", exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -28,7 +30,11 @@ def _connection():
         role_id INTEGER NOT NULL,
         PRIMARY KEY (guild_id, event_type)
     )""")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 async def event_autocomplete(interaction: discord.Interaction, current: str):
