@@ -157,7 +157,7 @@ def test_explicitly_unaffiliated_player_generates_review(dbs):
 
 def test_omitted_alliance_field_is_not_departure_evidence(dbs):
     m.observe(101,1,player(1501,1,"VEN"),stamp(0))
-    assert m.observe(101,1,{"player":{"kid":1501}},stamp(1))=="unknown"
+    assert m.observe(101,1,{"player":{"kid":1501}},stamp(1))=="missing_alliance"
     assert m.list_cases([1])==[]
 
 
@@ -221,3 +221,21 @@ def test_first_sync_flags_unaffiliated_member_without_removal(dbs):
     assert m.observe(101,1,{"player":{"kid":1501,"alliance":None}},stamp(0))=="unaffiliated"
     assert m.list_cases([1])[0]["category"]=="unaffiliated"
     assert m.dashboard(10,[1])["active"]==1
+
+
+def test_sync_attempts_report_unusable_member_data(dbs):
+    assert m.observe(101,1,{"player":{"kid":1501}},stamp(0))=="missing_alliance"
+    coverage=m.tracking_coverage([1])
+    assert coverage["attempted"]==1
+    assert coverage["observed"]==0
+    assert coverage["results"]["missing_alliance"]==1
+    assert m.list_cases([1])==[]
+    assert m.dashboard(10,[1])["active"]==1
+
+
+def test_first_sync_detects_existing_state_transfer_and_diagnostic(dbs):
+    assert m.observe(101,1,player(1600,9001,"XYZ"),stamp(0))=="state_transfer"
+    coverage=m.tracking_coverage([1])
+    assert coverage["observed"]==1
+    assert coverage["results"]["state_transfer"]==1
+    assert m.dashboard(10,[1])["transfers"]==1
