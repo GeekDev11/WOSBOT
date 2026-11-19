@@ -215,7 +215,8 @@ class BackupOperations(commands.Cog):
         await self.bot.wait_until_ready()
 
     async def show_backup_menu(self, interaction: discord.Interaction):
-        is_admin, is_global = PermissionManager.is_admin(interaction.user.id)
+        is_admin = PermissionManager.is_admin(interaction.user.id)[0]
+        is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
         if not is_admin or not is_global:
             await interaction.response.send_message(f"{theme.deniedIcon} This menu is only available for Global Admins!", ephemeral=True)
             return
@@ -454,7 +455,7 @@ class BackupOperations(commands.Cog):
 
 async def _global_admin_check(interaction: discord.Interaction) -> bool:
     """Re-verify Global Admin on every click (persisted menus can be re-clicked)."""
-    _, is_global = PermissionManager.is_admin(interaction.user.id)
+    is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
     if not is_global:
         await interaction.response.send_message(
             f"{theme.deniedIcon} Only global admins can use this menu.", ephemeral=True
