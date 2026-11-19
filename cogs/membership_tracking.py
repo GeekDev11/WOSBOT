@@ -14,10 +14,10 @@ log = logging.getLogger("membership")
 def scope(interaction):
     if interaction.guild_id is None:
         return [], False
-    ids, global_scope = PermissionManager.get_admin_alliance_ids(
-        interaction.user.id, interaction.guild_id)
+    # Even bot-wide admins must only see alliances hosted by this Discord guild.
+    ids = [aid for aid, _ in visible_alliances(interaction)]
     tier = PermissionManager.get_effective_tier(interaction.user.id, interaction.guild_id)
-    return list(map(int, ids)), global_scope or tier in (TIER_OWNER,TIER_GLOBAL,TIER_SERVER)
+    return ids, tier in (TIER_OWNER, TIER_GLOBAL, TIER_SERVER)
 
 
 def allowed(interaction, alliance_id=None, server=False):
@@ -25,8 +25,9 @@ def allowed(interaction, alliance_id=None, server=False):
     if server and not high:
         return False
     if alliance_id is not None:
-        return PermissionManager.can_access_alliance(
-            interaction.user.id, interaction.guild_id, alliance_id)
+        return (int(alliance_id) in ids and
+                PermissionManager.can_access_alliance(
+                    interaction.user.id, interaction.guild_id, alliance_id))
     return bool(ids) or high
 
 
@@ -542,6 +543,8 @@ class MembershipTracking(commands.Cog):
     def __init__(self,bot):
         self.bot=bot
         service.initialize()
+        # Remove tracking records left by alliances deleted before cleanup existed.
+        service.prune_deleted_alliances()
 
     async def queue_membership_sync(self,interaction,alliance_id):
         if not allowed(interaction,alliance_id,server=True):
