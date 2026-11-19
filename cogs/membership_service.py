@@ -270,7 +270,14 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
     if not isinstance(player,dict):
         return "missing_player"
     if "alliance" not in player:
-        return "missing_alliance"  # omitted API section is not proof of leaving
+        # A verified different state is sufficient for a REVIEW even when
+        # the optional alliance identity is omitted; never infer unaffiliated.
+        remote_state=player.get("kid",player.get("state"))
+        if (isinstance(remote_state,(str,int)) and str(remote_state).isdigit()
+                and int(remote_state)>0 and int(remote_state)!=int(home[1])):
+            player={**player,"alliance":{"aid":0,"abbr":""}}
+        else:
+            return "missing_alliance"
     data=player["alliance"]
     if data is None:
         aid=0  # explicitly unaffiliated
