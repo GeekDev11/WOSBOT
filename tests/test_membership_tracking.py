@@ -373,3 +373,32 @@ def test_older_different_snapshot_remains_stale(dbs):
     assert m.observe(101,1,player(1501,1,"VEN"),stamp(2))=="home"
     assert m.observe(101,1,player(1600,7001,"XYZ"),stamp(1))=="stale"
     assert m.list_cases([1])==[]
+
+
+def test_flattened_alliance_from_check_is_not_unaffiliated(dbs):
+    payload={"player":{"kid":1501,"alliance":None,
+                       "alliance_abbr":"XYZ","alliance_name":"Another alliance"}}
+    assert m.observe(101,1,payload,stamp(0))=="review"
+    case=m.list_cases([1])[0]
+    assert case["game_tag"]=="XYZ"
+    assert case["game_alliance_id"] is None
+    assert case["category"]=="review"
+    assert m.dashboard(10,[1])["active"]==1
+
+
+def test_flattened_home_tag_recognized_without_aid(dbs):
+    payload={"player":{"kid":1501,"alliance":None,
+                       "alliance_abbr":"VEN","alliance_name":"Home Alliance"}}
+    assert m.observe(101,1,payload,stamp(0))=="home"
+    assert m.list_cases([1])==[]
+
+
+def test_incomplete_alliance_without_aid_is_not_unaffiliated(dbs):
+    payload={"player":{"kid":1501,"alliance":{"abbr":"XYZ","name":"Other"}}}
+    assert m.observe(101,1,payload,stamp(0))=="review"
+    assert m.list_cases([1])[0]["game_alliance_id"] is None
+
+
+def test_null_alliance_explicitly_and_without_fallback_is_unaffiliated(dbs):
+    payload={"player":{"kid":1501,"alliance":None}}
+    assert m.observe(101,1,payload,stamp(0))=="unaffiliated"
