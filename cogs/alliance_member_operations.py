@@ -354,6 +354,11 @@ class MemberListView(discord.ui.View):
                 ephemeral=True,
             )
             return False
+        if not PermissionManager.can_access_alliance(
+            interaction.user.id, interaction.guild_id, self.alliance_id
+        ):
+            await interaction.response.send_message("Alliance access denied.", ephemeral=True)
+            return False
         return True
 
     def _has_filter(self) -> bool:
@@ -2996,7 +3001,9 @@ class CSVImportReviewView(discord.ui.View):
         if interaction.user.id != self.author_id:
             await interaction.response.send_message('This import belongs to another user.', ephemeral=True)
             return
-        if not await self.parent.cog.is_admin(interaction.user.id):
+        if not PermissionManager.can_access_alliance(
+            interaction.user.id, interaction.guild_id, self.parent.alliance_id
+        ):
             await interaction.response.send_message('Alliance administration permission required.', ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
@@ -3858,6 +3865,11 @@ class AlliancePowerRankingsView(discord.ui.View):
                 f"{theme.deniedIcon} Only the user who opened this menu can use it.",
                 ephemeral=True,
             )
+            return False
+        if not PermissionManager.can_access_alliance(
+            interaction.user.id, interaction.guild_id, self.alliance_id
+        ):
+            await interaction.response.send_message("Alliance access denied.", ephemeral=True)
             return False
         return True
 
