@@ -9,7 +9,7 @@ from collections import Counter
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiohttp
 import discord
@@ -166,7 +166,34 @@ class FetchResult:
     retry_after: float | None = None
 
 
+def ensure_whiteoutstats_base(profile: dict) -> dict:
+    """Request the same base membership fields as /check in the existing call.
+
+    Do not change custom providers or overwrite the saved API configuration.
+    """
+    base = urlsplit(str(profile.get("base_url") or ""))
+    if base.hostname != "api.whiteoutstats.com":
+        return profile
+    parsed = urlsplit(str(profile["player_path"]))
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    includes = []
+    others = []
+    for key, value in query:
+        if key.lower() == "include":
+            includes.extend(part.strip() for part in value.split(",") if part.strip())
+        else:
+            others.append((key, value))
+    sections = ["base", *(section for section in includes if section != "base")]
+    others.append(("include", ",".join(dict.fromkeys(sections))))
+    updated = dict(profile)
+    updated["player_path"] = urlunsplit((
+        parsed.scheme, parsed.netloc, parsed.path, urlencode(others), parsed.fragment))
+    return updated
+
+
 def player_url(profile: dict, fid) -> str:
+    # One request per chief, with base included for reliable alliance tracking.
+    profile = ensure_whiteoutstats_base(profile)
     path = profile["player_path"].lstrip("/")
     for placeholder in PLAYER_ID_PLACEHOLDERS:
         path = path.replace(placeholder, str(int(fid)))
