@@ -269,32 +269,46 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
     player = payload.get("player", payload) if isinstance(payload,dict) else None
     if not isinstance(player,dict):
         return "missing_player"
-    if "alliance" not in player:
-        # A verified different state is sufficient for a REVIEW even when
-        # the optional alliance identity is omitted; never infer unaffiliated.
+    # /check also understands the optional flattened alliance fields.
+    # Never mistake a partial base response for confirmed unaffiliated status.
+    fallback_tag = player.get("alliance_abbr")
+    fallback_aid = player.get("alliance_aid")
+    if "alliance" not in player and not fallback_tag:
         remote_state=player.get("kid",player.get("state"))
         if (isinstance(remote_state,(str,int)) and str(remote_state).isdigit()
                 and int(remote_state)>0 and int(remote_state)!=int(home[1])):
-            player={**player,"alliance":{"aid":0,"abbr":""}}
+            data={"aid":None,"abbr":""}  # state-only transfer, alliance unknown
         else:
             return "missing_alliance"
-    data=player["alliance"]
-    if data is None:
-        aid=0  # explicitly unaffiliated
+    else:
+        data=player.get("alliance")
+    if isinstance(data,dict):
+        raw=data.get("aid",fallback_aid)
+        tag=str(data.get("abbr") or data.get("tag") or fallback_tag or "")[:20]
+    elif data is None and fallback_tag:
+        raw=fallback_aid
+        tag=str(fallback_tag)[:20]
+    elif data is None:
+        raw=0
         tag=""
-    elif isinstance(data,dict):
-        raw=data.get("aid")
-        if not isinstance(raw,(int,str)) or not str(raw).isdigit():
-            return "unknown"
-        aid=int(raw)
-        tag=str(data.get("abbr") or data.get("tag") or "")[:20]
     else:
         return "invalid_alliance"
+    if raw is None:
+        aid=None  # alliance tag available, but API did not provide its AID
+    elif isinstance(raw,(int,str)) and str(raw).isdigit():
+        aid=int(raw)
+    else:
+        return "invalid_identity"
+    if aid is None and not tag:
+        remote_state=player.get("kid",player.get("state"))
+        if not (isinstance(remote_state,(int,str)) and str(remote_state).isdigit()
+                and int(remote_state)!=int(home[1])):
+            return "missing_alliance"
     state=player.get("kid",player.get("state"))
     if not isinstance(state,(int,str)) or not str(state).isdigit():
         return "missing_state"
     state,guild,home_state=int(state),int(home[0]),int(home[1])
-    if aid<0 or state<=0:
+    if (aid is not None and aid<0) or state<=0:
         return "invalid_identity"
     stamp=observed_at or now()
     # Prefer the provider's observation timestamp to the local fetch time, so
@@ -339,7 +353,8 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                 # This also repairs legacy rows whose stored timestamp came
                 # from a prior fetch rather than the provider's cached_at.
                 state = int(old["state_id"])
-                aid = int(old["game_alliance_id"])
+                aid = (int(old["game_alliance_id"])
+                       if old["game_alliance_id"] is not None else None)
                 tag = old["game_tag"] or ""
                 stamp = old["observed_at"]
             elif same_identity:
