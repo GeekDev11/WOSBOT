@@ -576,8 +576,10 @@ class MembershipTracking(commands.Cog):
         rejected={key:count for key,count in coverage["results"].items()
                   if key in ("missing_player","missing_alliance","invalid_alliance",
                              "missing_aid","missing_state","invalid_identity",
-                             "stale_api","invalid_timestamp","unknown",
-                             "membership_changed","error")}
+                             "stale_api","stale","invalid_timestamp","unknown",
+                             "membership_changed","error","http_404","http_0","no_data")}
+        outcomes=", ".join(str(count)+" "+key.replace("_"," ")
+                           for key,count in sorted(coverage["results"].items())) or "None"
         diagnostics=(", ".join(str(count)+" "+key.replace("_"," ")
                                for key,count in sorted(rejected.items()))
                      if rejected else "None reported")
@@ -605,6 +607,7 @@ class MembershipTracking(commands.Cog):
                          "**Players with saved Player Sync history:** "+str(history["snapshots"])+"\n"
                          "**Not yet observed:** "+str(remaining)+"\n"
                          "**Unclassified responses:** "+diagnostics+"\n"
+                         "**All tracking results:** "+outcomes+"\n"
                          "**Last API observation:** "+str(coverage["latest"] or "None")+"\n"
                          "**Temporary visits:** "+str(stats["visiting"])+" (included in active)\n"
                          "**Pending cases:** "+str(stats["pending"])+"\n"
