@@ -265,6 +265,13 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
         return "disabled"
     if member_home(fid) != int(home_alliance):
         return "membership_changed"
+    from .alliance_identity import verified_identity
+    game_identity = verified_identity(home_alliance)
+    verified_aid = (int(game_identity[2]) if game_identity
+                    and game_identity[2] is not None
+                    and game_identity[1] is not None
+                    and int(game_identity[1]) == int(home[1]) else None)
+    verified_tag = (game_identity[3] if verified_aid is not None else None)
     initialize()
     player = payload.get("player", payload) if isinstance(payload,dict) else None
     if not isinstance(player,dict):
@@ -347,7 +354,17 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                 and old["game_alliance_id"] == aid
             )
             legacy = old["status"] in ("baseline", "baseline_state")
-            if legacy:
+            # Newly verified game identity can resolve old, incorrectly
+            # classified review cases without requiring another API refresh.
+            newly_home = (
+                verified_aid is not None
+                and state == home_state
+                and (aid == verified_aid or
+                     (aid is None and tag == verified_tag))
+                and old["status"] != "home"
+                and same_identity
+            )
+            if legacy or newly_home:
                 # Reclassify the last ACCEPTED record, not an older provider
                 # response. Never replace its observation time or identity.
                 # This also repairs legacy rows whose stored timestamp came
@@ -363,6 +380,11 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                 return "stale"
         if old and old["home_alliance"] != home_alliance:
             old=None
+        at_home=(verified_aid is not None and state==home_state
+                 and (aid==verified_aid or (aid is None and tag==verified_tag)))
+        # An unverified managed home must not be identified from its editable
+        # display name. This state is advisory until the game identity is linked.
+        no_home_identity=(verified_aid is None)
         # Initial sync is a genuine observation, not a blanket exemption.
         # Existing departures must appear in the action queue immediately,
         # while approved visitors remain members of their home roster.
@@ -373,8 +395,10 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                 status="unaffiliated"
             elif _temporary(db,guild,state,aid,home_alliance):
                 status="temporary"
-            elif tag and tag.casefold() == str(home[2]).casefold():
+            elif at_home:
                 status="home"
+            elif no_home_identity:
+                status="unverified_home"
             else:
                 status="review"
         elif state != home_state:
@@ -394,8 +418,8 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
             status="temporary"
         elif old["state_id"]==state and old["game_alliance_id"]==aid:
             if old["status"] in ("baseline","baseline_state"):
-                status=("home" if tag and tag.casefold()==str(home[2]).casefold()
-                        else "review")
+                status=("home" if at_home else
+                        "unverified_home" if no_home_identity else "review")
             elif old["status"] == "temporary":
                 status="review"  # revoked state-wide temporary approval
             elif old["status"] in ("review","state_transfer"):
@@ -406,8 +430,10 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                 status="kept" if resolved and resolved["decision"]=="keep" else old["status"]
             else:
                 status=old["status"]
-        elif tag and tag.casefold()==str(home[2]).casefold():
+        elif at_home:
             status="home"
+        elif no_home_identity:
+            status="unverified_home"
         else:
             status="review"
         db.execute("INSERT INTO observations(fid,home_alliance,state_id,game_alliance_id,"
