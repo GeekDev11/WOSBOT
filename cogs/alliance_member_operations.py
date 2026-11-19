@@ -699,7 +699,7 @@ class ManageMembersView(MemberListView):
 
     def build_embed(self) -> discord.Embed:
         embed = super().build_embed()
-        if self.visiting:
+        if getattr(self, "visiting", None):
             embed.description = (
                 f"{embed.description}\n\n"
                 f"**Temporary visitors: {len(self.visiting)}** — still active in this home roster."
