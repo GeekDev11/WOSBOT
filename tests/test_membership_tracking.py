@@ -318,7 +318,7 @@ def test_legacy_baseline_external_alliance_reclassified_with_same_snapshot(dbs):
                    (101,1,1501,777,"XYZ",stamp(0),stamp(0),"baseline"))
     assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="review"
     assert len(m.list_cases([1]))==1
-    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="stale"
+    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="unchanged"
 
 
 def test_legacy_baseline_matching_home_is_not_false_departure(dbs):
@@ -331,15 +331,18 @@ def test_legacy_baseline_matching_home_is_not_false_departure(dbs):
     assert m.list_cases([1])==[]
 
 
-def test_changed_or_older_api_snapshot_does_not_upgrade_legacy_baseline(dbs):
+def test_old_conflicting_api_cannot_override_legacy_snapshot_reclassification(dbs):
     with sqlite3.connect(dbs[0]) as db:
         db.execute("INSERT INTO observations "
                    "(fid,home_alliance,state_id,game_alliance_id,game_tag,observed_at,"
                    "first_seen_at,status) VALUES (?,?,?,?,?,?,?,?)",
                    (101,1,1600,555,"XYZ",stamp(2),stamp(2),"baseline_state"))
-    assert m.observe(101,1,player(1600,444,"ABC"),stamp(2))=="stale"
-    assert m.observe(101,1,player(1600,555,"XYZ"),stamp(1))=="stale"
-    assert m.list_cases([1])==[]
+    assert m.observe(101,1,player(1600,444,"ABC"),stamp(2))=="state_transfer"
+    assert m.observe(101,1,player(1600,555,"XYZ"),stamp(1))=="unchanged"
+    assert len(m.list_cases([1]))==1
+    with sqlite3.connect(dbs[0]) as db:
+        identity=db.execute("SELECT game_alliance_id FROM observations WHERE fid=101").fetchone()[0]
+    assert identity==555
 
 
 def test_legacy_baseline_reclassified_using_stored_observation_when_api_cache_older(dbs):
