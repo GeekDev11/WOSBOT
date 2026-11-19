@@ -172,7 +172,7 @@ def test_selection_descriptions_not_repeated_in_embed():
     from cogs.command_center import open_section
     source = inspect.getsource(open_section)
     assert "lines +=" not in source
-    assert "dropdown" in source
+    assert 'description="Select a tool."' in source
 
 
 @pytest.mark.asyncio
