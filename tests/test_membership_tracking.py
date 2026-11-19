@@ -37,7 +37,7 @@ def stamp(n):
 
 def test_approved_temporary_visit_does_not_move_home_member(dbs):
     m.add_temporary(10,1501,9001,"S01",42)
-    assert m.observe(101,1,player(1501,1,"VEN"),stamp(0))=="baseline"
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(0))=="home"
     assert m.observe(101,1,player(1501,9001,"S01"),stamp(1))=="temporary"
     assert m.dashboard(10,[1])=={"active":1,"visiting":1,"pending":0,"transfers":0}
     with sqlite3.connect(dbs[2]) as db:
@@ -47,7 +47,7 @@ def test_approved_temporary_visit_does_not_move_home_member(dbs):
 
 
 def test_unregistered_alliance_creates_one_review_case(dbs):
-    assert m.observe(101,1,player(1501,1,"VEN"),stamp(0))=="baseline"
+    assert m.observe(101,1,player(1501,1,"VEN"),stamp(0))=="home"
     assert m.observe(101,1,player(1501,777,"XYZ"),stamp(1))=="review"
     assert m.observe(101,1,player(1501,777,"XYZ"),stamp(2))=="review"
     cases=m.list_cases([1])
@@ -192,3 +192,32 @@ def test_approved_visit_to_unregistered_destination_closes_visit(dbs):
     assert m.observe(101,1,player(1501,888,"XYZ"),stamp(2))=="review"
     assert m.dashboard(10,[1])["visiting"]==0
     assert len(m.list_cases([1]))==1
+
+
+def test_first_sync_detects_member_already_in_different_state(dbs):
+    # VEN's registered home state is 1501; member is already in 1600.
+    assert m.observe(101,1,player(1600,777,"XYZ"),stamp(0))=="state_transfer"
+    cases=m.list_cases([1])
+    assert len(cases)==1
+    assert cases[0]["to_state"]==1600
+    assert m.dashboard(10,[1])["transfers"]==1
+    with sqlite3.connect(dbs[2]) as db:
+        assert db.execute("SELECT alliance FROM users WHERE fid=101").fetchone()[0]==1
+
+
+def test_first_sync_detects_unapproved_alliance_in_same_state(dbs):
+    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="review"
+    assert m.list_cases([1])[0]["game_tag"]=="XYZ"
+    assert m.dashboard(10,[1])["active"]==1
+
+
+def test_first_sync_treats_registered_temporary_destination_as_visit(dbs):
+    m.add_temporary(10,1501,9001,"S01",42)
+    assert m.observe(101,1,player(1501,9001,"S01"),stamp(0))=="temporary"
+    assert m.dashboard(10,[1])=={"active":1,"visiting":1,"pending":0,"transfers":0}
+
+
+def test_first_sync_flags_unaffiliated_member_without_removal(dbs):
+    assert m.observe(101,1,{"player":{"kid":1501,"alliance":None}},stamp(0))=="unaffiliated"
+    assert m.list_cases([1])[0]["category"]=="unaffiliated"
+    assert m.dashboard(10,[1])["active"]==1
