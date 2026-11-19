@@ -472,7 +472,8 @@ class CaseView(Subview):
 
 
 class CaseListView(Subview):
-    def __init__(self,cog,owner,cases,transfers_only,page=0,has_next=False):
+    def __init__(self,cog,owner,cases,transfers_only,page=0,has_next=False,names=None):
+        names=names or {}
         super().__init__(cog,owner)
         self.transfers_only,self.page=transfers_only,page
         if page>0:
@@ -489,19 +490,30 @@ class CaseListView(Subview):
             self.add_item(nxt)
         if cases:
             picker=discord.ui.Select(placeholder="Select case",row=0,options=[
-                discord.SelectOption(label=("#"+str(c["id"])+" · "+str(c["fid"]))[:100],
-                                    value=str(c["id"]),
-                                    description=(c["category"]+" · "+(c["game_tag"] or "unknown"))[:100])
+                discord.SelectOption(
+                    label=("#"+str(c["id"])+" · "+_preview(names.get(c["fid"],str(c["fid"]))))[:100],
+                    value=str(c["id"]),
+                    description=(str(c["fid"])+" · "+c["category"]+" · "+
+                                 (c["game_tag"] or ("Unaffiliated" if c["category"]=="unaffiliated"
+                                                    else "Alliance not reported")))[:100])
                 for c in cases[:25]])
             async def select(interaction):
                 selected=next((c for c in cases if c["id"]==int(picker.values[0])),None)
                 if not selected or not allowed(interaction,selected["home_alliance"]):
                     return await deny(interaction)
+                game_tag=selected["game_tag"] or (
+                    "Unaffiliated (no current alliance reported)"
+                    if selected["category"]=="unaffiliated" else
+                    "Alliance not supplied by API")
+                game_aid=selected["game_alliance_id"]
+                home=service.home_info(selected["home_alliance"])
                 embed=discord.Embed(title="Membership Case #"+str(selected["id"]),
-                    description=("**Chief ID:** "+str(selected["fid"])+"\n"
-                                 "**Home Alliance:** "+str(selected["home_alliance"])+"\n"
-                                 "**State:** "+str(selected["from_state"])+" → "+str(selected["to_state"])+"\n"
-                                 "**Observed:** "+_preview(selected["game_tag"] or "Unknown")+"\n"
+                    description=("**Player:** "+_preview(names.get(selected["fid"],str(selected["fid"])))+"\n"
+                                 "**Chief ID:** "+str(selected["fid"])+"\n"
+                                 "**Home Alliance:** "+_preview(home[2] if home else str(selected["home_alliance"]))+"\n"
+                                 "**Observed State:** "+str(selected["from_state"])+" → "+str(selected["to_state"])+"\n"
+                                 "**Current Alliance:** "+_preview(game_tag)+"\n"
+                                 "**Current AID:** "+(str(game_aid) if game_aid else "Not available")+"\n"
                                  "**Type:** "+selected["category"]+"\n\n"
                                  "Keep retains active membership. Temporary preserves the home roster. "
                                  "Move, Archive and Remove require an additional confirmation "
@@ -569,6 +581,7 @@ class MembershipTracking(commands.Cog):
             ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         stats=await asyncio.to_thread(service.dashboard,interaction.guild_id,ids)
         coverage=await asyncio.to_thread(service.tracking_coverage,ids)
+        classification=await asyncio.to_thread(service.observation_summary,ids)
         history=await asyncio.to_thread(service.saved_player_sync_coverage,ids)
         enabled=await asyncio.to_thread(service.is_enabled,interaction.guild_id)
         remaining=max(0,stats["active"]-coverage["observed"])
@@ -580,6 +593,8 @@ class MembershipTracking(commands.Cog):
                              "membership_changed","error","http_404","http_0","no_data")}
         outcomes=", ".join(str(count)+" "+key.replace("_"," ")
                            for key,count in sorted(coverage["results"].items())) or "None"
+        accepted=", ".join(str(count)+" "+key.replace("_"," ")
+                           for key,count in sorted(classification.items())) or "None"
         diagnostics=(", ".join(str(count)+" "+key.replace("_"," ")
                                for key,count in sorted(rejected.items()))
                      if rejected else "None reported")
@@ -607,7 +622,8 @@ class MembershipTracking(commands.Cog):
                          "**Players with saved Player Sync history:** "+str(history["snapshots"])+"\n"
                          "**Not yet observed:** "+str(remaining)+"\n"
                          "**Unclassified responses:** "+diagnostics+"\n"
-                         "**All tracking results:** "+outcomes+"\n"
+                         "**Latest sync results:** "+outcomes+"\n"
+                         "**Stored member classifications:** "+accepted+"\n"
                          "**Last API observation:** "+str(coverage["latest"] or "None")+"\n"
                          "**Temporary visits:** "+str(stats["visiting"])+" (included in active)\n"
                          "**Pending cases:** "+str(stats["pending"])+"\n"
@@ -647,8 +663,11 @@ class MembershipTracking(commands.Cog):
         items=await asyncio.to_thread(service.list_cases,ids,limit=26,offset=page*25,
                                       category="state_transfer" if transfers_only else None)
         cases=items[:25]
-        lines=[("#"+str(c["id"])+" · Chief "+str(c["fid"])+
-                " · "+c["category"]+" · "+_preview(c["game_tag"] or "unknown"))
+        names=await asyncio.to_thread(service.member_names,[case["fid"] for case in cases])
+        lines=[("#"+str(c["id"])+" · "+_preview(names.get(c["fid"],str(c["fid"])))+
+                " · "+str(c["fid"])+" · "+c["category"]+" · "+
+                _preview(c["game_tag"] or ("Unaffiliated" if c["category"]=="unaffiliated"
+                         else "Alliance not reported")))
                for c in cases]
         embed=discord.Embed(title="📋 "+("State Transfer Reviews" if transfers_only else "Pending Member Actions"),
             description=("\n".join(lines) if lines else "No pending cases.")+
@@ -656,7 +675,7 @@ class MembershipTracking(commands.Cog):
                         " · Unapproved movements remain active on their home roster.",
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
-                  view=CaseListView(self,interaction.user.id,cases,transfers_only,page,len(items)>25),content=None)
+                  view=CaseListView(self,interaction.user.id,cases,transfers_only,page,len(items)>25,names),content=None)
 
     async def show_visits(self,interaction):
         if not allowed(interaction):
