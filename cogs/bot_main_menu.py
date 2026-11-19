@@ -455,6 +455,16 @@ class MainMenu(commands.Cog):
             else:
                 state_line = f"{theme.globeIcon} **State:** _not set_"
 
+            from . import alliance_identity
+            verified=await asyncio.to_thread(alliance_identity.verified_identity,alliance_id)
+            if verified and verified[2] is not None and verified[3]:
+                game_line=("**Game identity:** verified ["+
+                           discord.utils.escape_markdown(verified[3])+
+                           "] · AID `"+str(verified[2])+"`")
+            else:
+                game_line=("**Game identity:** not verified — use **Verify Game Alliance** "
+                           "to link the exact in-game tag and AID.")
+
             tier = await asyncio.to_thread(
                 PermissionManager.get_tier, interaction.user.id,
             )
@@ -471,7 +481,8 @@ class MainMenu(commands.Cog):
                 title=f"🛡️ Alliance Settings · {alliance_name}",
                 description=(
                     f"{theme.membersIcon} {stats_line}\n"
-                    f"{state_line}\n\n"
+                    f"{state_line}\n"
+                    f"{game_line}\n\n"
                     "**Alliance configuration**\n"
                     "Edit the alliance name and state, configure channels, "
                     "and manage state locks and transfer restrictions.\n\n"
