@@ -317,7 +317,7 @@ STAT_LABELS = [
 
 
 async def _check_global_admin(interaction: discord.Interaction) -> bool:
-    _, is_global = PermissionManager.is_admin(interaction.user.id)
+    is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
     if not is_global:
         await interaction.response.send_message(
             f"{theme.deniedIcon} Only global admins can use this menu.", ephemeral=True
