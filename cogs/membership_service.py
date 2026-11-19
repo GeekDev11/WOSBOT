@@ -514,3 +514,15 @@ def current_visitors(home_alliance):
                         (home_alliance,)).fetchall()
     return {int(r["fid"]): str(r["game_tag"] or r["game_alliance_id"] or "Unknown")
             for r in rows}
+
+
+def list_visit_history(allowed_alliances,limit=25):
+    initialize()
+    ids=list(map(int,allowed_alliances))
+    if not ids:
+        return []
+    ph=",".join("?" for _ in ids)
+    with closing(connect()) as db:
+        return [dict(r) for r in db.execute(
+            "SELECT * FROM visits WHERE home_alliance IN ("+ph+") "
+            "ORDER BY started_at DESC LIMIT ?",(*ids,limit)).fetchall()]
