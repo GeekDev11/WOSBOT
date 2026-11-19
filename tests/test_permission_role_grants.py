@@ -150,6 +150,7 @@ def _fresh_alliance_and_users_db(tmp_path, monkeypatch):
     alliance_db = tmp_path / "alliance.sqlite"
     users_db = tmp_path / "users.sqlite"
     with sqlite3.connect(alliance_db) as conn:
+        conn.execute("DROP TABLE IF EXISTS alliance_list")
         conn.execute(
             "CREATE TABLE alliance_list (alliance_id INTEGER, name TEXT, discord_server_id INTEGER)"
         )
