@@ -416,6 +416,8 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                         "AND origin='individual' LIMIT 1",
                         (fid,home_alliance,state,aid)).fetchone():
             status="temporary"
+        elif at_home:
+            status="home"
         elif old["state_id"]==state and old["game_alliance_id"]==aid:
             if old["status"] in ("baseline","baseline_state"):
                 status=("home" if at_home else
@@ -429,9 +431,8 @@ def _observe_core(fid, home_alliance, payload, observed_at=None):
                                     (fid,home_alliance,aid,state)).fetchone()
                 status="kept" if resolved and resolved["decision"]=="keep" else old["status"]
             else:
-                status=old["status"]
-        elif at_home:
-            status="home"
+                status=("unverified_home" if no_home_identity
+                        and old["status"]=="home" else old["status"])
         elif no_home_identity:
             status="unverified_home"
         else:
