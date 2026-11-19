@@ -415,7 +415,7 @@ async def open_section(cog, interaction, section):
     title, emoji, items = SECTIONS[section]
     embed = discord.Embed(
         title=f"{emoji} {title}",
-        description="Choose a tool from the dropdown. Its description appears in the selection list.\nUse **Back to Home** to switch centers.",
+        description="Select a tool.",
                           color=theme.emColor1)
     await safe_edit_message(interaction, embed=embed,
                             view=CenterSectionView(cog, interaction.user.id, section), content=None)
