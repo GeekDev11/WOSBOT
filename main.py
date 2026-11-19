@@ -1178,6 +1178,9 @@ if __name__ == "__main__":
 
     intents = discord.Intents.default()
     intents.message_content = True
+    # Default-on event alerts require the privileged Server Members Intent.
+    # Enable it in the Discord Developer Portal before restarting the bot.
+    intents.members = True
 
     bot = CustomBot(command_prefix="/", intents=intents)
     bot.no_dm = '--no-dm' in sys.argv
