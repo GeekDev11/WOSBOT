@@ -8,7 +8,8 @@ import sqlite3
 import asyncio
 import logging
 from contextlib import closing
-from .permission_handler import PermissionManager
+from .permission_handler import PermissionManager, TIER_OWNER, TIER_GLOBAL, TIER_SERVER
+from . import alliance_identity
 from .pimp_my_bot import theme, safe_edit_message, menu_timeout, confirm_timeout
 
 logger = logging.getLogger('alliance')
@@ -81,6 +82,7 @@ class Alliance(commands.Cog):
 
         self._create_table()
         self._check_and_add_column()
+        alliance_identity.migrate()
 
     def _create_table(self):
         with sqlite3.connect('db/alliance.sqlite', timeout=30.0) as conn:
@@ -268,6 +270,21 @@ class Alliance(commands.Cog):
     async def show_add_alliance_for(self, interaction: discord.Interaction):
         """Direct entry to Add Alliance flow (no operations sub-menu)."""
         await self.add_alliance(interaction)
+
+    async def show_verify_identity_for(self,interaction:discord.Interaction,alliance_id:int):
+        if interaction.guild_id is None or not PermissionManager.can_access_alliance(
+                interaction.user.id,interaction.guild_id,alliance_id):
+            return await interaction.response.send_message("Access denied.",ephemeral=True)
+        info=alliance_identity.verified_identity(alliance_id)
+        if not info or info[0] is None or int(info[0])!=interaction.guild_id:
+            return await interaction.response.send_message(
+                "Managed alliance not found in this server.",ephemeral=True)
+        if info[1] is None:
+            return await interaction.response.send_message(
+                "Set the alliance home state first, then verify its exact game tag.",
+                ephemeral=True)
+        await interaction.response.send_modal(
+            VerifyExistingAllianceModal(self,alliance_id,info[4],int(info[1])))
 
     async def show_edit_name_for(self, interaction: discord.Interaction, alliance_id: int):
         """Direct entry: rename a single alliance (no other settings)."""
@@ -941,106 +958,148 @@ class PostCreateChannelPromptView(discord.ui.View):
             await main_menu.show_alliance_hub(interaction, self.alliance_id)
 
 
-class AddAllianceModal(discord.ui.Modal):
-    """Two-field alliance creator. The optional State (#) field sets the alliance's home
-    state for redemption and member backfill; locking is a separate toggle on the hub.
-    Creation ends on a prompt encouraging Channel Setup for the new alliance."""
+def _can_register_alliance(interaction):
+    if interaction.guild_id is None:
+        return False
+    return PermissionManager.get_effective_tier(
+        interaction.user.id,interaction.guild_id) in (TIER_OWNER,TIER_GLOBAL,TIER_SERVER)
 
-    def __init__(self, cog):
-        super().__init__(title="Add Alliance")
-        self.cog = cog
-        self.name_input = discord.ui.TextInput(
-            label="Alliance Name",
-            placeholder="Enter the new alliance name",
-            required=True,
-            max_length=50,
-        )
-        self.add_item(self.name_input)
-        self.kid_input = discord.ui.TextInput(
-            label="State # (optional)",
-            placeholder="The alliance's home state number",
-            required=False,
-            max_length=10,
-        )
-        self.add_item(self.kid_input)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        alliance_name = self.name_input.value.strip()
-        if not alliance_name:
-            await interaction.response.send_message(
-                f"{theme.deniedIcon} Alliance name cannot be empty.", ephemeral=True
-            )
-            return
+class ConfirmManagedAllianceView(discord.ui.View):
+    """Verification is API-backed; callbacks re-check guild, identity and role."""
+    def __init__(self,cog,owner,guild_id,resolved,display_name,existing_id=None):
+        super().__init__(timeout=confirm_timeout())
+        self.cog,self.owner,self.guild_id=cog,owner,guild_id
+        self.resolved,self.display_name,self.existing_id=resolved,display_name,existing_id
 
-        kid_raw = (self.kid_input.value or "").strip()
-        parsed_kid = None
-        if kid_raw:
-            try:
-                parsed_kid = int(kid_raw)
-                if parsed_kid <= 0:
-                    raise ValueError
-            except ValueError:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} State must be a positive whole number "
-                    f"(or leave blank for no restriction).",
-                    ephemeral=True,
-                )
-                return
+    async def interaction_check(self,interaction):
+        if interaction.user.id!=self.owner or interaction.guild_id!=self.guild_id:
+            await interaction.response.send_message("This verification belongs to another session.",ephemeral=True)
+            return False
+        if self.existing_id is None:
+            authorized=_can_register_alliance(interaction)
+        else:
+            authorized=PermissionManager.can_access_alliance(
+                interaction.user.id,interaction.guild_id,self.existing_id)
+        if not authorized:
+            await interaction.response.send_message("Alliance verification: access denied.",ephemeral=True)
+        return authorized
 
+    @discord.ui.button(label="Confirm Verified Alliance",style=discord.ButtonStyle.success)
+    async def confirm(self,interaction,button):
+        await interaction.response.defer(ephemeral=True)
         try:
-            with sqlite3.connect('db/alliance.sqlite', timeout=30.0) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT alliance_id FROM alliance_list WHERE name = ?", (alliance_name,)
-                )
-                if cursor.fetchone():
-                    await interaction.response.send_message(
-                        f"{theme.deniedIcon} An alliance named **{alliance_name}** already exists.",
-                        ephemeral=True,
-                    )
-                    return
+            if self.existing_id is None:
+                alliance_id=await asyncio.to_thread(
+                    alliance_identity.create_verified,self.display_name,self.guild_id,self.resolved)
+                # Match the existing alliance-creation gift configuration.
+                with sqlite3.connect('db/giftcode.sqlite',timeout=30.0) as db:
+                    db.execute("INSERT INTO giftcodecontrol(alliance_id,status) VALUES (?,1)",
+                               (alliance_id,))
+                    db.commit()
+            else:
+                alliance_id=self.existing_id
+                await asyncio.to_thread(
+                    alliance_identity.save_verified,alliance_id,self.guild_id,self.resolved,
+                    self.resolved.state_id)
+        except (ValueError,sqlite3.Error) as exc:
+            return await interaction.followup.send(
+                "Alliance verification was not saved: "+str(exc),ephemeral=True)
+        for item in self.children:
+            item.disabled=True
+        if self.existing_id is None:
+            prompt=PostCreateChannelPromptView(self.cog,alliance_id,self.display_name)
+            await interaction.followup.send(embed=prompt.build_embed(),view=prompt,ephemeral=True)
+        else:
+            await interaction.followup.send(
+                "Verified **"+discord.utils.escape_markdown(self.display_name)+"** as **["+
+                self.resolved.tag+"] "+discord.utils.escape_markdown(self.resolved.name)+
+                "** in State "+str(self.resolved.state_id)+
+                " (AID "+str(self.resolved.aid)+"). The existing roster and state lock are unchanged.",
+                ephemeral=True)
 
-                cursor.execute(
-                    "INSERT INTO alliance_list (name, discord_server_id, kid, state_locked) "
-                    "VALUES (?, ?, ?, 0)",
-                    (alliance_name,
-                     interaction.guild.id if interaction.guild else None,
-                     parsed_kid),
-                )
-                alliance_id = cursor.lastrowid
-                cursor.execute(
-                    "INSERT INTO alliancesettings (alliance_id, channel_id, interval) "
-                    "VALUES (?, NULL, 0)",
-                    (alliance_id,),
-                )
-                conn.commit()
+    @discord.ui.button(label="Cancel",style=discord.ButtonStyle.secondary)
+    async def cancel(self,interaction,button):
+        for item in self.children:
+            item.disabled=True
+        await interaction.response.send_message("Alliance verification cancelled. Nothing changed.",
+                                                 ephemeral=True)
 
-            with sqlite3.connect('db/giftcode.sqlite', timeout=30.0) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO giftcodecontrol (alliance_id, status) VALUES (?, 1)",
-                    (alliance_id,),
-                )
-                conn.commit()
 
-            # End on a channel-setup prompt so new alliances get their log channels configured up front.
-            view = PostCreateChannelPromptView(self.cog, alliance_id, alliance_name)
-            await safe_edit_message(interaction, embed=view.build_embed(), view=view, content=None)
-            try:
-                view.message = await interaction.original_response()
-            except Exception:
-                pass
+async def _verify_managed_alliance(interaction,cog,name,state_id,tag,existing_id=None):
+    from .membership_alliance_lookup import resolve
+    await interaction.response.defer(ephemeral=True,thinking=True)
+    resolved,error=await resolve(cog.bot,state_id,tag)
+    if error:
+        return await interaction.followup.send(error,ephemeral=True)
+    embed=discord.Embed(
+        title="Confirm Managed Alliance Identity",
+        description=("**WOSBOT display name:** "+discord.utils.escape_markdown(name)+
+                     "\\n**Game alliance:** ["+discord.utils.escape_markdown(resolved.tag)+
+                     "] "+discord.utils.escape_markdown(resolved.name)+
+                     "\\n**State:** "+str(resolved.state_id)+
+                     "\\n**Verified AID:** "+str(resolved.aid)+
+                     "\\n\\nThe exact tag capitalization is retained. "
+                     "AID is the game identity; WOSBOT keeps its separate managed roster."),
+        color=theme.emColor1)
+    await interaction.followup.send(
+        embed=embed,view=ConfirmManagedAllianceView(
+            cog,interaction.user.id,interaction.guild_id,resolved,name,existing_id),
+        ephemeral=True)
 
-        except Exception as e:
-            logger.error(f"Error creating alliance '{alliance_name}': {e}")
-            print(f"Error creating alliance '{alliance_name}': {e}")
-            try:
-                await interaction.response.send_message(
-                    f"{theme.deniedIcon} Failed to create alliance: {e}",
-                    ephemeral=True,
-                )
-            except Exception:
-                pass
+
+class VerifyExistingAllianceModal(discord.ui.Modal):
+    """Bind an existing managed roster to its exact state and game tag."""
+    def __init__(self,cog,alliance_id,name,state_id):
+        super().__init__(title="Verify Existing Alliance")
+        self.cog,self.alliance_id,self.name,self.state_id=cog,alliance_id,name,state_id
+        self.tag=discord.ui.TextInput(label="Exact in-game alliance tag",required=True,max_length=20)
+        self.add_item(self.tag)
+
+    async def on_submit(self,interaction):
+        if not PermissionManager.can_access_alliance(
+                interaction.user.id,interaction.guild_id,self.alliance_id):
+            return await interaction.response.send_message("Access denied.",ephemeral=True)
+        info=alliance_identity.verified_identity(self.alliance_id)
+        if (not info or info[0] is None or int(info[0])!=interaction.guild_id
+                or info[1] is None or int(info[1])!=self.state_id):
+            return await interaction.response.send_message(
+                "Home state or alliance settings changed. Open verification again.",ephemeral=True)
+        await _verify_managed_alliance(interaction,self.cog,self.name,self.state_id,
+                                       self.tag.value.strip(),self.alliance_id)
+
+
+class AddAllianceModal(discord.ui.Modal):
+    """Create managed alliance only after exact state/tag lookup and confirmation."""
+    def __init__(self,cog):
+        super().__init__(title="Add Alliance")
+        self.cog=cog
+        self.name_input=discord.ui.TextInput(
+            label="WOSBOT display name",placeholder="Your managed alliance name",
+            required=True,max_length=50)
+        self.kid_input=discord.ui.TextInput(
+            label="State #",placeholder="Home state number",required=True,max_length=10)
+        self.tag_input=discord.ui.TextInput(
+            label="Exact in-game alliance tag",placeholder="Case-sensitive tag, e.g. VEN",
+            required=True,max_length=20)
+        self.add_item(self.name_input)
+        self.add_item(self.kid_input)
+        self.add_item(self.tag_input)
+
+    async def on_submit(self,interaction):
+        if not _can_register_alliance(interaction):
+            return await interaction.response.send_message(
+                "Only Server Admin and above can create managed alliances.",ephemeral=True)
+        name=self.name_input.value.strip()
+        try:
+            state=int(self.kid_input.value.strip())
+            if state<=0 or not name:
+                raise ValueError
+        except ValueError:
+            return await interaction.response.send_message(
+                "Provide a display name and positive home state number.",ephemeral=True)
+        await _verify_managed_alliance(
+            interaction,self.cog,name,state,self.tag_input.value.strip())
 
 
 class EditNameModal(discord.ui.Modal):
@@ -1129,13 +1188,17 @@ class EditStateModal(discord.ui.Modal):
             if new_kid is not None:
                 # Set the home state; leave any existing lock in place (now applies to it).
                 cursor.execute(
-                    "UPDATE alliance_list SET kid = ?, multistate = 0 WHERE alliance_id = ?",
-                    (new_kid, self.alliance_id),
+                    "UPDATE alliance_list SET kid = ?, multistate = 0, "
+                    "game_aid = CASE WHEN kid = ? THEN game_aid ELSE NULL END, "
+                    "game_tag = CASE WHEN kid = ? THEN game_tag ELSE NULL END "
+                    "WHERE alliance_id = ?",
+                    (new_kid,new_kid,new_kid,self.alliance_id),
                 )
             else:
                 # Clearing the home state can't leave a lock pointing at nothing.
                 cursor.execute(
-                    "UPDATE alliance_list SET kid = NULL, state_locked = 0 WHERE alliance_id = ?",
+                    "UPDATE alliance_list SET kid = NULL, state_locked = 0, "
+                    "game_aid = NULL, game_tag = NULL WHERE alliance_id = ?",
                     (self.alliance_id,),
                 )
             self.conn.commit()
