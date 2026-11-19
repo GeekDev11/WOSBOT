@@ -186,7 +186,8 @@ class RegistryConfirmView(discord.ui.View):
         except (ValueError, TypeError, OSError) as exc:
             return await interaction.followup.send(
                 "Unable to register this alliance: " + str(exc), ephemeral=True)
-        self.disable_all_items()
+        for item in self.children:
+            item.disabled = True
         await interaction.followup.send(
             "Registered **" + _preview(self.resolved.tag) + "** in State **" +
             str(state) + "** as " +
@@ -195,7 +196,8 @@ class RegistryConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button):
-        self.disable_all_items()
+        for item in self.children:
+            item.disabled = True
         await interaction.response.send_message(
             "Registration cancelled. Nothing was saved.", ephemeral=True)
 
