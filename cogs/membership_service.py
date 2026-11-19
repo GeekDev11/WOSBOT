@@ -234,19 +234,26 @@ def observe(fid, home_alliance, payload, observed_at=None):
     player = payload.get("player", payload) if isinstance(payload,dict) else None
     if not isinstance(player,dict):
         return "unknown"
-    data = player.get("alliance")
-    if not isinstance(data,dict):
+    if "alliance" not in player:
+        return "unknown"  # omitted API section is not proof of leaving
+    data=player["alliance"]
+    if data is None:
+        aid=0  # explicitly unaffiliated
+        tag=""
+    elif isinstance(data,dict):
+        raw=data.get("aid")
+        if not isinstance(raw,(int,str)) or not str(raw).isdigit():
+            return "unknown"
+        aid=int(raw)
+        tag=str(data.get("abbr") or data.get("tag") or "")[:20]
+    else:
         return "unknown"
-    aid = data.get("aid")
-    state = player.get("kid", player.get("state"))
-    if not isinstance(aid,(int,str)) or not str(aid).isdigit():
-        return "unknown"
+    state=player.get("kid",player.get("state"))
     if not isinstance(state,(int,str)) or not str(state).isdigit():
         return "unknown"
-    aid,state,guild,home_state = int(aid),int(state),int(home[0]),int(home[1])
-    if aid <= 0 or state <= 0:
+    state,guild,home_state=int(state),int(home[0]),int(home[1])
+    if aid<0 or state<=0:
         return "unknown"
-    tag=str(data.get("abbr") or data.get("tag") or "")[:20]
     stamp=observed_at or now()
     # Prefer the provider's observation timestamp to the local fetch time, so
     # repeated cached responses cannot falsely count as new confirmations.
@@ -280,12 +287,14 @@ def observe(fid, home_alliance, payload, observed_at=None):
         if not old:
             if state!=home_state:
                 status="baseline_state"
-            elif _temporary(db,guild,state,aid,home_alliance):
+            elif aid and _temporary(db,guild,state,aid,home_alliance):
                 status="temporary"
             else:
                 status="baseline"
         elif state != home_state:
             status="state_transfer"
+        elif aid==0:
+            status="unaffiliated" if old["status"]!="baseline" else "unaffiliated"
         elif _temporary(db,guild,state,aid,home_alliance):
             status="temporary"
         elif db.execute("SELECT 1 FROM visits WHERE fid=? AND home_alliance=? AND "
@@ -323,7 +332,7 @@ def observe(fid, home_alliance, payload, observed_at=None):
         elif status=="home":
             _close_visit(db,fid,home_alliance,stamp)
             _close_case(db,fid,home_alliance,"returned",stamp)
-        elif status in ("review","state_transfer"):
+        elif status in ("review","state_transfer","unaffiliated"):
             current=db.execute("SELECT id FROM movement_cases WHERE fid=? AND home_alliance=? "
                                "AND status='pending'", (fid,home_alliance)).fetchone()
             if current:
