@@ -16,7 +16,7 @@ from cogs.command_center import (
 
 def test_five_centers_and_full_catalog():
     assert list(SECTIONS) == ["alliance", "intel", "events", "gifts", "admin"]
-    assert sum(len(section[2]) for section in SECTIONS.values()) == 29
+    assert sum(len(section[2]) for section in SECTIONS.values()) == 30
     assert "imports" not in [key for key, _, _ in SECTIONS["alliance"][2]]
     assert "reports" not in [key for key, _, _ in SECTIONS["events"][2]]
     assert "channels" not in [key for key, _, _ in SECTIONS["gifts"][2]]
