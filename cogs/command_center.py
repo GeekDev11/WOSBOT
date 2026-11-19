@@ -22,6 +22,7 @@ SECTIONS = {
         ("troops", "Troop Quality", "Recorded tiers and troop submissions"),
         ("history", "Rankings & History", "Alliance rankings and recorded changes"),
         ("management", "Manage Alliances", "Add alliances, transfers and registration"),
+        ("tracking", "Membership Tracking", "Temporary alliances, visits and member action reviews"),
         ("settings", "Alliance Configuration", "Name, state, channels and transfer rules"),
     )),
     "intel": ("Intelligence Center", "🎯", (
