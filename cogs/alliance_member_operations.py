@@ -1278,6 +1278,9 @@ class AllianceMemberOperations(commands.Cog):
 
     async def show_power_rankings_for(self, interaction: discord.Interaction, alliance_id: int):
         """Show the alliance roster sorted by Power (highest first) with last-updated timestamps."""
+        if not PermissionManager.can_access_alliance(interaction.user.id, interaction.guild_id, alliance_id):
+            await interaction.response.send_message("Alliance access denied.", ephemeral=True)
+            return
         with sqlite3.connect('db/alliance.sqlite') as alliance_db:
             row = alliance_db.execute(
                 "SELECT name FROM alliance_list WHERE alliance_id = ?", (alliance_id,)
@@ -1310,6 +1313,9 @@ class AllianceMemberOperations(commands.Cog):
 
     async def show_manage_members_for(self, interaction: discord.Interaction, alliance_id: int):
         """Open the unified Manage Members view (filter, sort, multi-select, act)."""
+        if not PermissionManager.can_access_alliance(interaction.user.id, interaction.guild_id, alliance_id):
+            await interaction.response.send_message("Alliance access denied.", ephemeral=True)
+            return
         with sqlite3.connect('db/alliance.sqlite') as alliance_db:
             cursor = alliance_db.cursor()
             cursor.execute(
@@ -1761,8 +1767,10 @@ class AllianceMemberOperations(commands.Cog):
             await interaction.response.send_message("Alliance not found.", ephemeral=True)
             return
 
-        if not await self.is_admin(interaction.user.id):
-            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        if not PermissionManager.can_access_alliance(
+            interaction.user.id, interaction.guild_id, alliance_id
+        ):
+            await interaction.response.send_message("You cannot add members to this alliance.", ephemeral=True)
             return
 
         process_queue = self.bot.get_cog('ProcessQueue')
@@ -2269,9 +2277,26 @@ class AllianceMemberOperations(commands.Cog):
                                       prefiltered_members=None):
         """Export current and historical player data without changing any database."""
         from .alliance_intel_export import build_export, to_xlsx
+        allowed_ids, is_global = PermissionManager.get_admin_alliance_ids(
+            interaction.user.id, interaction.guild_id)
+        if alliance_id == "all":
+            if not is_global and not allowed_ids:
+                await interaction.response.send_message("Alliance export access denied.", ephemeral=True)
+                return
+        elif not PermissionManager.can_access_alliance(
+            interaction.user.id, interaction.guild_id, alliance_id):
+            await interaction.response.send_message("Alliance export access denied.", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             filtered_ids = None if prefiltered_members is None else [int(m['fid']) for m in prefiltered_members]
+            if alliance_id == "all" and not is_global:
+                placeholders = ",".join("?" for _ in allowed_ids)
+                with sqlite3.connect("db/users.sqlite") as db:
+                    permitted_fids = {int(row[0]) for row in db.execute(
+                        f"SELECT fid FROM users WHERE alliance IN ({placeholders})", allowed_ids)}
+                filtered_ids = (permitted_fids if filtered_ids is None
+                                else permitted_fids.intersection(filtered_ids))
             sheets = await asyncio.to_thread(build_export, alliance_id,
                                               member_ids=filtered_ids, categories=categories)
             count = len(sheets['Members']) - 1
@@ -2304,6 +2329,17 @@ class AllianceMemberOperations(commands.Cog):
         """Process the member export with selected columns and format.
         When prefiltered_members is provided, uses it instead of querying DB."""
         try:
+            # Scope authorization is checked again at export time, even for old menus.
+            allowed_ids, is_global = PermissionManager.get_admin_alliance_ids(
+                interaction.user.id, interaction.guild_id)
+            if alliance_id == "all":
+                if not is_global and not allowed_ids:
+                    await interaction.response.send_message("Alliance export access denied.", ephemeral=True)
+                    return
+            elif not PermissionManager.can_access_alliance(
+                interaction.user.id, interaction.guild_id, alliance_id):
+                await interaction.response.send_message("Alliance export access denied.", ephemeral=True)
+                return
             # Update the message to show processing
             processing_embed = discord.Embed(
                 title="⏳ Processing Export",
@@ -2340,13 +2376,17 @@ class AllianceMemberOperations(commands.Cog):
                             query_columns.append(f'u.{db_col}')
                     
                     # Query with join
+                    # "All" means all *authorized* alliances, not every DB row.
+                    scope_sql = "" if is_global else (
+                        "WHERE a.alliance_id IN (" + ",".join("?" for _ in allowed_ids) + ")")
                     query = f"""
                         SELECT {', '.join(query_columns)}
                         FROM users u
                         JOIN alliance_db.alliance_list a ON u.alliance = a.alliance_id
+                        {scope_sql}
                         ORDER BY a.name, u.furnace_lv DESC, u.nickname
                     """
-                    cursor.execute(query)
+                    cursor.execute(query, () if is_global else tuple(allowed_ids))
                     members = cursor.fetchall()
                     cursor.execute("DETACH DATABASE alliance_db")
             else:
