@@ -262,3 +262,19 @@ def test_sync_diagnostics_expose_which_member_was_unclassified(dbs):
     assert failures[0]["fid"]==101
     assert failures[0]["result"]=="missing_alliance"
     assert m.list_unclassified([2])==[]
+
+
+def test_stale_response_is_visible_in_diagnostics(dbs):
+    m.observe(101,1,player(1501,1,"VEN"),stamp(2))
+    assert m.observe(101,1,player(1501,9001,"S01"),stamp(1))=="stale"
+    rows=m.list_unclassified([1])
+    assert len(rows)==1 and rows[0]["result"]=="stale"
+    assert m.tracking_coverage([1])["results"]["stale"]==1
+    assert m.dashboard(10,[1])["active"]==1
+
+
+def test_no_data_response_is_visible_as_diagnostic(dbs):
+    m.record_attempt(101,1,"http_404")
+    rows=m.list_unclassified([1])
+    assert len(rows)==1 and rows[0]["result"]=="http_404"
+    assert m.list_cases([1])==[]
