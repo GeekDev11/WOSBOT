@@ -289,15 +289,20 @@ def observe(fid, home_alliance, payload, observed_at=None):
             return "stale"
         if old and old["home_alliance"] != home_alliance:
             old=None
-        # Existing users can be visiting when tracking is first enabled.
-        # The first observation establishes the baseline; never produces a case.
+        # Initial sync is a genuine observation, not a blanket exemption.
+        # Existing departures must appear in the action queue immediately,
+        # while approved visitors remain members of their home roster.
         if not old:
-            if state!=home_state:
-                status="baseline_state"
-            elif aid and _temporary(db,guild,state,aid,home_alliance):
+            if state != home_state:
+                status="state_transfer"
+            elif aid == 0:
+                status="unaffiliated"
+            elif _temporary(db,guild,state,aid,home_alliance):
                 status="temporary"
+            elif tag and tag.casefold() == str(home[2]).casefold():
+                status="home"
             else:
-                status="baseline"
+                status="review"
         elif state != home_state:
             status="state_transfer"
         elif aid==0:
