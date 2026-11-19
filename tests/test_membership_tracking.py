@@ -239,3 +239,17 @@ def test_first_sync_detects_existing_state_transfer_and_diagnostic(dbs):
     assert coverage["observed"]==1
     assert coverage["results"]["state_transfer"]==1
     assert m.dashboard(10,[1])["transfers"]==1
+
+
+def test_state_transfer_is_reviewed_even_when_api_omits_alliance(dbs):
+    assert m.observe(101,1,{"player":{"kid":1600}},stamp(0))=="state_transfer"
+    case=m.list_cases([1])[0]
+    assert case["to_state"]==1600
+    assert case["category"]=="state_transfer"
+    assert m.dashboard(10,[1])["active"]==1
+
+
+def test_same_state_missing_alliance_never_creates_departure(dbs):
+    assert m.observe(101,1,{"player":{"kid":1501}},stamp(0))=="missing_alliance"
+    assert m.list_cases([1])==[]
+    assert m.tracking_coverage([1])["results"]["missing_alliance"]==1
