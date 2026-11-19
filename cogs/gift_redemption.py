@@ -1743,6 +1743,11 @@ async def maybe_remove_transferred_member(cog, fid, collector=None):
         alliance_id = row[0] if row and row[0] is not None else None
         if alliance_id is None or not auto_remove_on(alliance_id):
             return None
+        # The opt-in reconciliation service owns transfer decisions for this server.
+        from . import membership_service
+        home = membership_service.home_info(alliance_id)
+        if home and membership_service.is_enabled(home[0]):
+            return None
         return alliance_id, (row[1] or str(fid))
 
     found = await asyncio.to_thread(_candidate)
