@@ -1052,6 +1052,16 @@ class NotificationSystem(commands.Cog):
             if not is_enabled:
                 return
 
+            # Administrator-approved subscription roles override the event's
+            # older mention setting. Members control these roles via /alerts.
+            subscriptions = self.bot.get_cog("NotificationSubscriptions")
+            if subscriptions is not None:
+                subscription_role_id = subscriptions.role_for_event(
+                    guild_id, event_type or "Custom"
+                )
+                if subscription_role_id is not None:
+                    mention_type = f"role_{subscription_role_id}"
+
             tz = get_timezone(timezone)
             now = datetime.now(tz)
             next_time = datetime.fromisoformat(next_notification)
