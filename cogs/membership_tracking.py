@@ -540,13 +540,20 @@ class MembershipTracking(commands.Cog):
         ids,_=scope(interaction)
         if not ids:
             ids=[int(aid) for aid,_ in visible_alliances(interaction)]
-        history=await asyncio.to_thread(service.list_history,ids)
-        lines=[("#"+str(c["id"])+" · Chief "+str(c["fid"])+" · "+
-                str(c["decision"] or "resolved")+" · by "+str(c["decided_by"] or "system"))
-               for c in history]
+        history=await asyncio.to_thread(service.list_history,ids,15)
+        visits=await asyncio.to_thread(service.list_visit_history,ids,15)
+        decisions=[("#"+str(c["id"])+" · Chief "+str(c["fid"])+" · "+
+                    str(c["decision"] or "resolved")+" · by "+str(c["decided_by"] or "system"))
+                   for c in history]
+        timeline=[("Chief "+str(v["fid"])+" · "+_preview(v["game_tag"] or "Unknown")+
+                   " · "+("Returned" if v["ended_at"] else "Visiting"))
+                  for v in visits]
         embed=discord.Embed(title="📜 Membership Movement History",
-            description=("\n".join(lines) if lines else "No resolved movement cases yet.")+
-                        "\n\nAll decisions are preserved for audit, even when a member leaves.",
+            description=("**Resolved decisions**\n"+
+                         ("\n".join(decisions) if decisions else "No decisions yet.")+
+                         "\n\n**Temporary visit history**\n"+
+                         ("\n".join(timeline) if timeline else "No recorded visits yet.")+
+                         "\n\nAudit records remain available after a player leaves."),
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
                                 view=Subview(self,interaction.user.id),content=None)
