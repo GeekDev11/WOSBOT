@@ -174,8 +174,12 @@ def temporary_list(guild_id, allowed_alliances, is_server=False):
         rows = db.execute("SELECT * FROM temporary_alliances WHERE guild_id=? AND enabled=1 "
                           "ORDER BY state_id,tag", (guild_id,)).fetchall()
     allowed = set(map(int, allowed_alliances))
-    return [dict(r) for r in rows if (is_server or r["scope_alliance_id"] is None
-                                      or r["scope_alliance_id"] in allowed)]
+    states = {int(info[1]) for aid in allowed
+              if (info := home_info(aid)) and info[1] is not None}
+    return [dict(r) for r in rows
+            if is_server or
+            (int(r["state_id"]) in states and
+             (r["scope_alliance_id"] is None or r["scope_alliance_id"] in allowed))]
 
 
 def remove_temporary(rule_id, guild_id, allowed_alliances, is_server=False):
