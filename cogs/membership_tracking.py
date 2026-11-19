@@ -560,6 +560,7 @@ class MembershipTracking(commands.Cog):
             ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         stats=await asyncio.to_thread(service.dashboard,interaction.guild_id,ids)
         coverage=await asyncio.to_thread(service.tracking_coverage,ids)
+        history=await asyncio.to_thread(service.saved_player_sync_coverage,ids)
         enabled=await asyncio.to_thread(service.is_enabled,interaction.guild_id)
         remaining=max(0,stats["active"]-coverage["observed"])
         attempted=coverage["attempted"]
@@ -578,7 +579,10 @@ class MembershipTracking(commands.Cog):
             if not enabled else
             (("No usable API membership observations yet. " +
               ("Sync responded, but membership fields were missing or stale. Review the diagnostics above."
-               if attempted else "Use Sync Now to check your managed members."))
+               if attempted else
+               ("Past Player Sync data exists, but monitoring has not assessed those members. "
+                "Use Sync Now after enabling tracking."
+                if history["snapshots"] else "Use Sync Now to check your managed members.")))
              if coverage["observed"]==0 else
              ("Some members still need observations. Use Sync Now to check them."
               if remaining else
@@ -589,6 +593,7 @@ class MembershipTracking(commands.Cog):
                          "**Active home members:** "+str(stats["active"])+"\n"
                          "**Members with usable observations:** "+str(coverage["observed"])+"\n"
                          "**Members attempted by tracking:** "+str(attempted)+"\n"
+                         "**Players with saved Player Sync history:** "+str(history["snapshots"])+"\n"
                          "**Not yet observed:** "+str(remaining)+"\n"
                          "**Unclassified responses:** "+diagnostics+"\n"
                          "**Last API observation:** "+str(coverage["latest"] or "None")+"\n"
