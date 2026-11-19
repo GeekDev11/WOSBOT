@@ -494,6 +494,38 @@ def tracking_coverage(allowed_alliances):
             "results":{str(r[0]):int(r[1]) for r in attempts}}
 
 
+def member_names(fids):
+    """Display names from the managed home roster, without changing ownership."""
+    ids=[int(fid) for fid in fids]
+    if not ids:
+        return {}
+    names={}
+    try:
+        with sqlite3.connect(USERS_DB,timeout=30) as db:
+            for offset in range(0,len(ids),400):
+                batch=ids[offset:offset+400]
+                ph=",".join("?" for _ in batch)
+                for fid,nickname in db.execute(
+                    "SELECT fid,nickname FROM users WHERE fid IN ("+ph+")",batch):
+                    names[int(fid)]=str(nickname or fid)
+    except sqlite3.Error:
+        return names
+    return names
+
+
+def observation_summary(allowed_alliances):
+    """Count latest ACCEPTED observation statuses, not merely API attempts."""
+    ids=list(map(int,allowed_alliances))
+    if not ids:
+        return {}
+    initialize()
+    ph=",".join("?" for _ in ids)
+    with closing(connect()) as db:
+        return {str(status):int(count) for status,count in db.execute(
+            "SELECT status,COUNT(*) FROM observations WHERE home_alliance IN ("+
+            ph+") GROUP BY status",ids)}
+
+
 def list_cases(allowed_alliances, status="pending", limit=25, offset=0, category=None):
     initialize()
     ids=list(map(int,allowed_alliances))
