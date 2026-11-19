@@ -512,10 +512,19 @@ def dashboard(guild_id, allowed_alliances):
     with sqlite3.connect(USERS_DB) as db:
         active=db.execute("SELECT COUNT(*) FROM users WHERE alliance IN ("+placeholders+")",ids).fetchone()[0]
     with closing(connect()) as db:
-        visiting=db.execute("SELECT COUNT(*) FROM visits WHERE ended_at IS NULL AND home_alliance IN ("+placeholders+")",ids).fetchone()[0]
-        pending=db.execute("SELECT COUNT(*) FROM movement_cases WHERE status='pending' AND home_alliance IN ("+placeholders+")",ids).fetchone()[0]
-        transfers=db.execute("SELECT COUNT(*) FROM movement_cases WHERE status='pending' AND category='state_transfer' "
-                             "AND home_alliance IN ("+placeholders+")",ids).fetchone()[0]
+        db.execute("ATTACH DATABASE ? AS home_users", (USERS_DB,))
+        member_join = (" JOIN home_users.users u ON u.fid=m.fid "
+                       "AND u.alliance=m.home_alliance ")
+        visiting=db.execute(
+            "SELECT COUNT(*) FROM visits m" + member_join +
+            "WHERE m.ended_at IS NULL AND m.home_alliance IN ("+placeholders+")",ids).fetchone()[0]
+        pending=db.execute(
+            "SELECT COUNT(*) FROM movement_cases m" + member_join +
+            "WHERE m.status='pending' AND m.home_alliance IN ("+placeholders+")",ids).fetchone()[0]
+        transfers=db.execute(
+            "SELECT COUNT(*) FROM movement_cases m" + member_join +
+            "WHERE m.status='pending' AND m.category='state_transfer' "
+            "AND m.home_alliance IN ("+placeholders+")",ids).fetchone()[0]
     return dict(active=active,visiting=visiting,pending=pending,transfers=transfers)
 
 
@@ -563,9 +572,11 @@ def list_unclassified(allowed_alliances, limit=25):
               "membership_changed","error","http_404","http_0","no_data")
     vh=",".join("?" for _ in rejected)
     with closing(connect()) as db:
+        db.execute("ATTACH DATABASE ? AS home_users", (USERS_DB,))
         return [dict(row) for row in db.execute(
-            "SELECT fid,home_alliance,result,checked_at FROM tracking_attempts "
-            "WHERE home_alliance IN ("+ph+") AND result IN ("+vh+") "
+            "SELECT a.fid,a.home_alliance,a.result,a.checked_at FROM tracking_attempts a "
+            "JOIN home_users.users u ON u.fid=a.fid AND u.alliance=a.home_alliance "
+            "WHERE a.home_alliance IN ("+ph+") AND a.result IN ("+vh+") "
             "ORDER BY checked_at DESC LIMIT ?",
             (*ids,*rejected,int(limit))).fetchall()]
 
@@ -578,12 +589,15 @@ def tracking_coverage(allowed_alliances):
     initialize()
     ph=",".join("?" for _ in ids)
     with closing(connect()) as db:
+        db.execute("ATTACH DATABASE ? AS home_users", (USERS_DB,))
         row=db.execute(
-            "SELECT COUNT(*), MAX(observed_at) FROM observations "
-            "WHERE home_alliance IN ("+ph+")",ids).fetchone()
+            "SELECT COUNT(*), MAX(o.observed_at) FROM observations o "
+            "JOIN home_users.users u ON u.fid=o.fid AND u.alliance=o.home_alliance "
+            "WHERE o.home_alliance IN ("+ph+")",ids).fetchone()
         attempts=db.execute(
-            "SELECT result, COUNT(*) FROM tracking_attempts "
-            "WHERE home_alliance IN ("+ph+") GROUP BY result",ids).fetchall()
+            "SELECT a.result, COUNT(*) FROM tracking_attempts a "
+            "JOIN home_users.users u ON u.fid=a.fid AND u.alliance=a.home_alliance "
+            "WHERE a.home_alliance IN ("+ph+") GROUP BY a.result",ids).fetchall()
     return {"observed":int(row[0]),"latest":row[1],
             "attempted":sum(int(r[1]) for r in attempts),
             "results":{str(r[0]):int(r[1]) for r in attempts}}
@@ -616,9 +630,11 @@ def observation_summary(allowed_alliances):
     initialize()
     ph=",".join("?" for _ in ids)
     with closing(connect()) as db:
+        db.execute("ATTACH DATABASE ? AS home_users", (USERS_DB,))
         return {str(status):int(count) for status,count in db.execute(
-            "SELECT status,COUNT(*) FROM observations WHERE home_alliance IN ("+
-            ph+") GROUP BY status",ids)}
+            "SELECT o.status,COUNT(*) FROM observations o "
+            "JOIN home_users.users u ON u.fid=o.fid AND u.alliance=o.home_alliance "
+            "WHERE o.home_alliance IN ("+ph+") GROUP BY o.status",ids)}
 
 
 def list_cases(allowed_alliances, status="pending", limit=25, offset=0, category=None):
@@ -630,9 +646,13 @@ def list_cases(allowed_alliances, status="pending", limit=25, offset=0, category
     clause=" AND category=?" if category else ""
     args=(*ids,status,*((category,) if category else ()),limit,offset)
     with closing(connect()) as db:
+        db.execute("ATTACH DATABASE ? AS home_users", (USERS_DB,))
         return [dict(row) for row in db.execute(
-            "SELECT * FROM movement_cases WHERE home_alliance IN ("+ph+") AND status=? "
-            +clause+" ORDER BY updated_at DESC LIMIT ? OFFSET ?",args).fetchall()]
+            "SELECT m.* FROM movement_cases m "
+            "JOIN home_users.users u ON u.fid=m.fid AND u.alliance=m.home_alliance "
+            "WHERE m.home_alliance IN ("+ph+") AND m.status=? "
+            +( " AND m.category=?" if category else "")+
+            " ORDER BY m.updated_at DESC LIMIT ? OFFSET ?",args).fetchall()]
 
 
 def list_visits(allowed_alliances, limit=25):
@@ -656,7 +676,8 @@ def decide(case_id, version, actor_id, allowed_alliances, action, detail=""):
         db.execute("BEGIN IMMEDIATE")
         row=db.execute("SELECT * FROM movement_cases WHERE id=? AND status='pending' AND version=?",
                        (case_id,version)).fetchone()
-        if not row or int(row["home_alliance"]) not in set(map(int,allowed_alliances)):
+        if (not row or int(row["home_alliance"]) not in set(map(int,allowed_alliances))
+                or member_home(row["fid"]) != int(row["home_alliance"])):
             db.rollback()
             return False
         if action=="temporary" and (row["category"]=="state_transfer" or not row["game_alliance_id"]):
