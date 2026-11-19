@@ -456,6 +456,25 @@ def saved_player_sync_coverage(allowed_alliances):
         return {"snapshots":0,"latest":None}
 
 
+def list_unclassified(allowed_alliances, limit=25):
+    """Troubleshooting only; no unverified observations are interpreted as departures."""
+    ids=list(map(int,allowed_alliances))
+    if not ids:
+        return []
+    initialize()
+    ph=",".join("?" for _ in ids)
+    rejected=("missing_player","missing_alliance","invalid_alliance","missing_state",
+              "invalid_identity","stale_api","invalid_timestamp","unknown",
+              "membership_changed","error")
+    vh=",".join("?" for _ in rejected)
+    with closing(connect()) as db:
+        return [dict(row) for row in db.execute(
+            "SELECT fid,home_alliance,result,checked_at FROM tracking_attempts "
+            "WHERE home_alliance IN ("+ph+") AND result IN ("+vh+") "
+            "ORDER BY checked_at DESC LIMIT ?",
+            (*ids,*rejected,int(limit))).fetchall()]
+
+
 def tracking_coverage(allowed_alliances):
     """Accepted observations and attempted syncs are counted separately."""
     ids=list(map(int,allowed_alliances))
