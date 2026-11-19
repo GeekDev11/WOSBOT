@@ -673,6 +673,12 @@ class ManageMembersView(MemberListView):
                  alliances=None):
         self.pending_selections: set = set()
         self.alliances = alliances or []  # [(aid, name, count?), ...] for Transfer
+        # Display-only overlay; never modifies the authoritative home roster.
+        try:
+            from . import membership_service
+            self.visiting = membership_service.current_visitors(alliance_id)
+        except (OSError, sqlite3.Error, ValueError):
+            self.visiting = {}
         super().__init__(members, alliance_id, alliance_name, cog, author_id)
 
     @property
@@ -693,6 +699,11 @@ class ManageMembersView(MemberListView):
 
     def build_embed(self) -> discord.Embed:
         embed = super().build_embed()
+        if self.visiting:
+            embed.description = (
+                f"{embed.description}\n\n"
+                f"**Temporary visitors: {len(self.visiting)}** — still active in this home roster."
+            )
         if self.pending_selections:
             embed.description = (
                 f"{embed.description}\n\n"
@@ -719,7 +730,8 @@ class ManageMembersView(MemberListView):
                 options.append(discord.SelectOption(
                     label=(m['nickname'] or "(no name)")[:50],
                     value=str(fid),
-                    description=f"ID: {fid} · {level} · State {m['kid']}"[:100],
+                    description=(f"ID: {fid} · {level} · State {m['kid']}" +
+                                 (f" · Visiting {self.visiting[fid]}" if fid in self.visiting else ""))[:100],
                     emoji=theme.verifiedIcon if is_selected else theme.userIcon,
                     default=is_selected,
                 ))
