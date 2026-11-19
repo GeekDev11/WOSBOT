@@ -929,6 +929,15 @@ class AllianceHubView(discord.ui.View):
             missing_label="Alliance",
         )
 
+    @discord.ui.button(label="Verify Game Alliance", emoji="🔍",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def verify_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _route_to_cog(
+            interaction, self.cog.bot, "Alliance",
+            "show_verify_identity_for", self.alliance_id,
+            missing_label="Alliance",
+        )
+
     # ── Nav (row 4) ──
 
     @discord.ui.button(label="Back to Alliance Overview", emoji=theme.backIcon,
