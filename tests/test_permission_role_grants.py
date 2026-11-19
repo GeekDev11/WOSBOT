@@ -13,7 +13,18 @@ def _fresh_db(tmp_path, monkeypatch):
         conn.execute("CREATE TABLE admin_role (role_id INTEGER PRIMARY KEY, guild_id INTEGER, is_initial INTEGER NOT NULL DEFAULT 0)")
         conn.execute("CREATE TABLE adminserver_role (role_id INTEGER, alliances_id INTEGER, PRIMARY KEY (role_id, alliances_id))")
         conn.commit()
+    # Role-grant tests also need a real alliance registry for guild scoping.
+    alliance_db = tmp_path / "alliance.sqlite"
+    with sqlite3.connect(alliance_db) as conn:
+        conn.execute(
+            "CREATE TABLE alliance_list (alliance_id INTEGER, name TEXT, discord_server_id INTEGER)"
+        )
+        conn.executemany(
+            "INSERT INTO alliance_list VALUES (?, ?, ?)",
+            [(1, "A", 900), (2, "B", 900)],
+        )
     monkeypatch.setattr(PermissionManager, "SETTINGS_DB", str(db))
+    monkeypatch.setattr(PermissionManager, "ALLIANCE_DB", str(alliance_db))
     return db
 
 
