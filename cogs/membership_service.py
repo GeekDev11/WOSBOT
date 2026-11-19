@@ -464,8 +464,8 @@ def list_unclassified(allowed_alliances, limit=25):
     initialize()
     ph=",".join("?" for _ in ids)
     rejected=("missing_player","missing_alliance","invalid_alliance","missing_state",
-              "invalid_identity","stale_api","invalid_timestamp","unknown",
-              "membership_changed","error")
+              "invalid_identity","stale_api","stale","invalid_timestamp","unknown",
+              "membership_changed","error","http_404","http_0","no_data")
     vh=",".join("?" for _ in rejected)
     with closing(connect()) as db:
         return [dict(row) for row in db.execute(
