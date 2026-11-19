@@ -559,15 +559,32 @@ class MembershipTracking(commands.Cog):
         if not ids:
             ids=[int(aid) for aid,_ in visible_alliances(interaction)]
         stats=await asyncio.to_thread(service.dashboard,interaction.guild_id,ids)
+        coverage=await asyncio.to_thread(service.tracking_coverage,ids)
         enabled=await asyncio.to_thread(service.is_enabled,interaction.guild_id)
+        remaining=max(0,stats["active"]-coverage["observed"])
+        status=("Monitoring enabled" if enabled else "OFF — enable in Tracking Settings")
+        instructions=(
+            "Tracking is OFF. The alliance's State Lock does not enable movement detection. "
+            "Open Tracking Settings to enable it, then use Sync Now."
+            if not enabled else
+            ("No API membership observations yet. Use Sync Now to check your managed members."
+             if coverage["observed"]==0 else
+             ("Some members still need observations. Use Sync Now to check them."
+              if remaining else
+              "All currently active home members have stored membership observations."))
+        )
         embed=discord.Embed(title="🛡️ Membership Tracking",
-            description=("**Status:** "+("Monitoring enabled" if enabled else "Disabled · safe rollout")+"\n"
+            description=("**Status:** "+status+"\n"
                          "**Active home members:** "+str(stats["active"])+"\n"
+                         "**Members with observations:** "+str(coverage["observed"])+"\n"
+                         "**Not yet observed:** "+str(remaining)+"\n"
+                         "**Last API observation:** "+str(coverage["latest"] or "None")+"\n"
                          "**Temporary visits:** "+str(stats["visiting"])+" (included in active)\n"
                          "**Pending cases:** "+str(stats["pending"])+"\n"
                          "**State transfers:** "+str(stats["transfers"])+"\n\n"
+                         +instructions+"\n\n"
                          "Temporary visitors **remain active in their home alliance**. "
-                         "API observations never change the managed roster."),
+                         "Observations never move or delete them."),
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
                                 view=TrackingView(self,interaction.user.id),content=None)
@@ -659,8 +676,10 @@ class MembershipTracking(commands.Cog):
         embed=discord.Embed(title="⚙️ Membership Tracking Settings",
             description=("**Tracking:** "+("Enabled" if enabled else "Disabled")+"\n\n"
                          "Only Server Admin and above can enable monitoring.\n"
-                         "First successful observation establishes each player's baseline.\n"
-                         "Tracked movement opens review cases; it never automatically removes anyone.\n"
+                         "The first successful observation checks each player's current state and alliance.\n"
+                         "**After enabling:** run **Sync Now** in Membership Tracking.\n"
+                         "State Lock controls registration; it does not activate tracking.\n"
+                         "Detected movements open review cases without automatic removal.\n"
                          "Permanent roster changes require administrator confirmation "
                          "and are journaled with recovery snapshots."),
             color=theme.emColor1)
