@@ -278,3 +278,18 @@ def test_no_data_response_is_visible_as_diagnostic(dbs):
     rows=m.list_unclassified([1])
     assert len(rows)==1 and rows[0]["result"]=="http_404"
     assert m.list_cases([1])==[]
+
+
+def test_membership_case_display_uses_current_home_roster_name(dbs):
+    m.observe(101,1,player(1501,777,"XYZ"),stamp(0))
+    assert m.member_names([101,999])=={101:"Chief"}
+    assert m.observation_summary([1])=={"review":1}
+    assert m.observation_summary([2])=={}
+    assert m.list_cases([1])[0]["game_tag"]=="XYZ"
+
+
+def test_unchanged_api_timestamp_preserves_previous_classification(dbs):
+    m.observe(101,1,player(1501,777,"XYZ"),stamp(0))
+    assert m.observe(101,1,player(1501,777,"XYZ"),stamp(0))=="stale"
+    assert m.observation_summary([1])=={"review":1}
+    assert len(m.list_cases([1]))==1
