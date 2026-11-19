@@ -253,3 +253,12 @@ def test_same_state_missing_alliance_never_creates_departure(dbs):
     assert m.observe(101,1,{"player":{"kid":1501}},stamp(0))=="missing_alliance"
     assert m.list_cases([1])==[]
     assert m.tracking_coverage([1])["results"]["missing_alliance"]==1
+
+
+def test_sync_diagnostics_expose_which_member_was_unclassified(dbs):
+    assert m.observe(101,1,{"player":{"kid":1501}},stamp(0))=="missing_alliance"
+    failures=m.list_unclassified([1])
+    assert len(failures)==1
+    assert failures[0]["fid"]==101
+    assert failures[0]["result"]=="missing_alliance"
+    assert m.list_unclassified([2])==[]
