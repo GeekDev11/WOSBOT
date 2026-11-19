@@ -394,8 +394,21 @@ class CaseView(Subview):
 
 
 class CaseListView(Subview):
-    def __init__(self,cog,owner,cases,transfers_only):
+    def __init__(self,cog,owner,cases,transfers_only,page=0,has_next=False):
         super().__init__(cog,owner)
+        self.transfers_only,self.page=transfers_only,page
+        if page>0:
+            prev=discord.ui.Button(label="Previous",style=discord.ButtonStyle.secondary,row=1)
+            async def previous(interaction):
+                await cog.show_cases(interaction,transfers_only,page-1)
+            prev.callback=previous
+            self.add_item(prev)
+        if has_next:
+            nxt=discord.ui.Button(label="Next",style=discord.ButtonStyle.secondary,row=1)
+            async def following(interaction):
+                await cog.show_cases(interaction,transfers_only,page+1)
+            nxt.callback=following
+            self.add_item(nxt)
         if cases:
             picker=discord.ui.Select(placeholder="Select case",row=0,options=[
                 discord.SelectOption(label=("#"+str(c["id"])+" · "+str(c["fid"]))[:100],
@@ -485,24 +498,25 @@ class MembershipTracking(commands.Cog):
         await safe_edit_message(interaction,embed=embed,
                                 view=TrackingView(self,interaction.user.id),content=None)
 
-    async def show_cases(self,interaction,transfers_only=False):
+    async def show_cases(self,interaction,transfers_only=False,page=0):
         if not allowed(interaction):
             return await deny(interaction)
         ids,_=scope(interaction)
         if not ids:
             ids=[int(aid) for aid,_ in visible_alliances(interaction)]
-        cases=await asyncio.to_thread(service.list_cases,ids)
-        if transfers_only:
-            cases=[c for c in cases if c["category"]=="state_transfer"]
+        items=await asyncio.to_thread(service.list_cases,ids,limit=26,offset=page*25,
+                                      category="state_transfer" if transfers_only else None)
+        cases=items[:25]
         lines=[("#"+str(c["id"])+" · Chief "+str(c["fid"])+
                 " · "+c["category"]+" · "+_preview(c["game_tag"] or "unknown"))
-               for c in cases[:15]]
+               for c in cases]
         embed=discord.Embed(title="📋 "+("State Transfer Reviews" if transfers_only else "Pending Member Actions"),
             description=("\n".join(lines) if lines else "No pending cases.")+
-                        "\n\nUnapproved movements remain on the home roster until an authorized action.",
+                        "\n\nPage "+str(page+1)+
+                        " · Unapproved movements remain active on their home roster.",
             color=theme.emColor1)
         await safe_edit_message(interaction,embed=embed,
-                  view=CaseListView(self,interaction.user.id,cases,transfers_only),content=None)
+                  view=CaseListView(self,interaction.user.id,cases,transfers_only,page,len(items)>25),content=None)
 
     async def show_visits(self,interaction):
         if not allowed(interaction):
