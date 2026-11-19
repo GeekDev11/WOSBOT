@@ -383,6 +383,20 @@ def dashboard(guild_id, allowed_alliances):
     return dict(active=active,visiting=visiting,pending=pending,transfers=transfers)
 
 
+def tracking_coverage(allowed_alliances):
+    """How many home members have a usable, stored API membership observation."""
+    ids=list(map(int,allowed_alliances))
+    if not ids:
+        return {"observed":0,"latest":None}
+    initialize()
+    ph=",".join("?" for _ in ids)
+    with closing(connect()) as db:
+        row=db.execute(
+            "SELECT COUNT(*), MAX(observed_at) FROM observations "
+            "WHERE home_alliance IN ("+ph+")",ids).fetchone()
+    return {"observed":int(row[0]),"latest":row[1]}
+
+
 def list_cases(allowed_alliances, status="pending", limit=25, offset=0, category=None):
     initialize()
     ids=list(map(int,allowed_alliances))
