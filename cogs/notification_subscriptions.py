@@ -230,13 +230,15 @@ class NotificationSubscriptions(commands.Cog):
             if not self.bot.intents.members:
                 log.warning("Cannot auto-subscribe existing members in guild %s: Server Members intent disabled", guild.id)
                 return
-            optouts = self._optouts_for_guild(guild.id)
             assigned = 0
             failures = 0
             try:
                 async for member in guild.fetch_members(limit=None):
                     if member.bot:
                         continue
+                    # Read opt-outs at assignment time so a member toggling /alerts
+                    # during backfill is not silently re-subscribed.
+                    optouts = self._optouts_for_guild(guild.id)
                     roles = [
                         role for event, role in entries
                         if (member.id, event) not in optouts
