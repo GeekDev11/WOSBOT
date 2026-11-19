@@ -706,6 +706,14 @@ async def remove_transfers(cog, result: RunResult) -> set:
     after all gets its new state now."""
     candidates = []
     for transfer in result.transfers:
+        # Tracking-enabled servers route state changes to the review queue.
+        # Never invoke the legacy auto-delete handler for those members.
+        from . import membership_service
+        home = await asyncio.to_thread(membership_service.home_info, int(transfer.alliance))
+        if home and await asyncio.to_thread(membership_service.is_enabled, home[0]):
+            if transfer.pending and await asyncio.to_thread(_write_state, transfer.fid, transfer.kid):
+                result.kingdom_changed.append(transfer.fid)
+            continue
         if not await maybe_remove_transferred_member(cog, transfer.fid, candidates) and transfer.pending:
             if await asyncio.to_thread(_write_state, transfer.fid, transfer.kid):
                 result.kingdom_changed.append(transfer.fid)
