@@ -387,17 +387,10 @@ class BotStartup(commands.Cog):
                     )
 
                     status_embed.add_field(
-                        name=f"{theme.pinIcon} Project & Support",
-                        value=(
-                            f"**Project:** [WOSBOT on GitHub](https://github.com/GeekDev11/WOSBOT)\n"
-                            f"**Report Issues:** [GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)\n"
-                            f"**Credits:** Based on the open-source [Whiteout Project bot](https://github.com/whiteout-project/bot)\n"
-                            f"{theme.lowerDivider}"
-                        ),
+                        name=f"{theme.pinIcon} Report Issues",
+                        value="[GitHub Issues](https://github.com/GeekDev11/WOSBOT/issues)",
                         inline=False
                     )
-
-                    status_embed.set_footer(text="WOSBOT · Whiteout Survival alliance tools")
 
                     await admin_user.send(embed=status_embed)
 
