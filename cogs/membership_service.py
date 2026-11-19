@@ -118,9 +118,14 @@ def set_enabled(guild_id, enabled):
 
 
 def home_info(alliance_id):
-    with sqlite3.connect(ALLIANCE_DB) as db:
-        return db.execute("SELECT discord_server_id, kid, name FROM alliance_list WHERE alliance_id=?",
-                          (alliance_id,)).fetchone()
+    try:
+        with sqlite3.connect(ALLIANCE_DB) as db:
+            return db.execute("SELECT discord_server_id, kid, name FROM alliance_list WHERE alliance_id=?",
+                              (alliance_id,)).fetchone()
+    except sqlite3.OperationalError:
+        # Older installations and isolated legacy test fixtures may not have
+        # completed the alliance migration; do not disrupt Player Sync.
+        return None
 
 
 def member_home(fid):
