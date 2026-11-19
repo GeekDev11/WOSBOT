@@ -1,8 +1,9 @@
-"""Opt-in event pings through administrator-approved, self-assignable Discord roles.
+"""Default-on event pings through administrator-approved Discord roles.
 
 The scheduler continues to post events publicly. Only members who have elected
 to receive pings are mentioned when an event has a configured subscription role.
 """
+import asyncio
 import logging
 from contextlib import contextmanager
 import os
@@ -29,6 +30,12 @@ def _connection():
         event_type TEXT NOT NULL,
         role_id INTEGER NOT NULL,
         PRIMARY KEY (guild_id, event_type)
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS notification_subscription_optouts (
+        guild_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        PRIMARY KEY (guild_id, user_id, event_type)
     )""")
     try:
         yield conn
@@ -96,9 +103,11 @@ class AlertPicker(discord.ui.View):
                 # Read the member's current role membership at click time.
                 if role in member.roles:
                     await member.remove_roles(role, reason="Member opted out of event notifications")
+                    self.cog.set_optout(self.guild_id, member.id, event, True)
                     action = "Unsubscribed from"
                 else:
                     await member.add_roles(role, reason="Member opted in to event notifications")
+                    self.cog.set_optout(self.guild_id, member.id, event, False)
                     action = "Subscribed to"
             except discord.Forbidden:
                 await interaction.response.send_message(
@@ -140,6 +149,8 @@ class AlertPicker(discord.ui.View):
                 await interaction.response.send_message(
                     "Could not remove your notification roles. Please try again.", ephemeral=True)
                 return
+            for event, _ in self.cog.available_roles(interaction.guild):
+                self.cog.set_optout(self.guild_id, member.id, event, True)
             member = await interaction.guild.fetch_member(interaction.user.id)
             self._build(member)
             await interaction.response.edit_message(
@@ -167,6 +178,103 @@ class NotificationSubscriptions(commands.Cog):
                 "SELECT guild_id, event_type, role_id FROM notification_subscription_roles"
             ).fetchall()
         self._role_mapping = {(guild_id, event): role_id for guild_id, event, role_id in rows}
+
+    async def cog_load(self):
+        # Discord's privileged Server Members intent is required to backfill existing
+        # members. Missing intent is reported rather than silently claiming success.
+        self._sync_lock = asyncio.Lock()
+        self._sync_task = asyncio.create_task(self._initial_sync())
+
+    async def cog_unload(self):
+        if getattr(self, "_sync_task", None):
+            self._sync_task.cancel()
+
+    def set_optout(self, guild_id: int, user_id: int, event: str, opted_out: bool):
+        with _connection() as conn:
+            if opted_out:
+                conn.execute(
+                    "INSERT OR IGNORE INTO notification_subscription_optouts "
+                    "(guild_id, user_id, event_type) VALUES (?, ?, ?)",
+                    (guild_id, user_id, event),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM notification_subscription_optouts "
+                    "WHERE guild_id=? AND user_id=? AND event_type=?",
+                    (guild_id, user_id, event),
+                )
+
+    def _optouts_for_guild(self, guild_id: int):
+        with _connection() as conn:
+            rows = conn.execute(
+                "SELECT user_id, event_type FROM notification_subscription_optouts WHERE guild_id=?",
+                (guild_id,),
+            ).fetchall()
+        return set(rows)
+
+    async def _initial_sync(self):
+        await self.bot.wait_until_ready()
+        for guild in self.bot.guilds:
+            if self.available_roles(guild):
+                await self._sync_guild(guild)
+
+    async def _sync_guild(self, guild: discord.Guild):
+        async with self._sync_lock:
+            entries = self.available_roles(guild)
+            if not entries:
+                return
+            me = guild.me
+            if not me or not me.guild_permissions.manage_roles:
+                log.warning("Cannot auto-subscribe guild %s: bot lacks Manage Roles", guild.id)
+                return
+            if not self.bot.intents.members:
+                log.warning("Cannot auto-subscribe existing members in guild %s: Server Members intent disabled", guild.id)
+                return
+            optouts = self._optouts_for_guild(guild.id)
+            assigned = 0
+            failures = 0
+            try:
+                async for member in guild.fetch_members(limit=None):
+                    if member.bot:
+                        continue
+                    roles = [
+                        role for event, role in entries
+                        if (member.id, event) not in optouts
+                        and role not in member.roles
+                        and role < me.top_role
+                    ]
+                    if not roles:
+                        continue
+                    try:
+                        await member.add_roles(*roles, reason="Default event notification subscriptions")
+                        assigned += 1
+                    except (discord.Forbidden, discord.HTTPException):
+                        failures += 1
+                        log.warning("Could not auto-assign notification roles to member %s in guild %s", member.id, guild.id)
+                    # Avoid bursts of role updates when backfilling existing members.
+                    await asyncio.sleep(0.4)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                log.warning("Cannot list members for default notification subscriptions in guild %s: %s", guild.id, exc)
+            log.info("Default notification subscriptions in guild %s: %s updated, %s failed", guild.id, assigned, failures)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        if member.bot:
+            return
+        me = member.guild.me
+        if not me or not me.guild_permissions.manage_roles:
+            return
+        optouts = self._optouts_for_guild(member.guild.id)
+        roles = [
+            role for event, role in self.available_roles(member.guild)
+            if (member.id, event) not in optouts
+            and role not in member.roles and role < me.top_role
+        ]
+        if roles:
+            try:
+                await member.add_roles(*roles, reason="Default event notification subscriptions")
+            except (discord.Forbidden, discord.HTTPException):
+                log.warning("Could not add default notification roles for new member %s", member.id)
 
     def available_roles(self, guild: discord.Guild):
         rows = sorted(
@@ -208,7 +316,7 @@ class NotificationSubscriptions(commands.Cog):
             view=view, ephemeral=True,
         )
 
-    @app_commands.command(name="alerts_setup", description="Admin: enable event opt-in using a dedicated Discord role")
+    @app_commands.command(name="alerts_setup", description="Admin: enable default-on event notification roles")
     @app_commands.guild_only()
     @app_commands.describe(event="Event type to subscribe to", role="Dedicated, non-privileged notification role")
     @app_commands.autocomplete(event=event_autocomplete)
@@ -238,10 +346,13 @@ class NotificationSubscriptions(commands.Cog):
                 (interaction.guild_id, event, role.id),
             )
         self._role_mapping[(interaction.guild_id, event)] = role.id
+        # Run the initial default-on role backfill without blocking the interaction.
+        asyncio.create_task(self._sync_guild(interaction.guild))
         await interaction.response.send_message(
             f"**{event}** notifications now mention {role.mention}.\n"
-            "Members can subscribe or unsubscribe with **/alerts**. "
+            "Members are subscribed by default and may opt out via **/alerts**. "
             "Make this role mentionable or give the bot permission to mention roles. "
+            "Existing-member enrollment requires the Server Members intent. "
             "Check channel-level role permissions before making a role self-assignable.",
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -262,6 +373,9 @@ class NotificationSubscriptions(commands.Cog):
                 (interaction.guild_id, event),
             )
         self._role_mapping.pop((interaction.guild_id, event), None)
+        with _connection() as conn:
+            conn.execute("DELETE FROM notification_subscription_optouts WHERE guild_id=? AND event_type=?",
+                         (interaction.guild_id, event))
         await interaction.response.send_message(
             f"Removed subscription role mapping for **{event}** ({cur.rowcount} mapping removed). "
             "The original notification mention setting now applies again.",
