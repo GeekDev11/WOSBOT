@@ -117,7 +117,7 @@ async def _deny_alliance_access(interaction: discord.Interaction, alliance_id: i
 
 
 async def _require_registration_admin(interaction: discord.Interaction) -> bool:
-    _, is_global = PermissionManager.is_admin(interaction.user.id)
+    is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
     if not is_global:
         await interaction.response.send_message(
             f"{theme.deniedIcon} Only global administrators can manage Self-Registration.",
@@ -517,7 +517,7 @@ class MainMenu(commands.Cog):
         unowned bot needs a Bot Owner picked.
         """
         try:
-            _, is_global = PermissionManager.is_admin(interaction.user.id)
+            is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
             if not is_global:
                 await interaction.response.send_message(
                     f"{theme.deniedIcon} Only global administrators can access permissions management.",
@@ -542,7 +542,7 @@ class MainMenu(commands.Cog):
     async def show_maintenance_tools(self, interaction: discord.Interaction):
         """Display the Maintenance sub-menu."""
         try:
-            _, is_global = PermissionManager.is_admin(interaction.user.id)
+            is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
 
             embed = discord.Embed(
                 title=f"{theme.robotIcon} Administration · Maintenance Tools",
@@ -1391,7 +1391,7 @@ class AdminManagerView(discord.ui.View):
         if not await check_interaction_user(interaction, self.viewer_id):
             return
         # Owner + Global only — re-check at click time.
-        _, is_global = PermissionManager.is_admin(interaction.user.id)
+        is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
         if not is_global:
             await interaction.response.send_message(
                 f"{theme.deniedIcon} Only Global admins and the Owner can view the audit log.",
@@ -1404,7 +1404,7 @@ class AdminManagerView(discord.ui.View):
     async def _on_claim_owner(self, interaction):
         if not await check_interaction_user(interaction, self.viewer_id):
             return
-        _, is_global = PermissionManager.is_admin(self.viewer_id)
+        is_global = PermissionManager.is_global_admin(self.viewer_id, interaction.guild_id)
         if not is_global:
             await interaction.response.send_message(
                 f"{theme.deniedIcon} Only Global admins can claim ownership.",
@@ -2646,7 +2646,7 @@ class ExternalOcrModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         # Re-verify the submitter - this writes a bot-wide setting.
-        _, submitter_is_global = PermissionManager.is_admin(interaction.user.id)
+        submitter_is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
         if not submitter_is_global:
             await interaction.response.send_message(
                 f"{theme.deniedIcon} Global Admin only.", ephemeral=True)
@@ -2781,7 +2781,7 @@ class MaintenanceView(discord.ui.View):
     )
     async def toggle_remote_ocr_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Re-verify the clicker: the view is persistent and gated by the opener.
-        _, clicker_is_global = PermissionManager.is_admin(interaction.user.id)
+        clicker_is_global = PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id)
         if not clicker_is_global:
             await interaction.response.send_message(
                 f"{theme.deniedIcon} Global Admin only.", ephemeral=True)
