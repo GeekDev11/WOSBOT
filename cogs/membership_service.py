@@ -298,7 +298,11 @@ def observe(fid, home_alliance, payload, observed_at=None):
         elif state != home_state:
             status="state_transfer"
         elif aid==0:
-            status="unaffiliated" if old["status"]!="baseline" else "unaffiliated"
+            kept=db.execute("SELECT 1 FROM movement_cases WHERE fid=? AND home_alliance=? "
+                            "AND to_state=? AND game_alliance_id=0 AND status='resolved' "
+                            "AND decision='keep' ORDER BY id DESC LIMIT 1",
+                            (fid,home_alliance,state)).fetchone()
+            status="kept" if kept else "unaffiliated"
         elif _temporary(db,guild,state,aid,home_alliance):
             status="temporary"
         elif db.execute("SELECT 1 FROM visits WHERE fid=? AND home_alliance=? AND "
