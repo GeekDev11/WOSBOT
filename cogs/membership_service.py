@@ -6,7 +6,7 @@ separate so an API observation cannot mutate the authoritative home roster.
 import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 DB = "db/membership_tracking.sqlite"
 ALLIANCE_DB = "db/alliance.sqlite"
@@ -248,6 +248,27 @@ def observe(fid, home_alliance, payload, observed_at=None):
         return "unknown"
     tag=str(data.get("abbr") or data.get("tag") or "")[:20]
     stamp=observed_at or now()
+    # Prefer the provider's observation timestamp to the local fetch time, so
+    # repeated cached responses cannot falsely count as new confirmations.
+    if observed_at is None and isinstance(payload,dict):
+        cached=payload.get("cached_at") or player.get("cached_at")
+        try:
+            if isinstance(cached,(int,float)) and not isinstance(cached,bool):
+                ts=float(cached)/1000 if float(cached)>1_000_000_000_000 else float(cached)
+                measured=datetime.fromtimestamp(ts,timezone.utc)
+            elif isinstance(cached,str) and cached.strip():
+                measured=datetime.fromisoformat(cached.strip().replace("Z","+00:00"))
+                if measured.tzinfo is None:
+                    measured=measured.replace(tzinfo=timezone.utc)
+            else:
+                measured=None
+            if measured is not None:
+                age=datetime.now(timezone.utc)-measured
+                if age>timedelta(hours=6) or age<timedelta(minutes=-5):
+                    return "stale"
+                stamp=measured.astimezone(timezone.utc).isoformat(timespec="seconds")
+        except (ValueError,TypeError,OverflowError,OSError):
+            return "unknown"
     with closing(connect()) as db:
         old=db.execute("SELECT * FROM observations WHERE fid=?", (fid,)).fetchone()
         if old and old["observed_at"] >= stamp:
@@ -257,7 +278,12 @@ def observe(fid, home_alliance, payload, observed_at=None):
         # Existing users can be visiting when tracking is first enabled.
         # The first observation establishes the baseline; never produces a case.
         if not old:
-            status="baseline"
+            if state!=home_state:
+                status="baseline_state"
+            elif _temporary(db,guild,state,aid,home_alliance):
+                status="temporary"
+            else:
+                status="baseline"
         elif state != home_state:
             status="state_transfer"
         elif _temporary(db,guild,state,aid,home_alliance):
@@ -268,7 +294,10 @@ def observe(fid, home_alliance, payload, observed_at=None):
                         (fid,home_alliance,state,aid)).fetchone():
             status="temporary"
         elif old["state_id"]==state and old["game_alliance_id"]==aid:
-            if old["status"] == "temporary":
+            if old["status"] in ("baseline","baseline_state"):
+                status=("home" if tag and tag.casefold()==str(home[2]).casefold()
+                        else "review")
+            elif old["status"] == "temporary":
                 status="review"  # revoked state-wide temporary approval
             elif old["status"] in ("review","state_transfer"):
                 resolved=db.execute("SELECT decision FROM movement_cases WHERE fid=? AND "
