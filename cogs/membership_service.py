@@ -417,6 +417,38 @@ def dashboard(guild_id, allowed_alliances):
     return dict(active=active,visiting=visiting,pending=pending,transfers=transfers)
 
 
+def saved_player_sync_coverage(allowed_alliances):
+    """Informational only: historical snapshots may merge omitted API fields.
+
+    Never use historical merged snapshots as proof that a player left.
+    """
+    ids=list(map(int,allowed_alliances))
+    path="db/wos_player_observations.sqlite"
+    if not ids or not os.path.isfile(path):
+        return {"snapshots":0,"latest":None}
+    try:
+        ph=",".join("?" for _ in ids)
+        with sqlite3.connect(USERS_DB,timeout=30) as users:
+            fids=[int(r[0]) for r in users.execute(
+                "SELECT fid FROM users WHERE alliance IN ("+ph+")",ids)]
+        if not fids:
+            return {"snapshots":0,"latest":None}
+        total,last=0,None
+        with sqlite3.connect(path,timeout=30) as db:
+            for i in range(0,len(fids),250):
+                part=fids[i:i+250]
+                q=",".join("?" for _ in part)
+                row=db.execute(
+                    "SELECT COUNT(DISTINCT chief_id),MAX(observed_at) FROM observations "
+                    "WHERE chief_id IN ("+q+")",part).fetchone()
+                total+=int(row[0])
+                if row[1] is not None and (last is None or row[1]>last):
+                    last=row[1]
+        return {"snapshots":total,"latest":last}
+    except sqlite3.Error:
+        return {"snapshots":0,"latest":None}
+
+
 def tracking_coverage(allowed_alliances):
     """Accepted observations and attempted syncs are counted separately."""
     ids=list(map(int,allowed_alliances))
