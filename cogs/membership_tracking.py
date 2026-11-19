@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from . import membership_service as service
 from .permission_handler import (PermissionManager, TIER_OWNER, TIER_GLOBAL, TIER_SERVER)
-from .pimp_my_bot import theme, safe_edit_message, menu_timeout
+from .pimp_my_bot import theme, safe_edit_message, menu_timeout, confirm_timeout
 
 log = logging.getLogger("membership")
 
@@ -272,9 +272,10 @@ class RegistryView(Subview):
 
 
 
-class ConfirmActionView(Subview):
+class ActionApprovalView(Subview):
     def __init__(self,cog,owner,case,action,destination=None):
         super().__init__(cog,owner)
+        self.timeout=confirm_timeout()
         self.case,self.action,self.destination=case,action,destination
 
     @discord.ui.button(label="Confirm Membership Action",style=discord.ButtonStyle.danger,row=0)
@@ -343,7 +344,7 @@ async def confirm_roster_action(cog,interaction,case,action,dest=None):
                     "The decision and actor are recorded for audit.",
         color=theme.emColor1)
     await safe_edit_message(interaction,embed=embed,
-        view=ConfirmActionView(cog,interaction.user.id,case,action,dest),content=None)
+        view=ActionApprovalView(cog,interaction.user.id,case,action,dest),content=None)
 
 
 class CaseView(Subview):
