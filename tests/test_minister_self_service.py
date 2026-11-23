@@ -106,3 +106,18 @@ def test_existing_duplicate_slots_block_member_writes(config):
         db.execute("INSERT INTO appointments VALUES(12,'Research Day','09:00',2)")
     with pytest.raises(ValueError,match="duplicate"):
         service.book_many(101,501,11,{"Construction Day":"08:00"})
+
+
+def test_offset_slots_follow_legacy_mode():
+    x=service.slots(1)
+    assert len(x)==49
+    assert x[0]=="00:00" and x[1]=="00:15" and x[-1]=="23:45"
+
+
+def test_same_day_overlapping_minister_types_are_rejected(config):
+    with sqlite3.connect(config) as db:
+        day=db.execute("SELECT event_date FROM minister_event_dates WHERE appointment_type='Research Day'").fetchone()[0]
+        db.execute("UPDATE minister_event_dates SET event_date=? WHERE appointment_type='Construction Day'",(day,))
+    with pytest.raises(ValueError,match="overlap"):
+        service.book_many(101,501,11,{"Construction Day":"14:30","Research Day":"14:30"})
+    assert read(config,"SELECT COUNT(*) FROM appointments")[0][0]==0
