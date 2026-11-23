@@ -130,7 +130,8 @@ jobs:
   publish-approved-release:
     name: Publish approved 2.3 release
     needs: [whiteout-stats, simcord-ui]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/modified' && needs.whiteout-stats.result == 'success' && needs.simcord-ui.result == 'success' }}
+    # Release publishing paused by request. Tests continue normally.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
