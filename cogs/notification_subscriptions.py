@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from .notification_event_types import EVENT_CONFIG
+from .pimp_my_bot import menu_timeout
 
 log = logging.getLogger("notification")
 DB_PATH = "db/beartime.sqlite"
@@ -53,7 +54,7 @@ async def event_autocomplete(interaction: discord.Interaction, current: str):
 
 class AlertPicker(discord.ui.View):
     def __init__(self, cog, member: discord.Member):
-        super().__init__(timeout=180)
+        super().__init__(timeout=menu_timeout())
         self.cog = cog
         self.member_id = member.id
         self.guild_id = member.guild.id
