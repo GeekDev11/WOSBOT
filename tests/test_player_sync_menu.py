@@ -411,7 +411,7 @@ def test_channels_auto_delete_toggle(alliances, monkeypatch):
     view, embed = _channels(run=toggle)
     assert sync.load_setting("autodelete") is True
     toggle_button = next(item for item in view.children if getattr(item, "label", "").startswith("Auto-Delete"))
-    assert toggle_button.label == "Auto-Delete: On" and toggle_button.style.name == "secondary"
+    assert toggle_button.label == "Auto-Delete: On" and toggle_button.style.name == "success"
     assert "On, results stay for 5 minutes" in embed.description
 
 
