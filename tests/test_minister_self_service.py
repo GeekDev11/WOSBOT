@@ -27,7 +27,8 @@ def config(tmp_path,monkeypatch):
         day=(datetime.now(timezone.utc)+timedelta(days=3)).date().isoformat()
         db.executemany(
             "INSERT INTO minister_event_dates VALUES(?,?,?,?)",
-            [(typ,day,1,999) for typ in service.TYPES])
+            [(typ,(datetime.fromisoformat(day)+timedelta(days=i)).date().isoformat(),1,999)
+             for i,typ in enumerate(service.TYPES)])
         db.executemany(
             "INSERT INTO minister_player_approvals VALUES(?,?,?,?,?)",
             [(11,101,501,999,day),(12,102,501,999,day)])
