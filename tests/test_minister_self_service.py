@@ -77,12 +77,12 @@ def test_other_discord_member_rejected(config):
         service.book_many(102,501,11,{"Research Day":"12:00"})
 
 
-def test_legacy_admin_booking_cannot_be_moved_by_member(config):
+def test_verified_member_can_adopt_legacy_admin_booking(config):
     with sqlite3.connect(config) as db:
         db.execute("INSERT INTO appointments VALUES(11,'Research Day','14:30',2)")
-    with pytest.raises(PermissionError,match="administrator-controlled"):
-        service.book_many(101,501,11,{"Research Day":"15:00"})
-    assert read(config,"SELECT time FROM appointments WHERE fid=?",11)==[("14:30",)]
+    service.book_many(101,501,11,{"Research Day":"15:00"})
+    assert read(config,"SELECT time FROM appointments WHERE fid=?",11)==[("15:00",)]
+    assert read(config,"SELECT discord_id FROM minister_booking_owners WHERE fid=?",11)==[(101,)]
 
 
 def test_unique_constraint_blocks_second_occupant(config):
