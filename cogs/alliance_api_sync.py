@@ -5,6 +5,7 @@ import logging
 import sqlite3
 import threading
 import time
+import uuid
 from collections import Counter
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from .permission_handler import PermissionManager
 from .pimp_my_bot import count_text, theme
 from .process_queue import PLAYER_SYNC, PreemptedException
 from .wos_observations import save_observation
+from . import player_sync_history
 
 logger = logging.getLogger('alliance')
 
@@ -278,7 +280,7 @@ SETTINGS = {
     "last_queued": ('api_sync_last_queued', _datetime, datetime.isoformat),
     "last_daily_date": ('api_sync_last_daily_date', lambda value: value or "", str),
     "budget": ('api_sync_budget', _json_dict, json.dumps),
-    "autodelete": ('api_sync_autodelete', lambda value: value != '0', _flag),
+    "autodelete": ('api_sync_autodelete', lambda value: value == '1', _flag),
     "keep_minutes": ('api_sync_keep_minutes', _int_or(KEEP_MINUTES_DEFAULT),
                      _int_within(KEEP_MINUTES_MIN, KEEP_MINUTES_MAX, "minutes")),
 }
@@ -448,6 +450,7 @@ class Transfer:
 
 @dataclass
 class RunResult:
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     checked: int = 0
     requests: int = 0
     changes: dict = field(default_factory=dict)
@@ -619,7 +622,8 @@ def _transfer_to(alliance, before, values):
 
 def _write_member(conn, fid, alliance, before, values, result):
     avatar = values.pop("avatar_url", None)
-    if avatar and avatar != before["avatar_url"]:
+    avatar_changed = bool(avatar and avatar != before["avatar_url"])
+    if avatar_changed:
         save_avatar(fid, avatar, conn)
     transfer_kid = _transfer_to(alliance, before, values)
     pending = transfer_kid is not None and auto_remove_on(alliance)
@@ -632,10 +636,23 @@ def _write_member(conn, fid, alliance, before, values, result):
         result.kingdom_changed.append(fid)
         if transfer_kid is not None:
             changed.remove("state")
+    audit = []
     for label in changed:
         title, column = _CHANGE_LABELS[label]
         result.changes.setdefault(alliance, []).append(
             _change_line(fid, name, title, column, before[column], values[column]))
+        audit.append((title, before[column], values[column]))
+    if avatar_changed:
+        audit.append(("Avatar picture", before["avatar_url"], avatar))
+    # Transfer observations must also be recorded when state changes are held
+    # for admin review, without changing home roster ownership.
+    if transfer_kid is not None and pending:
+        audit.append(("State transfer observed (pending)", before["kid"], transfer_kid))
+    if audit:
+        player_sync_history.append(
+            conn, run_id=result.run_id, alliance_id=alliance, fid=fid,
+            player_name=name, changes=audit,
+            guild_id=player_sync_history.guild_of(alliance))
 
 
 def _apply(fid, alliance, values, result):
