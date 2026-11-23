@@ -398,7 +398,7 @@ class MinisterSelfService(commands.Cog):
             )
             return
         if len(eligible)>1:
-            view=discord.ui.View(timeout=180)
+            view=discord.ui.View(timeout=menu_timeout())
             select=discord.ui.Select(placeholder="Choose your character",options=[
                 discord.SelectOption(label=(name or str(fid))[:80],description=str(fid),value=str(fid))
                 for fid,name,_ in eligible[:25]
