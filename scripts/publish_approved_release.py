@@ -93,10 +93,18 @@ def main():
             print("Latest branch commit has already been released.")
             return
 
-    runs = api("/actions/workflows/" + WORKFLOW + "/runs"
-               "?branch=modified&event=push&per_page=100")
-    if not eligible_run(runs.get("workflow_runs", []), sha):
-        print("Latest Modified commit has not passed the full workflow. No release.")
+    # This publisher is a job INSIDE the required workflow. The workflow
+    # cannot have overall conclusion=success until this job finishes, so
+    # validate both prerequisite jobs on this exact push run instead.
+    run_id = os.environ["GITHUB_RUN_ID"]
+    run = api("/actions/runs/" + run_id)
+    jobs = api("/actions/runs/" + run_id + "/jobs?per_page=100")
+    passed = {job["name"] for job in jobs.get("jobs", [])
+              if job.get("conclusion") == "success"}
+    if (run.get("head_sha") != sha or run.get("event") != "push"
+            or run.get("head_branch") != BRANCH
+            or not {"whiteout-stats", "SimCord UI and callback regression"}.issubset(passed)):
+        print("Both required jobs have not passed at the current Modified HEAD. No release.")
         return
 
     # A later push can happen during requests. Never tag an untested/stale SHA.
