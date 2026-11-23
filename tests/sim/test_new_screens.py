@@ -549,7 +549,7 @@ async def test_sync_log_auto_delete_and_keep_results(sim):
     from cogs import alliance_api_sync as sync
     channels = await _sync_channels(sim)
     on = await sim.click(channels, "Auto-Delete: Off")
-    assert not off.problems(), off.problems()
+    assert not on.problems(), on.problems()
     assert "Auto-Delete: On" in labels(on.screen[0]) and sync.load_setting("autodelete") is True
 
     shown = await sim.click(on.screen[0], "Keep Results")
