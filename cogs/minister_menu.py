@@ -1214,10 +1214,12 @@ class MinisterMenu(commands.Cog):
 
     async def complete_booking(self, interaction: discord.Interaction, activity_name: str, fid: str, selected_time: str):
         # Never trust the menu origin; callbacks must enforce alliance scope.
-        actor_guild=interaction.guild_id if interaction.guild else None
-        with closing(sqlite3.connect('db/users.sqlite',timeout=30)) as scope_db:
-            scoped=scope_db.execute("SELECT alliance FROM users WHERE fid=?",(fid,)).fetchone()
-        if not scoped or not PermissionManager.can_access_alliance(interaction.user.id,actor_guild,scoped[0]):
+        actor_guild=interaction.guild_id
+        self.users_cursor.execute("SELECT alliance FROM users WHERE fid=?",(fid,))
+        scoped=self.users_cursor.fetchone()
+        if not PermissionManager.is_admin(interaction.user.id)[0] or (
+            scoped and not PermissionManager.can_access_alliance(
+                interaction.user.id,actor_guild,scoped[0])):
             await interaction.response.send_message("Not authorized to manage this player's minister reservation.",ephemeral=True)
             return
         try:
@@ -1382,10 +1384,12 @@ class MinisterMenu(commands.Cog):
 
     async def clear_user_reservation(self, interaction: discord.Interaction, activity_name: str, fid: str, current_time: str):
         """Clear a user's reservation and return to the day management page"""
-        actor_guild=interaction.guild_id if interaction.guild else None
-        with closing(sqlite3.connect('db/users.sqlite',timeout=30)) as scope_db:
-            scoped=scope_db.execute("SELECT alliance FROM users WHERE fid=?",(fid,)).fetchone()
-        if not scoped or not PermissionManager.can_access_alliance(interaction.user.id,actor_guild,scoped[0]):
+        actor_guild=interaction.guild_id
+        self.users_cursor.execute("SELECT alliance FROM users WHERE fid=?",(fid,))
+        scoped=self.users_cursor.fetchone()
+        if not PermissionManager.is_admin(interaction.user.id)[0] or (
+            scoped and not PermissionManager.can_access_alliance(
+                interaction.user.id,actor_guild,scoped[0])):
             await interaction.response.send_message("Not authorized to cancel this player's reservation.",ephemeral=True)
             return
         try:
