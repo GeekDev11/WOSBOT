@@ -273,12 +273,13 @@ class Alliance(commands.Cog):
 
     async def show_refresh_roster_for(self, interaction: discord.Interaction, alliance_id: int):
         """Admin-only additive roster import for a verified, server-owned alliance."""
-        if not _can_register_alliance(interaction) or not _alliance_in_guild(
-                alliance_id, interaction.guild_id):
+        if not _can_register_alliance(interaction) or not _can_manage_target_alliance(
+                interaction, alliance_id):
             return await interaction.response.send_message(
-                "Only Server/Global Admins can import alliance members.", ephemeral=True)
+                "Only authorized Server/Global Admins or the Bot Owner can import alliance members.",
+                ephemeral=True)
         info = await asyncio.to_thread(alliance_identity.verified_identity, alliance_id)
-        if not info or info[0] != interaction.guild_id or not info[2] or not info[3]:
+        if not info or not info[2] or not info[3]:
             return await interaction.response.send_message(
                 "Verify this alliance's in-game identity first.", ephemeral=True)
         from .membership_alliance_lookup import ResolvedAlliance
@@ -288,18 +289,17 @@ class Alliance(commands.Cog):
             entries = await alliance_roster_import.fetch_roster(self.bot, resolved)
             report = await asyncio.to_thread(
                 alliance_roster_import.import_roster,
-                interaction.guild_id, alliance_id, resolved, entries)
+                int(info[0]), alliance_id, resolved, entries)
         except (ValueError, sqlite3.Error) as exc:
             return await interaction.followup.send(
                 "Alliance roster import failed: " + str(exc), ephemeral=True)
         await interaction.followup.send(_roster_report(report), ephemeral=True)
 
     async def show_verify_identity_for(self,interaction:discord.Interaction,alliance_id:int):
-        if interaction.guild_id is None or not PermissionManager.can_access_alliance(
-                interaction.user.id,interaction.guild_id,alliance_id):
+        if not _can_manage_target_alliance(interaction, alliance_id):
             return await interaction.response.send_message("Access denied.",ephemeral=True)
         info=alliance_identity.verified_identity(alliance_id)
-        if not info or info[0] is None or int(info[0])!=interaction.guild_id:
+        if not info or info[0] is None:
             return await interaction.response.send_message(
                 "Managed alliance not found in this server.",ephemeral=True)
         if info[1] is None:
@@ -987,7 +987,7 @@ class PostCreateChannelPromptView(discord.ui.View):
     async def refresh_roster(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         info = await asyncio.to_thread(alliance_identity.verified_identity, self.alliance_id)
-        if not info or info[0] != interaction.guild_id or not info[2] or not info[3]:
+        if not info or not info[2] or not info[3]:
             return await interaction.followup.send("Alliance verification is missing.", ephemeral=True)
         from .membership_alliance_lookup import ResolvedAlliance
         resolved = ResolvedAlliance(int(info[1]), int(info[2]), info[3], info[4])
@@ -1029,6 +1029,19 @@ def _alliance_in_guild(alliance_id, guild_id):
             (alliance_id, guild_id)).fetchone() is not None
 
 
+def _can_manage_target_alliance(interaction, alliance_id):
+    """The registered Bot Owner can manage an alliance from any bot server.
+
+    Non-owners must operate within the alliance's home Discord server and
+    retain their existing alliance-level access restrictions.
+    """
+    if PermissionManager.is_owner(interaction.user.id):
+        return alliance_identity.verified_identity(alliance_id) is not None
+    return (_alliance_in_guild(alliance_id, interaction.guild_id)
+            and PermissionManager.can_access_alliance(
+                interaction.user.id, interaction.guild_id, alliance_id))
+
+
 def _roster_report(report):
     return (f"Roster: {report.received} returned, {report.added} added, "
             f"{report.already_home} already registered here, "
@@ -1057,8 +1070,8 @@ class ConfirmManagedAllianceView(discord.ui.View):
         if self.existing_id is None:
             authorized=_can_register_alliance(interaction)
         else:
-            authorized=_can_register_alliance(interaction) and _alliance_in_guild(
-                self.existing_id, interaction.guild_id)
+            authorized=_can_register_alliance(interaction) and _can_manage_target_alliance(
+                interaction, self.existing_id)
         if not authorized:
             await interaction.response.send_message("Alliance verification: access denied.",ephemeral=True)
         return authorized
@@ -1085,8 +1098,11 @@ class ConfirmManagedAllianceView(discord.ui.View):
                     db.commit()
             else:
                 alliance_id=self.existing_id
+                home = await asyncio.to_thread(alliance_identity.verified_identity, alliance_id)
+                if not home or not _can_manage_target_alliance(interaction, alliance_id):
+                    raise ValueError("Alliance management permission changed.")
                 await asyncio.to_thread(
-                    alliance_identity.save_verified,alliance_id,self.guild_id,self.resolved,
+                    alliance_identity.save_verified,alliance_id,int(home[0]),self.resolved,
                     self.resolved.state_id)
         except (ValueError,sqlite3.Error) as exc:
             return await interaction.followup.send(
@@ -1151,11 +1167,10 @@ class VerifyExistingAllianceModal(discord.ui.Modal):
         self.add_item(self.tag)
 
     async def on_submit(self,interaction):
-        if not PermissionManager.can_access_alliance(
-                interaction.user.id,interaction.guild_id,self.alliance_id):
+        if not _can_manage_target_alliance(interaction, self.alliance_id):
             return await interaction.response.send_message("Access denied.",ephemeral=True)
         info=alliance_identity.verified_identity(self.alliance_id)
-        if (not info or info[0] is None or int(info[0])!=interaction.guild_id
+        if (not info or info[0] is None
                 or info[1] is None or int(info[1])!=self.state_id):
             return await interaction.response.send_message(
                 "Home state or alliance settings changed. Open verification again.",ephemeral=True)
