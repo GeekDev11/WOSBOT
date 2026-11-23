@@ -459,7 +459,16 @@ class MinisterSelfService(commands.Cog):
                        "guild_id=excluded.guild_id,approved_by=excluded.approved_by,approved_at=excluded.approved_at",
                        (player_id,row[0],interaction.guild_id,interaction.user.id,datetime.now(UTC).isoformat()))
             db.commit()
-        await interaction.response.send_message(f"Approved linked player {player_id} for minister booking.",ephemeral=True)
+        # Approved owners of already-booked legacy appointments are also entitled
+        # to personal reminders, without changing or removing their saved slots.
+        with closing(connect()) as db:
+            rows=db.execute("SELECT appointment_type FROM appointments WHERE fid=?",
+                            (player_id,)).fetchall()
+        for record in rows:
+            snapshot_owner(player_id,record["appointment_type"])
+        await interaction.response.send_message(
+            f"Approved linked player {player_id} for minister booking and personal reminders.",
+            ephemeral=True)
 
     @tasks.loop(seconds=30)
     async def reminders(self):
