@@ -713,9 +713,7 @@ class Alliance(commands.Cog):
             # Never delete an alliance belonging to another Discord server.
             home = alliance_identity.verified_identity(alliance_id)
             if (interaction.guild_id is None or not home or home[0] is None
-                    or int(home[0]) != int(interaction.guild_id)
-                    or not PermissionManager.can_access_alliance(
-                        interaction.user.id, interaction.guild_id, alliance_id)):
+                    or not _can_manage_target_alliance(interaction, alliance_id)):
                 await interaction.response.send_message(
                     "Alliance deletion: access denied for this server.", ephemeral=True)
                 return
