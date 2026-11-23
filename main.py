@@ -390,10 +390,10 @@ def _parse_release_version(value):
     import re
     if not isinstance(value, str):
         return None
-    match = re.fullmatch(r"v?(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)", value.strip())
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)\.(\d+)", value.strip())
     if match:
         return tuple(map(int, match.groups()))
-    old = re.fullmatch(r"v?(\\d+)\\.(\\d+)\\.(\\d+)", value.strip())
+    old = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", value.strip())
     return (*map(int, old.groups()), 0) if old else None
 
 
@@ -414,7 +414,7 @@ def get_latest_release_info(beta_mode=False):
         release = response.json()
         tag = release.get('tag_name', '')
         parsed = _parse_release_version(tag)
-        if (not re.fullmatch(r'v?\\d+\\.\\d+\\.\\d+\\.\\d+', tag)
+        if (not re.fullmatch(r'v?\d+\.\d+\.\d+\.\d+', tag)
                 or not parsed or parsed < (2, 3, 0, 0)
                 or release.get('draft') or release.get('prerelease')):
             raise ValueError('No approved WOSBOT 2.3 release available')
