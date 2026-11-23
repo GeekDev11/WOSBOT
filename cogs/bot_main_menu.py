@@ -911,6 +911,15 @@ class AllianceHubView(discord.ui.View):
             missing_label="Channel Setup",
         )
 
+    @discord.ui.button(label="Refresh API Roster", emoji=theme.refreshIcon,
+                       style=discord.ButtonStyle.primary, row=3)
+    async def refresh_api_roster(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _route_to_cog(
+            interaction, self.cog.bot, "Alliance",
+            "show_refresh_roster_for", self.alliance_id,
+            missing_label="Alliance",
+        )
+
     # ── Secondary actions (row 2) ──
 
     @discord.ui.button(label="Edit Name", emoji=theme.editListIcon,
