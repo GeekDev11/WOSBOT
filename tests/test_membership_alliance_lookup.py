@@ -75,7 +75,7 @@ def test_lookup_uses_existing_connection_budget_and_verifies_result(monkeypatch)
     assert error is None and result.aid==789123 and result.tag=="300"
     assert len(called)==1
     assert session.requests[0][0]=="https://api.whiteoutstats.com/v1/alliances/1501/300"
-    assert session.requests[0][1]["params"]=={"include":"info"}
+    assert session.requests[0][1]["params"]=={"include":"info","wait":30}
     assert session.requests[0][1]["headers"]["X-Api-Key"]=="test-secret"
 
 
