@@ -1265,6 +1265,11 @@ class MinisterMenu(commands.Cog):
                 (fid, activity_name, selected_time, alliance_id)
             )
             self.svs_conn.commit()
+            from .minister_self_service import snapshot_owner
+            try:
+                snapshot_owner(int(fid), activity_name)
+            except Exception:
+                logger.exception("Could not capture minister reminder recipient")
 
             avatar_image = await log_avatar_url(fid)
 
