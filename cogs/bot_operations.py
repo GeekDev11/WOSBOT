@@ -450,6 +450,8 @@ class BotOperations(commands.Cog):
             from .wos_versioning import get_latest_info
             current_version = self.get_current_version()
             info = await asyncio.to_thread(get_latest_info, requests.get)
+            if info is None:
+                return current_version, current_version, ["No approved release has been published yet."], False
             latest_version = info['version']
             notes = [line.strip() for line in info['message'].splitlines() if line.strip()]
             from .wos_versioning import is_newer_version
