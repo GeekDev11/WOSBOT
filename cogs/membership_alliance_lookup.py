@@ -108,8 +108,6 @@ async def resolve(bot, state_id, tag):
         if (parsed.scheme != "https" or parsed.hostname != "api.whiteoutstats.com"
                 or not key):
             return None, "Configure your WhiteoutStats API connection and key in Player Sync first."
-        if not await sync._take_slot(profile):
-            return None, "Player Sync's API request budget is exhausted."
         header = profile.get("auth_header", "X-Api-Key")
         if header.lower() == "authorization":
             auth = key if key.lower().startswith("bearer ") else "Bearer " + key
@@ -117,22 +115,49 @@ async def resolve(bot, state_id, tag):
             auth = key
         url = "https://api.whiteoutstats.com/v1/alliances/" + str(state_id) + "/" + quote(tag, safe="")
         headers = {header: auth, "Accept": "application/json"}
-        async with cog.session().get(
-            url, params={"include": "info"}, headers=headers,
-            timeout=aiohttp.ClientTimeout(total=45)
-        ) as response:
-            if response.status == 404:
-                return await fallback_ranked_alliance(cog, profile, headers, state_id, tag)
-            if response.status == 202:
-                return None, "Alliance data is being fetched by WhiteoutStats. Try again shortly."
-            if response.status == 429:
-                return None, "WhiteoutStats is rate limiting requests. Try again after the reset."
-            if response.status in (401, 403):
-                return None, "WhiteoutStats rejected the configured API key."
-            if response.status != 200:
-                return None, "WhiteoutStats returned HTTP " + str(response.status) + ". Nothing was saved."
-            payload = await response.json(content_type=None)
-        return validated_alliance(payload, state_id, tag), None
+
+        # A stale alliance response is expected while the provider refreshes it.
+        # Wait in the first request, and allow one rate-budgeted follow-up only.
+        for attempt in range(2):
+            if not await sync._take_slot(profile):
+                return None, "Player Sync's API request budget is exhausted."
+            async with cog.session().get(
+                url, params={"include": "info", "wait": 30},
+                headers=headers, timeout=aiohttp.ClientTimeout(total=75)
+            ) as response:
+                if response.status == 404:
+                    return await fallback_ranked_alliance(cog, profile, headers, state_id, tag)
+                if response.status == 429:
+                    return None, "WhiteoutStats is rate limiting requests. Try again after the reset."
+                if response.status in (401, 403):
+                    return None, "WhiteoutStats rejected the configured API key."
+                if response.status not in (200, 202):
+                    return None, "WhiteoutStats returned HTTP " + str(response.status) + ". Nothing was saved."
+                payload = await response.json(content_type=None)
+                if response.status == 202:
+                    stale = True
+                else:
+                    stale = isinstance(payload, dict) and payload.get("fresh") is False
+                    if not stale:
+                        return validated_alliance(payload, state_id, tag), None
+
+                if attempt == 1:
+                    break
+                retry_after = payload.get("retry_after") if isinstance(payload, dict) else None
+                try:
+                    delay = float(retry_after)
+                except (ValueError, TypeError):
+                    delay = 2
+                # Avoid an unbounded interaction and preserve the API's retry hint
+                # when it is within a short Discord interaction window.
+                if delay > 20:
+                    return None, (
+                        "WhiteoutStats is still refreshing this alliance. "
+                        f"Please retry in about {int(delay)} seconds.")
+                await asyncio.sleep(max(1, delay))
+        return None, (
+            "WhiteoutStats is still refreshing this alliance after waiting. "
+            "Nothing was saved; please retry shortly.")
     except (aiohttp.ClientError, asyncio.TimeoutError):
         return None, "WhiteoutStats did not respond. No alliance was registered."
     except (ValueError, TypeError, KeyError) as exc:
