@@ -1213,6 +1213,15 @@ class MinisterMenu(commands.Cog):
         await safe_edit_message(interaction, embed=embed, view=view)
 
     async def complete_booking(self, interaction: discord.Interaction, activity_name: str, fid: str, selected_time: str):
+        # Never trust the menu origin; callbacks must enforce alliance scope.
+        actor_guild=interaction.guild_id
+        self.users_cursor.execute("SELECT alliance FROM users WHERE fid=?",(fid,))
+        scoped=self.users_cursor.fetchone()
+        if not PermissionManager.is_admin(interaction.user.id)[0] or (
+            scoped and not PermissionManager.can_access_alliance(
+                interaction.user.id,actor_guild,scoped[0])):
+            await interaction.response.send_message("Not authorized to manage this player's minister reservation.",ephemeral=True)
+            return
         try:
             # Defer to prevent timeout
             if not interaction.response.is_done():
@@ -1265,6 +1274,11 @@ class MinisterMenu(commands.Cog):
                 (fid, activity_name, selected_time, alliance_id)
             )
             self.svs_conn.commit()
+            from .minister_self_service import snapshot_owner
+            try:
+                snapshot_owner(int(fid), activity_name)
+            except Exception:
+                logger.exception("Could not capture minister reminder recipient")
 
             avatar_image = await log_avatar_url(fid)
 
@@ -1370,6 +1384,14 @@ class MinisterMenu(commands.Cog):
 
     async def clear_user_reservation(self, interaction: discord.Interaction, activity_name: str, fid: str, current_time: str):
         """Clear a user's reservation and return to the day management page"""
+        actor_guild=interaction.guild_id
+        self.users_cursor.execute("SELECT alliance FROM users WHERE fid=?",(fid,))
+        scoped=self.users_cursor.fetchone()
+        if not PermissionManager.is_admin(interaction.user.id)[0] or (
+            scoped and not PermissionManager.can_access_alliance(
+                interaction.user.id,actor_guild,scoped[0])):
+            await interaction.response.send_message("Not authorized to cancel this player's reservation.",ephemeral=True)
+            return
         try:
             # Defer to prevent timeout
             if not interaction.response.is_done():

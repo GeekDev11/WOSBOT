@@ -360,11 +360,11 @@ def _channel_rows(view):
 def test_channels_layout_before_an_alliance_is_picked(alliances):
     view, embed = _channels()
     assert _channel_rows(view) == [["Pick an alliance to set its Sync Log"], ["Set Channel", "Clear"],
-                                   ["Auto-Delete: On", "Keep Results", "Back"]]
+                                   ["Auto-Delete: Off", "Keep Results", "Back"]]
     disabled = {item.label for item in view.children if getattr(item, "disabled", False)}
     assert disabled == {"Set Channel", "Clear"}
     assert "**Wolves:** Not set" in embed.description and "**Bears:** Not set" in embed.description
-    assert "On, results stay for 5 minutes" in embed.description
+    assert "Off, results stay in the channel" in embed.description
 
 
 def test_channels_shows_the_picked_alliance(alliances):
@@ -409,10 +409,10 @@ def test_channels_auto_delete_toggle(alliances, monkeypatch):
     async def toggle(view):
         await view._on_autodelete(None)
     view, embed = _channels(run=toggle)
-    assert sync.load_setting("autodelete") is False
+    assert sync.load_setting("autodelete") is True
     toggle_button = next(item for item in view.children if getattr(item, "label", "").startswith("Auto-Delete"))
-    assert toggle_button.label == "Auto-Delete: Off" and toggle_button.style.name == "secondary"
-    assert "Off, results stay in the channel" in embed.description
+    assert toggle_button.label == "Auto-Delete: On" and toggle_button.style.name == "success"
+    assert "On, results stay for 5 minutes" in embed.description
 
 
 @pytest.mark.parametrize("value, saved", [("30", 30), ("0", 5), ("1441", 5), ("abc", 5)])

@@ -33,10 +33,15 @@ def migrate(conn):
 
 
 def guild_of(alliance_id):
-    with closing(sqlite3.connect(ALLIANCE_DB, timeout=30)) as conn:
-        row = conn.execute("SELECT discord_server_id FROM alliance_list WHERE alliance_id=?",
-                           (int(alliance_id),)).fetchone()
-    return int(row[0]) if row and row[0] is not None else None
+    try:
+        with closing(sqlite3.connect(ALLIANCE_DB, timeout=30)) as conn:
+            row = conn.execute("SELECT discord_server_id FROM alliance_list WHERE alliance_id=?",
+                               (int(alliance_id),)).fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+    except sqlite3.OperationalError:
+        # Older installations and minimal test databases may lack this column.
+        # The change still belongs to its alliance; guild is optional audit metadata.
+        return None
 
 
 def append(conn, *, run_id, alliance_id, fid, player_name, changes, guild_id):

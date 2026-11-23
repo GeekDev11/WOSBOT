@@ -14,6 +14,13 @@ from types import SimpleNamespace
 import pytest
 
 from harness import make_player_sync_dbs
+from cogs.permission_handler import PermissionManager
+
+
+@pytest.fixture(autouse=True)
+def admin_scope_for_legacy_unit_tests(monkeypatch):
+    monkeypatch.setattr(PermissionManager, "is_admin", staticmethod(lambda user_id: (True, True)))
+    monkeypatch.setattr(PermissionManager, "can_access_alliance", staticmethod(lambda user_id, guild_id, alliance_id: True))
 
 mm = importlib.import_module("cogs.minister_menu")
 ms = importlib.import_module("cogs.minister_schedule")
@@ -69,7 +76,8 @@ def _interaction():
     return SimpleNamespace(
         response=SimpleNamespace(is_done=lambda: True),
         followup=SimpleNamespace(send=followup_send),
-        user=SimpleNamespace(display_name="Admin", avatar=None),
+        user=SimpleNamespace(id=999, display_name="Admin", avatar=None),
+        guild_id=501,
     ), sent
 
 
