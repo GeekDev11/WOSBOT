@@ -946,8 +946,8 @@ class PostCreateChannelPromptView(discord.ui.View):
         return discord.Embed(
             title=f"{theme.verifiedIcon} Alliance Created: {self.alliance_name}",
             description=(
-                f"{theme.upperDivider}\n"
-                (f"**Roster import:** {self.roster_summary}\\n\\n" if self.roster_summary else "") +
+                f"{theme.upperDivider}\n" +
+                (f"**Roster import:** {self.roster_summary}\n\n" if self.roster_summary else "") +
                 f"Set up this alliance's channels now. A Redemption Log is recommended "
                 f"so gift code results get logged.\n\n"
                 f"**Controls**\n"
