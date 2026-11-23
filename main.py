@@ -385,71 +385,26 @@ def cleanup_removed_packages():
 # WOSBOT fork is the only allowed update source.
 UPDATE_SOURCES = [{'name': 'Modified', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha={WOSBOT_BRANCH}&per_page=1', 'primary': True}]
 
-def _parse_version(tag):
-    """(major, minor, patch) for a vX.Y.Z tag, else None."""
-    if not tag:
-        return None
-    try:
-        parts = [int(n) for n in tag.strip().lstrip("vV").split(".")[:3]]
-    except ValueError:
-        return None
-    if not parts:
-        return None
-    while len(parts) < 3:
-        parts.append(0)
-    return tuple(parts)
-
 def _is_newer_version(candidate, current):
-    """True if candidate is a strictly newer vX.Y.Z than current; unparseable -> True so odd tags aren't blocked."""
-    c, cur = _parse_version(candidate), _parse_version(current)
-    if c is None or cur is None:
-        return True
-    return c > cur
+    """Only a strictly newer published 2.3+ release is installable."""
+    from cogs.wos_versioning import is_newer_version
+    return is_newer_version(candidate, current)
+
 
 def get_latest_release_info(beta_mode=False):
-    """Download from the exact WOSBOT Modified commit and label it 2.2.xx."""
+    """Install only a stable, approved WOSBOT release pinned to its tested SHA."""
     try:
-        # Keep the bootstrap self-contained: a hosting server may have only
-        # main.py after a partial migration. A missing cog must never crash it.
-        from urllib.parse import quote
-        startup.phase_start('Checking for WOSBOT updates')
-        latest_url = (
-            f'https://api.github.com/repos/{WOSBOT_REPO}/commits'
-            f'?sha={quote(WOSBOT_BRANCH, safe="")}&per_page=1'
-        )
-        response = requests.get(latest_url, timeout=30)
-        response.raise_for_status()
-        commits = response.json()
-        if not isinstance(commits, list) or not commits:
-            raise ValueError('No commits returned for Modified')
-        commit = commits[0]
-        sha = commit['sha']
-        if not isinstance(sha, str) or len(sha) != 40 or any(
-            ch not in '0123456789abcdef' for ch in sha
-        ):
-            raise ValueError('Invalid WOSBOT commit SHA')
-        baseline = '04dfa0e4a174515a61ab537f05d68ed2f354719c'
-        compare_url = f'https://api.github.com/repos/{WOSBOT_REPO}/compare/{baseline}...{sha}'
-        compared_response = requests.get(compare_url, timeout=30)
-        compared_response.raise_for_status()
-        comparison = compared_response.json()
-        if comparison.get('status') not in ('identical', 'ahead'):
-            raise ValueError('Modified version baseline has diverged')
-        ahead = comparison.get('ahead_by')
-        if isinstance(ahead, bool) or not isinstance(ahead, int) or ahead < 0:
-            raise ValueError('Invalid Modified version offset')
-        info = {
-            'version': f'2.2.{ahead + 1:02d}',
-            'sha': sha,
-            'message': commit.get('commit', {}).get('message', ''),
+        from cogs.wos_versioning import get_latest_info
+        startup.phase_start('Checking for approved WOSBOT releases')
+        info = get_latest_info(requests.get)
+        return {
+            'tag_name': info['version'],
+            'body': info['message'],
+            'download_url': f'https://github.com/{WOSBOT_REPO}/archive/{info["sha"]}.zip',
+            'source': 'Modified',
         }
-        sha = info['sha']
-        return {'tag_name': info['version'],
-                'body': info['message'].splitlines()[0] if info['message'] else 'WOSBOT update',
-                'download_url': f'https://github.com/{WOSBOT_REPO}/archive/{sha}.zip',
-                'source': 'Modified'}
     except (requests.exceptions.RequestException, KeyError, TypeError, ValueError, IndexError) as exc:
-        startup.phase_fail('WOSBOT update check failed', details=[str(exc)])
+        startup.phase_fail('WOSBOT release check failed', details=[str(exc)])
         return None
 
 def download_requirements_from_release(beta_mode=False):
@@ -898,7 +853,7 @@ if __name__ == "__main__":
         return _install_requirements_individually(requirements_txt_path)
 
     async def check_and_update_files():
-        beta_mode = True  # WOSBOT uses own branch commits, never upstream tags
+        beta_mode = False  # Stable, approved releases only
         repair_mode = "--repair" in sys.argv
         # Always use the configured WOSBOT branch for updates and repairs.
         release_info = get_latest_release_info(beta_mode=beta_mode)
@@ -919,7 +874,7 @@ if __name__ == "__main__":
 
             # Only move to a strictly newer release; beta/repair always proceed.
             # A stale mirror (e.g. GitLab behind GitHub) must never downgrade us.
-            is_upgrade = repair_mode or beta_mode or _is_newer_version(latest_tag, current_version)
+            is_upgrade = repair_mode or _is_newer_version(latest_tag, current_version)
 
             if (current_version != latest_tag and is_upgrade) or repair_mode:
                 if repair_mode:
