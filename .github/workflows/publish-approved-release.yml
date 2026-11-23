@@ -1,0 +1,33 @@
+name: Publish approved WOSBOT release
+
+on:
+  schedule:
+    # Bundle changes and publish after a 10-minute quiet period.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-approved-modified
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'GeekDev11/WOSBOT' && github.ref == 'refs/heads/modified'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: modified
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Publish only verified, quiet branch HEAD
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/publish_approved_release.py
