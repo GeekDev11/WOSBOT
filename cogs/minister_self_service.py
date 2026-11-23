@@ -364,7 +364,11 @@ class BookingWizard(discord.ui.View):
                         logging.getLogger(__name__).exception(
                             "Minister booking committed but schedule/log update failed")
                 self.clear_items()
-                recap="\n".join(f"• **{t}**: {time} UTC" for t,time in self.choices.items())
+                with closing(connect()) as db:
+                    dates=active_events(db)
+                recap="\n".join(
+                    f"• **{t}**: {dates.get(t,'date unknown')} at {time} UTC"
+                    for t,time in self.choices.items())
                 await inter.response.edit_message(
                     content="✅ **Reservations confirmed**\n"+recap+"\nYou will be tagged 5 minutes before and at each appointment.",
                     embed=None,view=self
