@@ -398,7 +398,7 @@ def cleanup_removed_packages():
     safe_remove("requirements.old", is_dir=False)
 
 # WOSBOT fork is the only allowed update source.
-UPDATE_SOURCES = [{'name': 'Modified', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha={WOSBOT_BRANCH}&per_page=1', 'primary': True}]
+UPDATE_SOURCES = [{'name': 'Modified', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/releases/latest', 'primary': True}]
 
 def _parse_release_version(value):
     """Parse approved four-component version or legacy three-component install."""
