@@ -9,7 +9,7 @@ import asyncio
 import logging
 from contextlib import closing
 from .permission_handler import PermissionManager, TIER_OWNER, TIER_GLOBAL, TIER_SERVER
-from . import alliance_identity
+from . import alliance_identity, alliance_roster_import
 from .pimp_my_bot import theme, safe_edit_message, menu_timeout, confirm_timeout
 
 logger = logging.getLogger('alliance')
@@ -926,25 +926,28 @@ class AllianceModal(discord.ui.Modal):
 class PostCreateChannelPromptView(discord.ui.View):
     """One-shot prompt after Add Alliance: set up channels now, or skip to the hub."""
 
-    def __init__(self, cog, alliance_id: int, alliance_name: str):
+    def __init__(self, cog, alliance_id: int, alliance_name: str, roster_summary: str = ""):
         super().__init__(timeout=menu_timeout())
         self.cog = cog
         self.alliance_id = alliance_id
         self.alliance_name = alliance_name
+        self.roster_summary = roster_summary
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        is_admin, _ = PermissionManager.is_admin(interaction.user.id)
-        if not is_admin:
+        allowed = _can_register_alliance(interaction) and _alliance_in_guild(
+            self.alliance_id, interaction.guild_id)
+        if not allowed:
             await interaction.response.send_message(
-                f"{theme.deniedIcon} Admins only.", ephemeral=True
+                f"{theme.deniedIcon} Server/Global Admins only.", ephemeral=True
             )
-        return is_admin
+        return allowed
 
     def build_embed(self) -> discord.Embed:
         return discord.Embed(
             title=f"{theme.verifiedIcon} Alliance Created: {self.alliance_name}",
             description=(
                 f"{theme.upperDivider}\n"
+                (f"**Roster import:** {self.roster_summary}\\n\\n" if self.roster_summary else "") +
                 f"Set up this alliance's channels now. A Redemption Log is recommended "
                 f"so gift code results get logged.\n\n"
                 f"**Controls**\n"
@@ -956,6 +959,24 @@ class PostCreateChannelPromptView(discord.ui.View):
             ),
             color=theme.emColor1,
         )
+
+    @discord.ui.button(label="Refresh Roster", style=discord.ButtonStyle.primary)
+    async def refresh_roster(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        info = await asyncio.to_thread(alliance_identity.verified_identity, self.alliance_id)
+        if not info or info[0] != interaction.guild_id or not info[2] or not info[3]:
+            return await interaction.followup.send("Alliance verification is missing.", ephemeral=True)
+        from .membership_alliance_lookup import ResolvedAlliance
+        resolved = ResolvedAlliance(int(info[1]), int(info[2]), info[3], info[4])
+        try:
+            entries = await alliance_roster_import.fetch_roster(self.cog.bot, resolved)
+            report = await asyncio.to_thread(
+                alliance_roster_import.import_roster, interaction.guild_id,
+                self.alliance_id, resolved, entries)
+        except (ValueError, sqlite3.Error) as exc:
+            return await interaction.followup.send(
+                "Roster refresh failed: " + str(exc), ephemeral=True)
+        await interaction.followup.send(_roster_report(report), ephemeral=True)
 
     @discord.ui.button(label="Set Up Channels", emoji=theme.settingsIcon, style=discord.ButtonStyle.primary)
     async def setup_channels(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -974,6 +995,22 @@ class PostCreateChannelPromptView(discord.ui.View):
         main_menu = self.cog.bot.get_cog("MainMenu")
         if main_menu:
             await main_menu.show_alliance_hub(interaction, self.alliance_id)
+
+
+def _alliance_in_guild(alliance_id, guild_id):
+    if guild_id is None:
+        return False
+    with sqlite3.connect("db/alliance.sqlite", timeout=30) as db:
+        return db.execute(
+            "SELECT 1 FROM alliance_list WHERE alliance_id=? AND discord_server_id=?",
+            (alliance_id, guild_id)).fetchone() is not None
+
+
+def _roster_report(report):
+    return (f"Roster: {report.received} returned, {report.added} added, "
+            f"{report.already_home} already registered here, "
+            f"{report.conflicts} kept in their existing managed alliances. "
+            "No member was reassigned or removed.")
 
 
 def _can_register_alliance(interaction):
@@ -997,15 +1034,23 @@ class ConfirmManagedAllianceView(discord.ui.View):
         if self.existing_id is None:
             authorized=_can_register_alliance(interaction)
         else:
-            authorized=PermissionManager.can_access_alliance(
-                interaction.user.id,interaction.guild_id,self.existing_id)
+            authorized=_can_register_alliance(interaction) and _alliance_in_guild(
+                self.existing_id, interaction.guild_id)
         if not authorized:
             await interaction.response.send_message("Alliance verification: access denied.",ephemeral=True)
         return authorized
 
     @discord.ui.button(label="Confirm Verified Alliance",style=discord.ButtonStyle.success)
     async def confirm(self,interaction,button):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        entries = None
+        if self.existing_id is None:
+            try:
+                entries = await alliance_roster_import.fetch_roster(self.cog.bot, self.resolved)
+            except (ValueError, sqlite3.Error) as exc:
+                return await interaction.followup.send(
+                    "Alliance not created because the roster could not be verified: "
+                    + str(exc), ephemeral=True)
         try:
             if self.existing_id is None:
                 alliance_id=await asyncio.to_thread(
@@ -1026,7 +1071,15 @@ class ConfirmManagedAllianceView(discord.ui.View):
         for item in self.children:
             item.disabled=True
         if self.existing_id is None:
-            prompt=PostCreateChannelPromptView(self.cog,alliance_id,self.display_name)
+            try:
+                report = await asyncio.to_thread(
+                    alliance_roster_import.import_roster, self.guild_id,
+                    alliance_id, self.resolved, entries)
+                roster_summary = _roster_report(report)
+            except (ValueError, sqlite3.Error) as exc:
+                roster_summary = "Import failed: " + str(exc) + ". Use Refresh Roster to retry."
+            prompt=PostCreateChannelPromptView(
+                self.cog,alliance_id,self.display_name,roster_summary)
             await interaction.followup.send(embed=prompt.build_embed(),view=prompt,ephemeral=True)
         else:
             await interaction.followup.send(
