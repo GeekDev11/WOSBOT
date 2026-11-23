@@ -122,7 +122,21 @@ def book_many(discord_id, guild_id, fid, selections):
                           "AND name='minister_unique_occupied_time'").fetchone():
             raise ValueError("An admin must resolve existing duplicate slots before member booking.")
         events = active_events(db)
+        if not db.execute("SELECT 1 FROM minister_reminder_channels WHERE guild_id=?",
+                          (guild_id,)).fetchone():
+            raise ValueError("An administrator must configure the member reminder channel first.")
         now = datetime.now(UTC)
+        previous = {}
+        # A player cannot hold two minister types at the same UTC date/time.
+        existing=db.execute("SELECT appointment_type,time FROM appointments WHERE fid=?",
+                            (fid,)).fetchall()
+        for booked in existing:
+            other=booked["appointment_type"]
+            if other not in selections:
+                for selected_type,selected_time in selections.items():
+                    if (events.get(other)==events.get(selected_type)
+                            and booked["time"]==selected_time):
+                        raise ValueError("These appointments overlap on the same day.")
         for typ,time in selections.items():
             if typ not in events:
                 raise ValueError(f"{typ} reservations are not open.")
@@ -139,6 +153,7 @@ def book_many(discord_id, guild_id, fid, selections):
                 "SELECT time FROM appointments WHERE fid=? AND appointment_type=?",
                 (fid,typ)
             ).fetchone()
+            previous[typ]=current["time"] if current else None
             if current:
                 owner = db.execute(
                     "SELECT discord_id FROM minister_booking_owners WHERE fid=? AND appointment_type=?",
@@ -146,6 +161,10 @@ def book_many(discord_id, guild_id, fid, selections):
                 ).fetchone()
                 if owner is None or int(owner["discord_id"]) != discord_id:
                     raise PermissionError(f"{typ} is an existing administrator-controlled booking.")
+        for first,first_time in selections.items():
+            for second,second_time in selections.items():
+                if first<second and events[first]==events[second] and first_time==second_time:
+                    raise ValueError("Two selected appointments overlap on the same day.")
         for typ,time in selections.items():
             db.execute("DELETE FROM appointments WHERE fid=? AND appointment_type=?", (fid,typ))
             db.execute(
@@ -158,7 +177,7 @@ def book_many(discord_id, guild_id, fid, selections):
                 (fid,typ,discord_id)
             )
         db.commit()
-    return selections
+    return previous
 
 
 def snapshot_owner(fid, appointment_type):
@@ -214,9 +233,10 @@ class TimePicker(discord.ui.Select):
 
 
 class BookingWizard(discord.ui.View):
-    def __init__(self, user_id, guild_id, fid):
+    def __init__(self, user_id, guild_id, fid, bot):
         super().__init__(timeout=600)
         self.user_id=user_id
+        self.bot=bot
         self.guild_id=guild_id
         self.fid=fid
         self.types=[]
@@ -298,11 +318,27 @@ class BookingWizard(discord.ui.View):
             async def submit(inter):
                 confirm.disabled=True
                 try:
-                    await asyncio.to_thread(book_many,self.user_id,self.guild_id,self.fid,dict(self.choices))
+                    previous=await asyncio.to_thread(
+                        book_many,self.user_id,self.guild_id,self.fid,dict(self.choices))
                 except (ValueError,PermissionError,sqlite3.Error) as e:
                     self.render()
                     await inter.response.edit_message(content=str(e),embed=self.embed(),view=self)
                     return
+                schedule=self.bot.get_cog("MinisterSchedule")
+                menu=self.bot.get_cog("MinisterMenu")
+                for typ,new_time in self.choices.items():
+                    try:
+                        if schedule:
+                            await schedule.log_change(
+                                action_type="reschedule" if previous.get(typ) else "add",
+                                user=inter.user,appointment_type=typ,fid=self.fid,
+                                old_time=previous.get(typ),new_time=new_time)
+                        if menu:
+                            await menu.update_channel_message(typ)
+                    except Exception:
+                        import logging
+                        logging.getLogger(__name__).exception(
+                            "Minister booking committed but schedule/log update failed")
                 self.clear_items()
                 recap="\n".join(f"• **{t}**: {time} UTC" for t,time in self.choices.items())
                 await inter.response.edit_message(
@@ -341,13 +377,13 @@ class MinisterSelfService(commands.Cog):
             async def choose(i):
                 if i.user.id!=interaction.user.id: 
                     await i.response.send_message("Not your menu.",ephemeral=True);return
-                wizard=BookingWizard(i.user.id,i.guild_id,int(select.values[0]))
+                wizard=BookingWizard(i.user.id,i.guild_id,int(select.values[0]),self.bot)
                 await i.response.edit_message(content=None,embed=wizard.embed(),view=wizard)
             select.callback=choose
             view.add_item(select)
             await interaction.response.send_message("Choose the player ID to reserve for:",view=view,ephemeral=True)
         else:
-            wizard=BookingWizard(interaction.user.id,interaction.guild_id,eligible[0][0])
+            wizard=BookingWizard(interaction.user.id,interaction.guild_id,eligible[0][0],self.bot)
             await interaction.response.send_message(embed=wizard.embed(),view=wizard,ephemeral=True)
 
     @app_commands.command(name="minister_event_set",description="Admin: set a minister date and open/close its bookings")
