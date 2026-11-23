@@ -35,7 +35,7 @@ def _bootstrap_from_main_branch(zip_url):
         release = _json(zip_url)
         tag = release.get("tag_name", "")
         if (release.get("draft") or release.get("prerelease")
-                or not re.fullmatch(r"v?2\\.3\\.\\d+\\.\\d+", tag)):
+                or not re.fullmatch(r"v?2\.3\.\d+\.\d+", tag)):
             raise ValueError("No approved WOSBOT release is available")
         base = f"https://api.github.com/repos/{WOSBOT_REPO}"
         ref = _json(base + "/git/ref/tags/" + tag)["object"]
