@@ -130,8 +130,8 @@ jobs:
   publish-approved-release:
     name: Publish approved 2.3 release
     needs: [whiteout-stats, simcord-ui]
-    # Release publishing paused by request. Tests continue normally.
-    if: ${{ false }}
+    # Publish only after both required regression jobs succeed.
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
