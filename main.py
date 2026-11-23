@@ -385,22 +385,55 @@ def cleanup_removed_packages():
 # WOSBOT fork is the only allowed update source.
 UPDATE_SOURCES = [{'name': 'Modified', 'api_url': f'https://api.github.com/repos/{WOSBOT_REPO}/commits?sha={WOSBOT_BRANCH}&per_page=1', 'primary': True}]
 
+def _parse_release_version(value):
+    """Parse approved four-component version or legacy three-component install."""
+    import re
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"v?(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)", value.strip())
+    if match:
+        return tuple(map(int, match.groups()))
+    old = re.fullmatch(r"v?(\\d+)\\.(\\d+)\\.(\\d+)", value.strip())
+    return (*map(int, old.groups()), 0) if old else None
+
+
 def _is_newer_version(candidate, current):
-    """Only a strictly newer published 2.3+ release is installable."""
-    from cogs.wos_versioning import is_newer_version
-    return is_newer_version(candidate, current)
+    new = _parse_release_version(candidate)
+    old = _parse_release_version(current)
+    return bool(new and new >= (2, 3, 0, 0) and old and new > old)
 
 
 def get_latest_release_info(beta_mode=False):
-    """Install only a stable, approved WOSBOT release pinned to its tested SHA."""
+    """Self-contained startup lookup of pinned approved Modified releases only."""
     try:
-        from cogs.wos_versioning import get_latest_info
+        import re
         startup.phase_start('Checking for approved WOSBOT releases')
-        info = get_latest_info(requests.get)
+        base = f'https://api.github.com/repos/{WOSBOT_REPO}'
+        response = requests.get(base + '/releases/latest', timeout=30)
+        response.raise_for_status()
+        release = response.json()
+        tag = release.get('tag_name', '')
+        parsed = _parse_release_version(tag)
+        if (not re.fullmatch(r'v?\\d+\\.\\d+\\.\\d+\\.\\d+', tag)
+                or not parsed or parsed < (2, 3, 0, 0)
+                or release.get('draft') or release.get('prerelease')):
+            raise ValueError('No approved WOSBOT 2.3 release available')
+        from urllib.parse import quote
+        ref_response = requests.get(base + '/git/ref/tags/' + quote(tag, safe=''), timeout=30)
+        ref_response.raise_for_status()
+        ref = ref_response.json()
+        obj = ref.get('object', {})
+        sha = obj.get('sha', '')
+        if obj.get('type') != 'commit' or not re.fullmatch(r'[0-9a-f]{40}', sha):
+            raise ValueError('Release tag is not pinned to an immutable commit')
+        branch_response = requests.get(base + f'/compare/{sha}...{WOSBOT_BRANCH}', timeout=30)
+        branch_response.raise_for_status()
+        if branch_response.json().get('status') not in ('identical', 'ahead'):
+            raise ValueError('Release commit is not in the Modified branch')
         return {
-            'tag_name': info['version'],
-            'body': info['message'],
-            'download_url': f'https://github.com/{WOSBOT_REPO}/archive/{info["sha"]}.zip',
+            'tag_name': '.'.join(map(str, parsed)),
+            'body': str(release.get('body') or release.get('name') or 'WOSBOT approved update'),
+            'download_url': f'https://github.com/{WOSBOT_REPO}/archive/{sha}.zip',
             'source': 'Modified',
         }
     except (requests.exceptions.RequestException, KeyError, TypeError, ValueError, IndexError) as exc:
