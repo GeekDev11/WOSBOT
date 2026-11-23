@@ -33,6 +33,10 @@ def migrate(db):
         enabled INTEGER NOT NULL DEFAULT 0,
         updated_by INTEGER NOT NULL
     )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS minister_reminder_channels (
+        guild_id INTEGER PRIMARY KEY,
+        channel_id INTEGER NOT NULL
+    )""")
     db.execute("""CREATE TABLE IF NOT EXISTS minister_player_approvals (
         fid INTEGER PRIMARY KEY,
         discord_id INTEGER NOT NULL,
@@ -155,6 +159,26 @@ def book_many(discord_id, guild_id, fid, selections):
             )
         db.commit()
     return selections
+
+
+def snapshot_owner(fid, appointment_type):
+    """Capture the associated Discord user for a legacy admin booking.
+
+    Does not infer ownership later from changes to the player's registration.
+    A player without a Discord link cannot be individually tagged.
+    """
+    with closing(sqlite3.connect(USERS_DB,timeout=30)) as db:
+        row=db.execute("SELECT discord_id FROM users WHERE fid=?",(fid,)).fetchone()
+    if not row or row[0] is None:
+        return False
+    with closing(connect()) as db:
+        migrate(db)
+        db.execute("INSERT INTO minister_booking_owners(fid,appointment_type,discord_id) "
+                   "VALUES(?,?,?) ON CONFLICT(fid,appointment_type) "
+                   "DO UPDATE SET discord_id=excluded.discord_id",
+                   (fid,appointment_type,int(row[0])))
+        db.commit()
+    return True
 
 
 class TypePicker(discord.ui.Select):
@@ -359,6 +383,27 @@ class MinisterSelfService(commands.Cog):
             ephemeral=True
         )
 
+    @app_commands.command(name="minister_reminder_channel",description="Global admin: set channel for personal minister mentions")
+    @app_commands.guild_only()
+    async def minister_reminder_channel(self,interaction:discord.Interaction,channel:discord.TextChannel):
+        if not PermissionManager.is_global_admin(interaction.user.id,interaction.guild_id):
+            await interaction.response.send_message("Global admin access required.",ephemeral=True);return
+        me=interaction.guild.me
+        perms=channel.permissions_for(me)
+        if not perms.send_messages:
+            await interaction.response.send_message("Bot must be able to send in this channel.",ephemeral=True);return
+        with closing(connect()) as db:
+            migrate(db)
+            db.execute("INSERT INTO minister_reminder_channels(guild_id,channel_id) VALUES(?,?) "
+                       "ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id",
+                       (interaction.guild_id,channel.id))
+            db.commit()
+        await interaction.response.send_message(
+            f"Personal minister reminders will mention members in {channel.mention}. "
+            "Make sure your members can see this channel.",
+            ephemeral=True
+        )
+
     @app_commands.command(name="minister_approve",description="Admin: approve a linked character for self-service minister booking")
     @app_commands.guild_only()
     async def minister_approve(self,interaction:discord.Interaction,player_id:int):
@@ -413,9 +458,14 @@ class MinisterSelfService(commands.Cog):
             if not schedule: continue
             guild=await schedule.get_log_guild(None)
             if guild is None: continue
-            channel_id=await schedule.get_channel_id("minister log channel")
-            channel=guild.get_channel(channel_id) if channel_id else None
-            if not channel: continue
+            with closing(connect()) as db:
+                delivery=db.execute(
+                    "SELECT channel_id FROM minister_reminder_channels WHERE guild_id=?",
+                    (guild.id,)
+                ).fetchone()
+            if delivery is None: continue
+            channel=guild.get_channel(delivery["channel_id"])
+            if channel is None: continue
             message=(f"<@{user_id}> Your **{typ}** minister appointment "
                      +("starts in **5 minutes**!" if lead==5 else "starts **now**!")
                      +f"\nDate: {day} · Time: {time} UTC")
