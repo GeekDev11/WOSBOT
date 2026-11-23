@@ -38,7 +38,8 @@ def test_startup_reads_hosted_token():
 def test_update_archive_is_pinned_to_fork_commit():
     source = SOURCE.read_text()
     assert "f'https://github.com/{WOSBOT_REPO}/archive/{sha}.zip'" in source
-    assert "'tag_name': info['version']" in source
+    assert "'tag_name': '.'.join(map(str, parsed))" in source
+    assert "'/releases/latest'" in source
     assert "'source': 'Modified'" in source
     assert "return {'tag_name': f'beta-" not in source
     assert "whiteout-project/bot" not in source
@@ -70,8 +71,10 @@ def test_maintenance_restart_enables_existing_startup_updater():
 def test_modified_release_contract():
     versioning = (SOURCE.parent / 'cogs' / 'wos_versioning.py').read_text()
     assert 'BRANCH = "modified"' in versioning
-    assert 'version_for_commits(commits_ahead)' in versioning
-    assert 'compare/{baseline}...{sha}' in versioning
+    assert 'FIRST_RELEASE = (2, 3, 0, 0)' in versioning
+    assert '/releases/latest' in versioning
+    assert '/git/ref/tags/' in versioning
+    assert 'compare/{sha}...{branch}' in versioning
     assert 'DISPLAY_CHANNEL = "Modified"' in versioning
 
 
@@ -81,7 +84,9 @@ def test_startup_updater_does_not_require_new_cogs_before_install():
     assert 'from cogs.wos_versioning import' not in updater
     assert "WOSBOT_BRANCH = 'modified'" in source
     assert "'source': 'Modified'" in updater
-    assert 'compare/{baseline}...{sha}' in updater
+    assert '/releases/latest' in updater
+    assert '/git/ref/tags/' in updater
+    assert 'compare/{sha}...{WOSBOT_BRANCH}' in updater
 
 
 def _load_recovery_helpers():
