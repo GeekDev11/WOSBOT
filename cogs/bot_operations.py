@@ -452,7 +452,8 @@ class BotOperations(commands.Cog):
             info = await asyncio.to_thread(get_latest_info, requests.get)
             latest_version = info['version']
             notes = [line.strip() for line in info['message'].splitlines() if line.strip()]
-            return current_version, latest_version, notes[:10], current_version != latest_version
+            from .wos_versioning import is_newer_version
+            return current_version, latest_version, notes[:10], is_newer_version(latest_version, current_version)
         except (requests.exceptions.RequestException, ValueError, KeyError, TypeError) as exc:
             logger.error('WOSBOT update check failed: %s', exc)
             return None, None, [], False
