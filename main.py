@@ -425,6 +425,9 @@ def get_latest_release_info(beta_mode=False):
         startup.phase_start('Checking for approved WOSBOT releases')
         base = f'https://api.github.com/repos/{WOSBOT_REPO}'
         response = requests.get(base + '/releases/latest', timeout=30)
+        if response.status_code == 404:
+            startup.phase_ok('No approved WOSBOT release published yet')
+            return None
         response.raise_for_status()
         release = response.json()
         tag = release.get('tag_name', '')
