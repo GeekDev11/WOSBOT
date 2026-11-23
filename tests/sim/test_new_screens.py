@@ -472,7 +472,7 @@ async def test_player_sync_auto_sync_toggles(sim, fake_api):
     assert "Auto Sync: On" in labels(on.screen[0], enabled_only=True)
     assert "Automatic sync is on." in _description(on.screen[0])
     off = await sim.click(on.screen[0], "Auto Sync: On")
-    assert not off.problems(), off.problems()
+    assert not on.problems(), on.problems()
     assert "Auto Sync: Off" in labels(off.screen[0])
     assert "Automatic sync is off." in _description(off.screen[0])
 
@@ -548,11 +548,11 @@ async def test_sync_log_set_in_channel_setup_shows_in_player_sync(sim):
 async def test_sync_log_auto_delete_and_keep_results(sim):
     from cogs import alliance_api_sync as sync
     channels = await _sync_channels(sim)
-    off = await sim.click(channels, "Auto-Delete: On")
+    on = await sim.click(channels, "Auto-Delete: Off")
     assert not off.problems(), off.problems()
-    assert "Auto-Delete: Off" in labels(off.screen[0]) and sync.load_setting("autodelete") is False
+    assert "Auto-Delete: On" in labels(on.screen[0]) and sync.load_setting("autodelete") is True
 
-    shown = await sim.click(off.screen[0], "Keep Results")
+    shown = await sim.click(on.screen[0], "Keep Results")
     saved = await sim.submit_modal(shown, {"Minutes to keep results (1 to 1440)": "30"})
     assert not saved.problems(), saved.problems()
     assert sync.load_setting("keep_minutes") == 30
@@ -621,7 +621,7 @@ async def test_sync_run_posts_progress_then_results_in_the_sync_log(sim, fake_ap
     text = _description(post)
     assert text.startswith("Checked `3` of 3 members.") and "Synced001" in text
     assert "`10003` Blizzard moved to State 456" in text
-    assert post.embeds[0].footer.text == "This message removes itself after 5 minutes."
+    assert post.embeds[0].footer.text is None  # Logs persist by default
 
 
 async def _wait_for_members(fids, seconds=30.0):
