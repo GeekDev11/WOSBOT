@@ -47,6 +47,8 @@ def get_latest_info(get, *, repo=REPOSITORY, branch=BRANCH, timeout=30):
     """
     url = f"https://api.github.com/repos/{repo}/releases/latest"
     response = get(url, timeout=timeout)
+    if response.status_code == 404:
+        return None  # No approved release published yet; this is not an API failure.
     response.raise_for_status()
     release = response.json()
     tag = release.get("tag_name")
