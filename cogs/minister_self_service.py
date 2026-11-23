@@ -76,8 +76,20 @@ def active_events(db):
     return {r["appointment_type"]:r["event_date"] for r in rows}
 
 
-def slots():
-    return [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0,30)]
+def slots(mode=0):
+    if mode==0:
+        return [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0,30)]
+    # Compatibility with MinisterSchedule.get_time_slots(1).
+    return ["00:00"]+[f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (15,45)]
+
+
+def configured_slots(db):
+    try:
+        row=db.execute("SELECT context_id FROM reference WHERE context='slot_mode'").fetchone()
+        mode=int(row[0]) if row else 0
+    except sqlite3.OperationalError:
+        mode=0
+    return slots(mode)
 
 
 def registered_fids(discord_id, guild_id):
@@ -103,7 +115,7 @@ def permitted_fids(discord_id, guild_id):
 
 def book_many(discord_id, guild_id, fid, selections):
     """All-or-nothing new booking or own-slot movement, shared legacy table."""
-    if not selections or any(t not in TYPES or v not in slots() for t,v in selections.items()):
+    if not selections or any(t not in TYPES for t in selections):
         raise ValueError("Invalid appointment selection.")
     if fid not in {row[0] for row in permitted_fids(discord_id,guild_id)}:
         raise PermissionError("Your character is not approved for minister reservations.")
@@ -122,6 +134,9 @@ def book_many(discord_id, guild_id, fid, selections):
                           "AND name='minister_unique_occupied_time'").fetchone():
             raise ValueError("An admin must resolve existing duplicate slots before member booking.")
         events = active_events(db)
+        valid_times=set(configured_slots(db))
+        if any(t not in valid_times for t in selections.values()):
+            raise ValueError("Selected time is not valid in the current scheduling mode.")
         if not db.execute("SELECT 1 FROM minister_reminder_channels WHERE guild_id=?",
                           (guild_id,)).fetchone():
             raise ValueError("An administrator must configure the member reminder channel first.")
@@ -271,7 +286,7 @@ class BookingWizard(discord.ui.View):
                 )
         elif self.index<len(self.types):
             typ=self.types[self.index]
-            description=f"Choose a time for **{typ}** on {dates.get(typ,'unavailable')} UTC.\nPage {self.page+1}/2."
+            description=f"Choose a time for **{typ}** on {dates.get(typ,'unavailable')} UTC.\nPage {self.page+1}/{self.total_pages()}."
             if self.index==0 and len(self.types)>1:
                 description+="\nUse the Same time for all toggle if preferred."
         else:
@@ -279,6 +294,10 @@ class BookingWizard(discord.ui.View):
                 f"• {t}: {dates.get(t,'date missing')} at {v} UTC" for t,v in self.choices.items()
             )+"\n\nConfirm once to reserve all. If any slot fails, nothing changes."
         return discord.Embed(title="Minister Reservations",description=description,color=discord.Color.blurple())
+
+    def total_pages(self):
+        with closing(connect()) as db:
+            return max(1,(len(configured_slots(db))+23)//24)
 
     def render(self):
         self.clear_items()
@@ -292,16 +311,18 @@ class BookingWizard(discord.ui.View):
                 occupied={r["time"] for r in db.execute(
                     "SELECT time FROM appointments WHERE appointment_type=? AND fid!=?",
                     (typ,self.fid)).fetchall()}
-            available=[t for t in slots()[self.page*24:(self.page+1)*24] if t not in occupied]
+            with closing(connect()) as db:
+                all_times=configured_slots(db)
+            available=[t for t in all_times[self.page*24:(self.page+1)*24] if t not in occupied]
             if available:
                 self.add_item(TimePicker(available))
             prev=discord.ui.Button(label="Earlier",style=discord.ButtonStyle.secondary,disabled=self.page==0)
-            nextbtn=discord.ui.Button(label="Later",style=discord.ButtonStyle.secondary,disabled=self.page==1)
+            nextbtn=discord.ui.Button(label="Later",style=discord.ButtonStyle.secondary,disabled=self.page>=self.total_pages()-1)
             async def earlier(inter):
-                self.page=0;self.render()
+                self.page=max(0,self.page-1);self.render()
                 await inter.response.edit_message(embed=self.embed(),view=self)
             async def later(inter):
-                self.page=1;self.render()
+                self.page=min(self.page+1,self.total_pages()-1);self.render()
                 await inter.response.edit_message(embed=self.embed(),view=self)
             prev.callback=earlier;nextbtn.callback=later
             self.add_item(prev);self.add_item(nextbtn)
