@@ -159,8 +159,10 @@ def book_many(discord_id, guild_id, fid, selections):
                     "SELECT discord_id FROM minister_booking_owners WHERE fid=? AND appointment_type=?",
                     (fid,typ)
                 ).fetchone()
-                if owner is None or int(owner["discord_id"]) != discord_id:
-                    raise PermissionError(f"{typ} is an existing administrator-controlled booking.")
+                # Existing admin-created bookings may predate reminder ownership
+                # snapshots. The approved/linked FID may safely adopt its own row.
+                if owner is not None and int(owner["discord_id"]) != discord_id:
+                    raise PermissionError(f"{typ} belongs to a different registered Discord member.")
         for first,first_time in selections.items():
             for second,second_time in selections.items():
                 if first<second and events[first]==events[second] and first_time==second_time:
