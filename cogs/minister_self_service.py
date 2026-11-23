@@ -347,7 +347,9 @@ class BookingWizard(discord.ui.View):
                         book_many,self.user_id,self.guild_id,self.fid,dict(self.choices))
                 except (ValueError,PermissionError,sqlite3.Error) as e:
                     self.render()
-                    await inter.response.edit_message(content=str(e),embed=self.embed(),view=self)
+                    error_embed=self.embed()
+                    error_embed.add_field(name="Could not reserve",value=str(e)[:1024],inline=False)
+                    await inter.response.edit_message(content=None,embed=error_embed,view=self)
                     return
                 schedule=self.bot.get_cog("MinisterSchedule")
                 menu=self.bot.get_cog("MinisterMenu")
