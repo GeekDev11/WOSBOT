@@ -241,21 +241,21 @@ class BookingWizard(discord.ui.View):
             ).fetchall()
         previously={row["appointment_type"]:row["time"] for row in existing}
         if not self.types:
-            date_info="\\n".join(f"• {t}: {day} UTC" for t,day in dates.items())
-            description="Choose 1–3 minister appointments in one session.\\n\\n**Open dates:**\\n"+(date_info or "None configured.")
+            date_info="\n".join(f"• {t}: {day} UTC" for t,day in dates.items())
+            description="Choose 1–3 minister appointments in one session.\n\n**Open dates:**\n"+(date_info or "None configured.")
             if previously:
-                description+="\\n\\n**Your current bookings:**\\n"+"\\n".join(
+                description+="\n\n**Your current bookings:**\n"+"\n".join(
                     f"• {t}: {time} UTC" for t,time in previously.items()
                 )
         elif self.index<len(self.types):
             typ=self.types[self.index]
-            description=f"Choose a time for **{typ}** on {dates.get(typ,'unavailable')} UTC.\\nPage {self.page+1}/2."
+            description=f"Choose a time for **{typ}** on {dates.get(typ,'unavailable')} UTC.\nPage {self.page+1}/2."
             if self.index==0 and len(self.types)>1:
-                description+="\\nUse the Same time for all toggle if preferred."
+                description+="\nUse the Same time for all toggle if preferred."
         else:
-            description="**Review your choices**\\n"+"\\n".join(
+            description="**Review your choices**\n"+"\n".join(
                 f"• {t}: {dates.get(t,'date missing')} at {v} UTC" for t,v in self.choices.items()
-            )+"\\n\\nConfirm once to reserve all. If any slot fails, nothing changes."
+            )+"\n\nConfirm once to reserve all. If any slot fails, nothing changes."
         return discord.Embed(title="Minister Reservations",description=description,color=discord.Color.blurple())
 
     def render(self):
