@@ -271,6 +271,29 @@ class Alliance(commands.Cog):
         """Direct entry to Add Alliance flow (no operations sub-menu)."""
         await self.add_alliance(interaction)
 
+    async def show_refresh_roster_for(self, interaction: discord.Interaction, alliance_id: int):
+        """Admin-only additive roster import for a verified, server-owned alliance."""
+        if not _can_register_alliance(interaction) or not _alliance_in_guild(
+                alliance_id, interaction.guild_id):
+            return await interaction.response.send_message(
+                "Only Server/Global Admins can import alliance members.", ephemeral=True)
+        info = await asyncio.to_thread(alliance_identity.verified_identity, alliance_id)
+        if not info or info[0] != interaction.guild_id or not info[2] or not info[3]:
+            return await interaction.response.send_message(
+                "Verify this alliance's in-game identity first.", ephemeral=True)
+        from .membership_alliance_lookup import ResolvedAlliance
+        resolved = ResolvedAlliance(int(info[1]), int(info[2]), info[3], info[4])
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            entries = await alliance_roster_import.fetch_roster(self.bot, resolved)
+            report = await asyncio.to_thread(
+                alliance_roster_import.import_roster,
+                interaction.guild_id, alliance_id, resolved, entries)
+        except (ValueError, sqlite3.Error) as exc:
+            return await interaction.followup.send(
+                "Alliance roster import failed: " + str(exc), ephemeral=True)
+        await interaction.followup.send(_roster_report(report), ephemeral=True)
+
     async def show_verify_identity_for(self,interaction:discord.Interaction,alliance_id:int):
         if interaction.guild_id is None or not PermissionManager.can_access_alliance(
                 interaction.user.id,interaction.guild_id,alliance_id):
