@@ -156,8 +156,9 @@ def book_many(discord_id, guild_id, fid, selections):
             if typ not in events:
                 raise ValueError(f"{typ} reservations are not open.")
             start = datetime.fromisoformat(events[typ]+"T"+time+"+00:00")
-            if start <= now:
-                raise ValueError(f"The {typ} time has passed.")
+            # Both mandatory reminders must be schedulable before confirmation.
+            if start <= now+timedelta(minutes=5):
+                raise ValueError(f"{typ} requires booking more than 5 minutes before its start.")
             occupied = db.execute(
                 "SELECT fid FROM appointments WHERE appointment_type=? AND time=? AND fid!=?",
                 (typ,time,fid)
