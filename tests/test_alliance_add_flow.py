@@ -47,14 +47,14 @@ def test_prompt_skip_routes_to_hub():
 
 def test_prompt_rejects_non_admin_clicks(monkeypatch):
     """The prompt is non-ephemeral with a 2h timeout - every click must re-verify."""
-    monkeypatch.setattr(al.PermissionManager, "is_admin", staticmethod(lambda uid: (False, False)))
+    monkeypatch.setattr(al.PermissionManager, "get_effective_tier", staticmethod(lambda uid, gid: "alliance"))
     sent = []
 
     async def send_message(*a, **k):
         sent.append((a, k))
 
     inter = SimpleNamespace(
-        user=SimpleNamespace(id=99),
+        user=SimpleNamespace(id=99), guild_id=123,
         response=SimpleNamespace(send_message=send_message),
     )
 
@@ -68,8 +68,9 @@ def test_prompt_rejects_non_admin_clicks(monkeypatch):
 
 
 def test_prompt_allows_admin_clicks(monkeypatch):
-    monkeypatch.setattr(al.PermissionManager, "is_admin", staticmethod(lambda uid: (True, False)))
-    inter = SimpleNamespace(user=SimpleNamespace(id=1), response=SimpleNamespace())
+    monkeypatch.setattr(al.PermissionManager, "get_effective_tier", staticmethod(lambda uid, gid: al.TIER_SERVER))
+    monkeypatch.setattr(al, "_alliance_in_guild", lambda aid, gid: aid == 5 and gid == 123)
+    inter = SimpleNamespace(user=SimpleNamespace(id=1), guild_id=123, response=SimpleNamespace())
 
     async def scenario():
         view = _mk([])
