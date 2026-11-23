@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 from . import player_sync_history
 from .permission_handler import PermissionManager
+from .pimp_my_bot import menu_timeout
 
 
 def allowed_alliances(user_id,guild_id):
@@ -21,7 +22,7 @@ def allowed_alliances(user_id,guild_id):
 
 class SyncHistoryView(discord.ui.View):
     def __init__(self,cog,author_id,guild_id,page=0):
-        super().__init__(timeout=300)
+        super().__init__(timeout=menu_timeout())
         self.cog=cog
         self.author_id=author_id
         self.guild_id=guild_id
