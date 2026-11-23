@@ -23,6 +23,7 @@ def config(tmp_path,monkeypatch):
                    "fid INTEGER,appointment_type TEXT,time TEXT,alliance INTEGER,"
                    "PRIMARY KEY(fid,appointment_type))")
         service.migrate(db)
+        db.execute("INSERT INTO minister_reminder_channels VALUES(501,999)")
         day=(datetime.now(timezone.utc)+timedelta(days=3)).date().isoformat()
         db.executemany(
             "INSERT INTO minister_event_dates VALUES(?,?,?,?)",
