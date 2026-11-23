@@ -56,6 +56,12 @@ def migrate(db):
         delivered_at TEXT NOT NULL,
         PRIMARY KEY(appointment_type,event_date,fid,booking_time,lead_minutes)
     )""")
+    # Detect legacy double-booked slots before enabling new reservations.
+    duplicate=db.execute("SELECT 1 FROM appointments GROUP BY appointment_type,time "
+                         "HAVING COUNT(*)>1 LIMIT 1").fetchone()
+    if not duplicate:
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS minister_unique_occupied_time "
+                   "ON appointments(appointment_type,time)")
     db.commit()
 
 
@@ -108,6 +114,9 @@ def book_many(discord_id, guild_id, fid, selections):
     with closing(connect()) as db:
         migrate(db)
         db.execute("BEGIN IMMEDIATE")
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='index' "
+                          "AND name='minister_unique_occupied_time'").fetchone():
+            raise ValueError("An admin must resolve existing duplicate slots before member booking.")
         events = active_events(db)
         now = datetime.now(UTC)
         for typ,time in selections.items():
@@ -169,7 +178,12 @@ class TimePicker(discord.ui.Select):
         view=self.view
         typ=view.types[view.index]
         view.choices[typ]=self.values[0]
-        view.index+=1
+        if view.same_for_all and view.index==0:
+            for other in view.types[1:]:
+                view.choices[other]=self.values[0]
+            view.index=len(view.types)
+        else:
+            view.index+=1
         view.page=0
         view.render()
         await interaction.response.edit_message(embed=view.embed(),view=view)
@@ -185,6 +199,7 @@ class BookingWizard(discord.ui.View):
         self.index=0
         self.page=0
         self.choices={}
+        self.same_for_all=False
         self.render()
 
     async def interaction_check(self, interaction):
@@ -194,14 +209,29 @@ class BookingWizard(discord.ui.View):
         return True
 
     def embed(self):
+        with closing(connect()) as db:
+            dates=active_events(db)
+            existing=db.execute(
+                "SELECT appointment_type,time FROM appointments WHERE fid=?",
+                (self.fid,)
+            ).fetchall()
+        previously={row["appointment_type"]:row["time"] for row in existing}
         if not self.types:
-            description="Choose which of the three minister types you want. One session can book all three."
+            date_info="\\n".join(f"• {t}: {day} UTC" for t,day in dates.items())
+            description="Choose 1–3 minister appointments in one session.\\n\\n**Open dates:**\\n"+(date_info or "None configured.")
+            if previously:
+                description+="\\n\\n**Your current bookings:**\\n"+"\\n".join(
+                    f"• {t}: {time} UTC" for t,time in previously.items()
+                )
         elif self.index<len(self.types):
-            description=f"Select a time for **{self.types[self.index]}** (UTC). Only free slots are offered.\nPage {self.page+1}/2."
+            typ=self.types[self.index]
+            description=f"Choose a time for **{typ}** on {dates.get(typ,'unavailable')} UTC.\\nPage {self.page+1}/2."
+            if self.index==0 and len(self.types)>1:
+                description+="\\nUse the Same time for all toggle if preferred."
         else:
-            description="**Review your choices**\n"+ "\n".join(
-                f"• {t}: {v} UTC" for t,v in self.choices.items()
-            )+"\n\nConfirm once to book all selected slots. Your existing slot is kept if any choice fails."
+            description="**Review your choices**\\n"+"\\n".join(
+                f"• {t}: {dates.get(t,'date missing')} at {v} UTC" for t,v in self.choices.items()
+            )+"\\n\\nConfirm once to reserve all. If any slot fails, nothing changes."
         return discord.Embed(title="Minister Reservations",description=description,color=discord.Color.blurple())
 
     def render(self):
@@ -229,6 +259,16 @@ class BookingWizard(discord.ui.View):
                 await inter.response.edit_message(embed=self.embed(),view=self)
             prev.callback=earlier;nextbtn.callback=later
             self.add_item(prev);self.add_item(nextbtn)
+            if self.index==0 and len(self.types)>1:
+                same=discord.ui.Button(
+                    label="Same time for all: "+("ON" if self.same_for_all else "OFF"),
+                    style=discord.ButtonStyle.primary if self.same_for_all else discord.ButtonStyle.secondary)
+                async def toggle(inter):
+                    self.same_for_all=not self.same_for_all
+                    self.render()
+                    await inter.response.edit_message(embed=self.embed(),view=self)
+                same.callback=toggle
+                self.add_item(same)
         else:
             confirm=discord.ui.Button(label="Confirm all appointments",style=discord.ButtonStyle.success)
             async def submit(inter):
@@ -298,6 +338,17 @@ class MinisterSelfService(commands.Cog):
             await interaction.response.send_message("Enter the date as YYYY-MM-DD.",ephemeral=True);return
         with closing(connect()) as db:
             migrate(db)
+            existing=db.execute("SELECT event_date FROM minister_event_dates WHERE appointment_type=?",
+                                (appointment_type,)).fetchone()
+            if existing and existing["event_date"]!=date:
+                booked=db.execute("SELECT COUNT(*) FROM appointments WHERE appointment_type=?",
+                                  (appointment_type,)).fetchone()[0]
+                if booked:
+                    await interaction.response.send_message(
+                        "Cannot change this event date with existing bookings. Archive and clear the old cycle first.",
+                        ephemeral=True
+                    )
+                    return
             db.execute("INSERT INTO minister_event_dates(appointment_type,event_date,enabled,updated_by) "
                        "VALUES(?,?,?,?) ON CONFLICT(appointment_type) DO UPDATE SET "
                        "event_date=excluded.event_date,enabled=excluded.enabled,updated_by=excluded.updated_by",
