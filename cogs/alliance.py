@@ -771,6 +771,11 @@ class Alliance(commands.Cog):
             confirm_view = discord.ui.View(timeout=confirm_timeout())
             
             async def confirm_callback(button_interaction: discord.Interaction):
+                if (button_interaction.user.id != interaction.user.id
+                        or button_interaction.guild_id != interaction.guild_id
+                        or not _can_manage_target_alliance(button_interaction, alliance_id)):
+                    return await button_interaction.response.send_message(
+                        "Alliance deletion: permission denied.", ephemeral=True)
                 try:
                     # Delete dependents first and the alliance row LAST. The DBs
                     # aren't a single transaction, so if a step fails the alliance
