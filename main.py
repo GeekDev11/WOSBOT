@@ -7,7 +7,7 @@ import contextlib
 
 WOSBOT_REPO = 'GeekDev11/WOSBOT'
 WOSBOT_BRANCH = 'modified'
-WOSBOT_ARCHIVE = f'https://github.com/{WOSBOT_REPO}/archive/refs/heads/{WOSBOT_BRANCH}.zip'
+WOSBOT_ARCHIVE = f'https://api.github.com/repos/{WOSBOT_REPO}/releases/latest'
 
 # Cap glibc malloc arenas before anything allocates: glibc keeps a per-thread
 # arena and never frees it, so OCR across many to_thread workers grows RSS until
@@ -26,15 +26,30 @@ if sys.platform.startswith("linux") and "MALLOC_ARENA_MAX" not in os.environ:
 
 def _bootstrap_from_main_branch(zip_url):
     """Self-heal: download source zip, extract atomically via staging dir, guard against path traversal."""
-    import urllib.request, zipfile, io
-    print("Bot files missing — downloading latest source...")
+    import urllib.request, zipfile, io, json, re
+    print("Bot files missing — restoring the latest approved WOSBOT release...")
     try:
-        with urllib.request.urlopen(zip_url, timeout=600) as r:
-            buf = io.BytesIO(r.read())
+        def _json(url):
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return json.load(response)
+        release = _json(zip_url)
+        tag = release.get("tag_name", "")
+        if (release.get("draft") or release.get("prerelease")
+                or not re.fullmatch(r"v?2\\.3\\.\\d+\\.\\d+", tag)):
+            raise ValueError("No approved WOSBOT release is available")
+        base = f"https://api.github.com/repos/{WOSBOT_REPO}"
+        ref = _json(base + "/git/ref/tags/" + tag)["object"]
+        sha = ref.get("sha", "")
+        if ref.get("type") != "commit" or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("Release tag is not pinned to a commit")
+        if _json(base + f"/compare/{sha}...{WOSBOT_BRANCH}").get("status") not in ("identical", "ahead"):
+            raise ValueError("Release is not on Modified")
+        archive_url = f"https://github.com/{WOSBOT_REPO}/archive/{sha}.zip"
+        with urllib.request.urlopen(archive_url, timeout=600) as response:
+            buf = io.BytesIO(response.read())
     except Exception as e:
-        print(f"Download failed: {e}")
-        print(f"Please download the source manually from:\n  {zip_url}")
-        print("Extract everything into this folder and run main.py again.")
+        print(f"Approved release bootstrap failed: {e}")
+        print("Please restore files from a verified WOSBOT release.")
         sys.exit(1)
 
     staging = "bot-bootstrap-tmp"
