@@ -382,8 +382,8 @@ def test_old_zero_channel_counts_as_not_set(store_dbs):
     assert sync.sync_channels().get("10") is None
 
 
-def test_auto_delete_defaults_on_for_five_minutes(store_dbs):
-    assert sync.load_setting("autodelete") is True and sync.load_setting("keep_minutes") == 5
+def test_auto_delete_defaults_off_for_persistent_sync_logs(store_dbs):
+    assert sync.load_setting("autodelete") is False and sync.load_setting("keep_minutes") == 5
     sync.save_setting("autodelete", False)
     sync.save_setting("keep_minutes", 1440)
     assert sync.load_setting("autodelete") is False and sync.load_setting("keep_minutes") == 1440
@@ -999,6 +999,7 @@ def test_handler_gives_the_run_a_reporter_for_the_sync_log_channels(dbs, monkeyp
     seen = _capture_run(monkeypatch)
     sync.set_sync_channel(10, 555)
     sync.save_setting("keep_minutes", 7)
+    sync.save_setting("autodelete", True)
     asyncio.run(_cog(FakeQueue()).handle_api_sync({"id": 7, "details": {"alliance_id": None}}))
     reporter = seen["reporter"]
     assert reporter.channels == {"10": 555} and reporter.keep_minutes == 7
