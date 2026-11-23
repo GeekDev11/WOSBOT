@@ -778,6 +778,13 @@ class MinisterSchedule(commands.Cog):
             self.svs_cursor.execute("INSERT INTO appointments (fid, appointment_type, time, alliance) VALUES (?, ?, ?, ?)",
                                       (fid, appointment_type, normalized_time, alliance_id))
             self.svs_conn.commit()
+            # Personal reminder recipient is pinned to the linked player on booking.
+            # A player without a Discord link cannot receive a direct mention.
+            from .minister_self_service import snapshot_owner
+            try:
+                snapshot_owner(int(fid), appointment_type)
+            except Exception:
+                logger.exception("Could not capture minister reminder recipient")
 
             # Log the change
             await self.log_change(
