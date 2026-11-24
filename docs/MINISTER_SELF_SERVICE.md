@@ -5,7 +5,7 @@ not need `/register` or individual `/minister_approve` authorization.
 
 ## Member guide
 
-1. Run `/minister` and click **Enter Player ID**, or use `/minister player_id:<FID>`.
+1. Run `/minister`. Returning members are recognized automatically when they have one associated FID; with multiple characters, choose from their own list. New members click **Enter Player ID**, or use `/minister player_id:<FID>`.
 2. Enter the in-game player ID already listed in the alliance roster.
 3. Verify the displayed name and alliance, and confirm it is your character.
 4. Select Construction, Research, and/or Troops Training (1–3 types).
