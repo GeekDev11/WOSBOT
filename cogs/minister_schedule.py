@@ -643,9 +643,6 @@ class MinisterSchedule(commands.Cog):
             else:
                 return None
 
-    @discord.app_commands.command(name='minister_add', description='Book an appointment slot for a user.')
-    @app_commands.rename(fid='id')
-    @app_commands.autocomplete(appointment_type=appointment_autocomplete, fid=fid_autocomplete, time=time_autocomplete)
     async def minister_add(self, interaction: discord.Interaction, appointment_type: str, fid: str, time: str):
         if not await self.is_admin(interaction.user.id):
             await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
@@ -838,9 +835,6 @@ class MinisterSchedule(commands.Cog):
             print(f"An unexpected error occurred: {e}")
             await interaction.followup.send(f"An unexpected error occurred while processing the request: {e}")
 
-    @discord.app_commands.command(name='minister_remove', description='Cancel an appointment slot for a user.')
-    @app_commands.rename(fid='id')
-    @app_commands.autocomplete(appointment_type=appointment_autocomplete, fid=registered_fid_autocomplete)
     async def minister_remove(self, interaction: discord.Interaction, appointment_type: str, fid: str):
         if not await self.is_admin(interaction.user.id):
             await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
@@ -973,8 +967,6 @@ class MinisterSchedule(commands.Cog):
             print(f"An error occurred: {e}")
             await interaction.followup.send(f"An error occurred while canceling the slot: {e}")
 
-    @discord.app_commands.command(name='minister_clear_all', description='Cancel all appointments for a selected appointment type.')
-    @app_commands.autocomplete(appointment_type=appointment_autocomplete)
     async def minister_clear_all(self, interaction: discord.Interaction, appointment_type: str):
         if not await self.is_admin(interaction.user.id):
             await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
@@ -1093,12 +1085,6 @@ class MinisterSchedule(commands.Cog):
             print(f"An error occurred: {e}")
             await interaction.followup.send(f"An error occurred while clearing the appointments: {e}", ephemeral=True)
         
-    @discord.app_commands.command(name='minister_list', description='View the schedule for an appointment type.')
-    @app_commands.autocomplete(appointment_type=appointment_autocomplete, all_or_available=choice_autocomplete)
-    @app_commands.describe(
-        appointment_type="The type of minister appointment to view.",
-        all_or_available="Show full schedule or only available slots.",
-    )
     async def minister_list(self, interaction: discord.Interaction, appointment_type: str, all_or_available: str):
         try:
             await interaction.response.defer()
@@ -1137,8 +1123,6 @@ class MinisterSchedule(commands.Cog):
             print(f"An error occurred: {e}")
             await interaction.followup.send(f"An error occurred while fetching the schedule: {e}")
 
-    @discord.app_commands.command(name='minister_archive_save', description='Save current minister schedule to an archive (Global Admin only)')
-    @app_commands.describe(name="Optional name for the archive (defaults to current date)")
     async def minister_archive_save(self, interaction: discord.Interaction, name: str = None):
         # Check if user is global admin
         minister_menu_cog = self.bot.get_cog("MinisterMenu")
@@ -1164,7 +1148,6 @@ class MinisterSchedule(commands.Cog):
         # Save the current schedule
         await archive_cog.save_current_schedule(interaction, name)
 
-    @discord.app_commands.command(name='minister_archive_list', description='View all saved minister archives (Global Admin only)')
     async def minister_archive_list(self, interaction: discord.Interaction):
         # Check if user is global admin
         minister_menu_cog = self.bot.get_cog("MinisterMenu")
@@ -1214,13 +1197,6 @@ class MinisterSchedule(commands.Cog):
             print(f"Error in archive autocomplete: {e}")
             return []
 
-    @discord.app_commands.command(name='minister_archive_history', description='View change history for minister appointments (Global Admin only)')
-    @app_commands.describe(
-        archive_id="Optional: Select an archive to view its change history (leave empty for current changes)",
-        appointment_type="Optional: Filter by appointment type (Construction/Research/Training Day)",
-        discord_user="Optional: Filter by specific Discord user who made changes"
-    )
-    @app_commands.autocomplete(archive_id=archive_id_autocomplete, appointment_type=appointment_autocomplete)
     async def minister_archive_history(
         self,
         interaction: discord.Interaction,
