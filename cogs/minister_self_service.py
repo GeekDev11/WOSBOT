@@ -860,7 +860,7 @@ class MinisterSelfService(commands.Cog):
         pending=[]
         with closing(connect()) as db:
             migrate(db)
-            for typ,day in active_events(db).items():
+            for typ,day in db.execute("SELECT appointment_type,event_date FROM minister_event_dates"):
                 rows=db.execute(
                     "SELECT a.fid,a.time,o.discord_id FROM appointments a "
                     "JOIN minister_booking_owners o ON o.fid=a.fid AND o.appointment_type=a.appointment_type "
