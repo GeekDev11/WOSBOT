@@ -192,6 +192,32 @@ def lookup_for_member(fid, guild_id, discord_id):
     return member
 
 
+def known_player_ids(discord_id,guild_id):
+    """Only previously associated characters; never list entire rosters."""
+    with closing(connect()) as db:
+        migrate(db)
+        claimed={int(r["fid"]) for r in db.execute(
+            "SELECT fid FROM minister_player_claims WHERE discord_id=? AND guild_id=?",
+            (discord_id,guild_id)
+        ).fetchall()}
+    with closing(sqlite3.connect(USERS_DB,timeout=30)) as db:
+        linked={int(r[0]) for r in db.execute(
+            "SELECT fid FROM users WHERE discord_id=?",(discord_id,)
+        ).fetchall()}
+    known=[]
+    for fid in sorted(claimed|linked):
+        member=roster_member(fid,guild_id)
+        if member is None:
+            continue
+        try:
+            with closing(connect()) as db:
+                check_claim(db,member,discord_id,guild_id)
+        except PermissionError:
+            continue
+        known.append(member)
+    return known
+
+
 def transfer_claim(fid, guild_id, new_discord_id, admin_id):
     """Explicit audited correction of an incorrectly claimed roster FID."""
     member=roster_member(fid,guild_id)
@@ -556,11 +582,29 @@ class MinisterIDModal(discord.ui.Modal, title="Find Your Alliance Character"):
 
 
 class MinisterIDStart(discord.ui.View):
-    def __init__(self,cog,user_id,guild_id):
+    def __init__(self,cog,user_id,guild_id,known=None):
         super().__init__(timeout=menu_timeout())
         self.cog=cog
         self.user_id=user_id
         self.guild_id=guild_id
+        if known:
+            select=discord.ui.Select(
+                placeholder="Choose your previously used character",
+                options=[
+                    discord.SelectOption(
+                        label=member["name"][:90],
+                        description=f"FID {member['fid']} · {member['alliance_name']}"[:100],
+                        value=str(member["fid"])
+                    ) for member in known[:25]
+                ]
+            )
+            async def choose(inter):
+                if inter.user.id!=self.user_id or inter.guild_id!=self.guild_id:
+                    await inter.response.send_message("This menu belongs to another member.",ephemeral=True)
+                    return
+                await self.cog.open_player(inter,int(select.values[0]))
+            select.callback=choose
+            self.add_item(select)
 
     @discord.ui.button(label="Enter Player ID",style=discord.ButtonStyle.primary)
     async def start(self,interaction,button):
@@ -641,15 +685,23 @@ class MinisterSelfService(commands.Cog):
         if player_id is not None:
             await self.open_player(interaction,player_id)
             return
+        known=await asyncio.to_thread(
+            known_player_ids,interaction.user.id,interaction.guild_id
+        )
+        if len(known)==1:
+            await self.open_player(interaction,known[0]["fid"])
+            return
+        description=(
+            "Choose one of your previously associated characters, or select "
+            "**Enter Player ID** to look up any character in this server's "
+            "existing alliance roster. No /register or minister approval is needed. "
+            "Another Discord member's claimed ID cannot be taken."
+        )
         embed=discord.Embed(
-            title="Minister Reservations",
-            description="Enter your existing alliance **Player ID (FID)** to reserve or change "
-                        "your own minister appointments. You do not need /register or prior "
-                        "minister approval. You cannot claim an ID already belonging to "
-                        "another Discord account.",
+            title="Minister Reservations",description=description,
             color=discord.Color.blurple()
         )
-        view=MinisterIDStart(self,interaction.user.id,interaction.guild_id)
+        view=MinisterIDStart(self,interaction.user.id,interaction.guild_id,known)
         await interaction.response.send_message(embed=embed,view=view,ephemeral=True)
 
     @app_commands.command(name="minister_event_set",description="Admin: set a minister date and open/close its bookings")
