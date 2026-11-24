@@ -11,7 +11,7 @@ from discord import app_commands
 import discord
 from discord.ext import commands, tasks
 from .permission_handler import PermissionManager
-from .pimp_my_bot import menu_timeout
+from .pimp_my_bot import menu_timeout, confirm_timeout
 
 DB = "db/svs.sqlite"
 USERS_DB = "db/users.sqlite"
@@ -618,7 +618,7 @@ class MinisterIDStart(discord.ui.View):
 
 class ConfirmMinisterCharacter(discord.ui.View):
     def __init__(self,cog,user_id,guild_id,member):
-        super().__init__(timeout=menu_timeout())
+        super().__init__(timeout=confirm_timeout())
         self.cog=cog
         self.user_id=user_id
         self.guild_id=guild_id
