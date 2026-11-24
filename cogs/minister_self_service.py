@@ -176,6 +176,58 @@ def lookup_for_member(fid, guild_id, discord_id):
     return member
 
 
+def transfer_claim(fid, guild_id, new_discord_id, admin_id):
+    """Explicit audited correction of an incorrectly claimed roster FID."""
+    member=roster_member(fid,guild_id)
+    if member is None:
+        raise ValueError("Player does not belong to an alliance registered in this server.")
+    if member["linked_discord"] not in (None,new_discord_id):
+        raise PermissionError(
+            "This roster record is linked to a different Discord account. "
+            "Correct that existing link using the admin account tools first."
+        )
+    with closing(connect()) as db:
+        migrate(db)
+        db.execute("BEGIN IMMEDIATE")
+        old=db.execute("SELECT discord_id FROM minister_player_claims WHERE fid=?",
+                       (fid,)).fetchone()
+        old_id=int(old["discord_id"]) if old else None
+        if old_id is None:
+            owner=db.execute("SELECT discord_id FROM minister_booking_owners "
+                             "WHERE fid=? LIMIT 1",(fid,)).fetchone()
+            old_id=int(owner["discord_id"]) if owner else None
+        db.execute(
+            "INSERT INTO minister_player_claims "
+            "(fid,guild_id,discord_id,claimed_at,claim_source) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(fid) DO UPDATE SET guild_id=excluded.guild_id,"
+            "discord_id=excluded.discord_id,claimed_at=excluded.claimed_at,"
+            "claim_source=excluded.claim_source",
+            (fid,guild_id,new_discord_id,datetime.now(UTC).isoformat(),"admin_transfer")
+        )
+        # A previous approval cannot block the reassigned legitimate owner.
+        db.execute("DELETE FROM minister_player_approvals WHERE fid=?",(fid,))
+        db.execute(
+            "UPDATE minister_booking_owners SET discord_id=? WHERE fid=?",
+            (new_discord_id,fid)
+        )
+        db.execute(
+            "INSERT INTO minister_booking_owners(fid,appointment_type,discord_id) "
+            "SELECT a.fid,a.appointment_type,? FROM appointments a WHERE a.fid=? "
+            "AND NOT EXISTS(SELECT 1 FROM minister_booking_owners o WHERE "
+            "o.fid=a.fid AND o.appointment_type=a.appointment_type)",
+            (new_discord_id,fid)
+        )
+        db.execute(
+            "INSERT INTO minister_claim_audit "
+            "(fid,guild_id,old_discord_id,new_discord_id,changed_by,changed_at,reason) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (fid,guild_id,old_id,new_discord_id,admin_id,
+             datetime.now(UTC).isoformat(),"Administrator corrected minister FID claim")
+        )
+        db.commit()
+    return old_id
+
+
 def book_many(discord_id, guild_id, fid, selections):
     """All-or-nothing new booking or own-slot movement, shared legacy table."""
     if not selections or any(t not in TYPES for t in selections):
@@ -665,6 +717,41 @@ class MinisterSelfService(commands.Cog):
         await interaction.response.send_message(
             f"Approved linked player {player_id} for minister booking and personal reminders.",
             ephemeral=True)
+
+    @app_commands.command(
+        name="minister_claim_transfer",
+        description="Alliance admin: correct the Discord owner of a minister player ID"
+    )
+    @app_commands.guild_only()
+    async def minister_claim_transfer(
+        self,interaction:discord.Interaction,player_id:int,member:discord.Member
+    ):
+        roster=await asyncio.to_thread(roster_member,player_id,interaction.guild_id)
+        if roster is None:
+            await interaction.response.send_message(
+                "This FID is not in an alliance registered to this server.",ephemeral=True
+            )
+            return
+        if not PermissionManager.can_access_alliance(
+            interaction.user.id,interaction.guild_id,roster["alliance_id"]
+        ):
+            await interaction.response.send_message(
+                "You cannot transfer claims for this alliance.",ephemeral=True
+            )
+            return
+        try:
+            previous=await asyncio.to_thread(
+                transfer_claim,player_id,interaction.guild_id,member.id,interaction.user.id
+            )
+        except (ValueError,PermissionError,sqlite3.Error) as err:
+            await interaction.response.send_message(str(err),ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Minister owner updated for FID \`{player_id}\` to {member.mention}. "
+            f"Previous Discord owner: {f'<@{previous}>' if previous else 'none'}. "
+            "Changes were saved in the minister claim audit.",
+            ephemeral=True
+        )
 
     @tasks.loop(seconds=30)
     async def reminders(self):
