@@ -397,12 +397,14 @@ def snapshot_owner(fid, appointment_type):
 
 
 class TypePicker(discord.ui.Select):
-    def __init__(self):
-        super().__init__(placeholder="Choose 1, 2, or all 3 ministers", min_values=1,max_values=3,
-                         options=[discord.SelectOption(label=t,value=t) for t in TYPES])
+    def __init__(self, types):
+        super().__init__(placeholder="Choose 1, 2, or all 3 ministers", min_values=1,max_values=len(types),
+                         options=[discord.SelectOption(label=t,value=t) for t in types])
     async def callback(self, interaction):
         view=self.view
         view.types=list(self.values)
+        view.choices.clear()
+        view.same_for_all=False
         view.index=0
         view.page=0
         view.render()
@@ -458,7 +460,7 @@ class BookingWizard(discord.ui.View):
         previously={row["appointment_type"]:row["time"] for row in existing}
         if not self.types:
             date_info="\n".join(f"• {t}: {day} UTC" for t,day in dates.items())
-            description="Choose 1–3 minister appointments in one session.\n\n**Open dates:**\n"+(date_info or "None configured.")
+            description="Select your ministers.\n\n"+(date_info or "No reservations open.")
             if previously:
                 description+="\n\n**Your current bookings:**\n"+"\n".join(
                     f"• {t}: {time} UTC" for t,time in previously.items()
@@ -471,7 +473,7 @@ class BookingWizard(discord.ui.View):
         else:
             description="**Review your choices**\n"+"\n".join(
                 f"• {t}: {dates.get(t,'date missing')} at {v} UTC" for t,v in self.choices.items()
-            )+"\n\nConfirm once to reserve all. If any slot fails, nothing changes."
+            )
         return discord.Embed(title="Minister Reservations",description=description,color=discord.Color.blurple())
 
     def total_pages(self):
@@ -481,7 +483,11 @@ class BookingWizard(discord.ui.View):
     def render(self):
         self.clear_items()
         if not self.types:
-            self.add_item(TypePicker())
+            with closing(connect()) as db:
+                dates=active_events(db)
+            types=[t for t in TYPES if t in dates and dates[t]>=datetime.now(UTC).date().isoformat()]
+            if types:
+                self.add_item(TypePicker(types))
             return
         if self.index<len(self.types):
             typ=self.types[self.index]
@@ -492,7 +498,20 @@ class BookingWizard(discord.ui.View):
                     (typ,self.fid)).fetchall()}
             with closing(connect()) as db:
                 all_times=configured_slots(db)
-            available=[t for t in all_times[self.page*24:(self.page+1)*24] if t not in occupied]
+            with closing(connect()) as db:
+                dates=active_events(db)
+                relevant=self.types if self.same_for_all and self.index==0 else [typ]
+                blocked={r["time"] for other in relevant for r in db.execute(
+                    "SELECT time FROM appointments WHERE appointment_type=? AND fid!=?",
+                    (other,self.fid)).fetchall()}
+            def usable(t):
+                if t in blocked or any(other not in dates for other in relevant):
+                    return False
+                if len({dates[other] for other in relevant})!=len(relevant):
+                    return False
+                return all(datetime.fromisoformat(dates[other]+"T"+t+"+00:00")>
+                           datetime.now(UTC)+timedelta(minutes=5) for other in relevant)
+            available=[t for t in all_times[self.page*24:(self.page+1)*24] if usable(t)]
             if available:
                 self.add_item(TimePicker(available))
             prev=discord.ui.Button(label="Earlier",style=discord.ButtonStyle.secondary,disabled=self.page==0)
@@ -516,7 +535,7 @@ class BookingWizard(discord.ui.View):
                 same.callback=toggle
                 self.add_item(same)
         else:
-            confirm=discord.ui.Button(label="Confirm all appointments",style=discord.ButtonStyle.success)
+            confirm=discord.ui.Button(label="Confirm",style=discord.ButtonStyle.success)
             async def submit(inter):
                 confirm.disabled=True
                 try:
@@ -555,6 +574,21 @@ class BookingWizard(discord.ui.View):
                 )
             confirm.callback=submit
             self.add_item(confirm)
+        back=discord.ui.Button(label="Back",style=discord.ButtonStyle.secondary,row=3)
+        async def go_back(inter):
+            if self.index==0:
+                self.types=[]
+                self.choices.clear()
+                self.same_for_all=False
+            else:
+                self.index=0 if self.same_for_all else self.index-1
+                for typ in self.types[self.index:]:
+                    self.choices.pop(typ,None)
+            self.page=0
+            self.render()
+            await inter.response.edit_message(embed=self.embed(),view=self)
+        back.callback=go_back
+        self.add_item(back)
 
 
 class MinisterIDModal(discord.ui.Modal, title="Find Your Alliance Character"):
@@ -630,7 +664,7 @@ class ConfirmMinisterCharacter(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="This is my character — Continue",style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Confirm",style=discord.ButtonStyle.success)
     async def proceed(self,interaction,button):
         try:
             # This is only a preflight check: booking commits identity
@@ -665,11 +699,7 @@ class MinisterSelfService(commands.Cog):
         description=(
             f"**{member['name']}**\n"
             f"Player ID: `{member['fid']}`\n"
-            f"Alliance: **{member['alliance_name']}**\n\n"
-            "Confirm that this is your character to select minister appointments. "
-            "If it is not already linked to a Discord account, your first successful "
-            "reservation will associate this FID with your Discord account. "
-            "An admin can correct a mistaken claim."
+            f"Alliance: **{member['alliance_name']}**"
         )
         embed=discord.Embed(
             title="Confirm Your Alliance Character",description=description,
@@ -682,6 +712,14 @@ class MinisterSelfService(commands.Cog):
     @app_commands.describe(player_id="Your existing in-game ID (optional; you can enter it in the menu)")
     @app_commands.guild_only()
     async def minister(self,interaction:discord.Interaction,player_id:int|None=None):
+        with closing(connect()) as db:
+            migrate(db)
+            channel=db.execute("SELECT channel_id FROM minister_reminder_channels WHERE guild_id=?",
+                               (interaction.guild_id,)).fetchone()
+            dates=active_events(db)
+        if not channel or not any(day>=datetime.now(UTC).date().isoformat() for day in dates.values()):
+            await interaction.response.send_message("Reservations are not open yet. Contact an admin.",ephemeral=True)
+            return
         if player_id is not None:
             await self.open_player(interaction,player_id)
             return
@@ -691,12 +729,7 @@ class MinisterSelfService(commands.Cog):
         if len(known)==1:
             await self.open_player(interaction,known[0]["fid"])
             return
-        description=(
-            "Choose one of your previously associated characters, or select "
-            "**Enter Player ID** to look up any character in this server's "
-            "existing alliance roster. No /register or minister approval is needed. "
-            "Another Discord member's claimed ID cannot be taken."
-        )
+        description="Select your character or enter your player ID." if known else "Please enter your player ID."
         embed=discord.Embed(
             title="Minister Reservations",description=description,
             color=discord.Color.blurple()
