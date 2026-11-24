@@ -111,6 +111,18 @@ def configured_slots(db):
     return slots(mode)
 
 
+def is_minister_server(guild_id):
+    """A designated minister server may manage rosters from multiple guilds."""
+    try:
+        with closing(connect()) as db:
+            row=db.execute(
+                "SELECT context_id FROM reference WHERE context='minister guild id'"
+            ).fetchone()
+        return row is not None and int(row["context_id"])==int(guild_id)
+    except (sqlite3.OperationalError,TypeError,ValueError):
+        return False
+
+
 def roster_member(fid, guild_id):
     """Look up a pre-existing alliance roster member, never create one.
 
@@ -132,10 +144,14 @@ def roster_member(fid, guild_id):
         return None
     with closing(sqlite3.connect(ALLIANCE_DB,timeout=30)) as alliances:
         alliance=alliances.execute(
-            "SELECT name FROM alliance_list WHERE alliance_id=? AND discord_server_id=?",
-            (int(row[2]),int(guild_id))
+            "SELECT name,discord_server_id FROM alliance_list WHERE alliance_id=?",
+            (int(row[2]),)
         ).fetchone()
     if not alliance:
+        return None
+    # The member's alliance server or the explicitly configured minister
+    # server may present a self-service booking for this roster FID.
+    if alliance[1]!=int(guild_id) and not is_minister_server(guild_id):
         return None
     return {"fid":int(row[0]),"name":str(row[1] or row[0]),
             "alliance_id":int(row[2]),"alliance_name":str(alliance[0] or row[2]),
