@@ -15,6 +15,7 @@ from .pimp_my_bot import menu_timeout
 
 DB = "db/svs.sqlite"
 USERS_DB = "db/users.sqlite"
+ALLIANCE_DB = "db/alliance.sqlite"
 TYPES = ("Construction Day", "Research Day", "Troops Training Day")
 UTC = timezone.utc
 
@@ -44,6 +45,23 @@ def migrate(db):
         guild_id INTEGER NOT NULL,
         approved_by INTEGER NOT NULL,
         approved_at TEXT NOT NULL
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS minister_player_claims (
+        fid INTEGER PRIMARY KEY,
+        guild_id INTEGER NOT NULL,
+        discord_id INTEGER NOT NULL,
+        claimed_at TEXT NOT NULL,
+        claim_source TEXT NOT NULL
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS minister_claim_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fid INTEGER NOT NULL,
+        guild_id INTEGER NOT NULL,
+        old_discord_id INTEGER,
+        new_discord_id INTEGER NOT NULL,
+        changed_by INTEGER NOT NULL,
+        changed_at TEXT NOT NULL,
+        reason TEXT NOT NULL
     )""")
     db.execute("""CREATE TABLE IF NOT EXISTS minister_booking_owners (
         fid INTEGER NOT NULL,
@@ -93,44 +111,89 @@ def configured_slots(db):
     return slots(mode)
 
 
-def registered_fids(discord_id, guild_id):
-    with closing(sqlite3.connect(USERS_DB, timeout=30)) as db:
-        return db.execute(
-            "SELECT fid,nickname,alliance FROM users WHERE discord_id=? AND discord_server_id=?",
-            (discord_id,guild_id)
-        ).fetchall()
+def roster_member(fid, guild_id):
+    """Look up a pre-existing alliance roster member, never create one.
+
+    The alliance must belong to the Discord server in which the booking
+    command is used. A bare FID is not proof of game account ownership.
+    """
+    try:
+        fid=int(fid)
+        if fid<=0:
+            return None
+    except (TypeError, ValueError):
+        return None
+    with closing(sqlite3.connect(USERS_DB,timeout=30)) as users:
+        row=users.execute(
+            "SELECT fid,nickname,alliance,discord_id FROM users WHERE fid=?",
+            (fid,)
+        ).fetchone()
+    if not row or row[2] is None:
+        return None
+    with closing(sqlite3.connect(ALLIANCE_DB,timeout=30)) as alliances:
+        alliance=alliances.execute(
+            "SELECT name FROM alliance_list WHERE alliance_id=? AND discord_server_id=?",
+            (int(row[2]),int(guild_id))
+        ).fetchone()
+    if not alliance:
+        return None
+    return {"fid":int(row[0]),"name":str(row[1] or row[0]),
+            "alliance_id":int(row[2]),"alliance_name":str(alliance[0] or row[2]),
+            "linked_discord":int(row[3]) if row[3] is not None else None}
 
 
-def permitted_fids(discord_id, guild_id):
-    rows = registered_fids(discord_id,guild_id)
+def check_claim(db, member, discord_id, guild_id):
+    """Prevent overwriting linked, approved, claimed or booked identities."""
+    fid=member["fid"]
+    if member["linked_discord"] not in (None,discord_id):
+        raise PermissionError("This ID is linked to another Discord account. Contact an admin.")
+    claim=db.execute(
+        "SELECT discord_id,guild_id FROM minister_player_claims WHERE fid=?",(fid,)
+    ).fetchone()
+    if claim and (int(claim["discord_id"])!=discord_id or int(claim["guild_id"])!=guild_id):
+        raise PermissionError("This player ID is already claimed by another Discord account. Ask an admin to resolve it.")
+    approved=db.execute(
+        "SELECT discord_id,guild_id FROM minister_player_approvals WHERE fid=?",(fid,)
+    ).fetchone()
+    if approved and (int(approved["discord_id"])!=discord_id or int(approved["guild_id"])!=guild_id):
+        raise PermissionError("This ID has a previous administrator-approved Discord owner. Contact an admin.")
+    owners=db.execute(
+        "SELECT DISTINCT o.discord_id FROM minister_booking_owners o "
+        "JOIN appointments a ON a.fid=o.fid AND a.appointment_type=o.appointment_type "
+        "WHERE a.fid=?",(fid,)
+    ).fetchall()
+    if any(int(owner["discord_id"])!=discord_id for owner in owners):
+        raise PermissionError("Existing minister bookings are owned by another Discord account.")
+
+
+def lookup_for_member(fid, guild_id, discord_id):
+    member=roster_member(fid,guild_id)
+    if member is None:
+        raise ValueError("Player ID not found in this server's registered alliance roster.")
     with closing(connect()) as db:
         migrate(db)
-        approved = {
-            r["fid"] for r in db.execute(
-                "SELECT fid FROM minister_player_approvals WHERE discord_id=? AND guild_id=?",
-                (discord_id,guild_id)
-            ).fetchall()
-        }
-    return [(int(fid),name,aid) for fid,name,aid in rows if int(fid) in approved]
+        check_claim(db,member,discord_id,guild_id)
+    return member
 
 
 def book_many(discord_id, guild_id, fid, selections):
     """All-or-nothing new booking or own-slot movement, shared legacy table."""
     if not selections or any(t not in TYPES for t in selections):
         raise ValueError("Invalid appointment selection.")
-    if fid not in {row[0] for row in permitted_fids(discord_id,guild_id)}:
-        raise PermissionError("Your character is not approved for minister reservations.")
-    with closing(sqlite3.connect(USERS_DB, timeout=30)) as users:
-        row = users.execute(
-            "SELECT alliance FROM users WHERE fid=? AND discord_id=? AND discord_server_id=?",
-            (fid,discord_id,guild_id)
-        ).fetchone()
-        if row is None:
-            raise PermissionError("This character is no longer linked to you in this server.")
-        alliance = row[0]
+    member=roster_member(fid,guild_id)
+    if member is None:
+        raise ValueError("This player is no longer in an alliance registered to this Discord server.")
+    alliance=member["alliance_id"]
     with closing(connect()) as db:
         migrate(db)
         db.execute("BEGIN IMMEDIATE")
+        # Recheck identity under the same write lock used for all slots,
+        # preventing two Discord accounts from claiming the FID concurrently.
+        member=roster_member(fid,guild_id)
+        if member is None:
+            raise ValueError("Player ID no longer exists in this server's alliance roster.")
+        check_claim(db,member,discord_id,guild_id)
+        alliance=member["alliance_id"]
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='index' "
                           "AND name='minister_unique_occupied_time'").fetchone():
             raise ValueError("An admin must resolve existing duplicate slots before member booking.")
@@ -176,14 +239,29 @@ def book_many(discord_id, guild_id, fid, selections):
                     "SELECT discord_id FROM minister_booking_owners WHERE fid=? AND appointment_type=?",
                     (fid,typ)
                 ).fetchone()
-                # Existing admin-created bookings may predate reminder ownership
-                # snapshots. The approved/linked FID may safely adopt its own row.
                 if owner is not None and int(owner["discord_id"]) != discord_id:
-                    raise PermissionError(f"{typ} belongs to a different registered Discord member.")
+                    raise PermissionError(f"{typ} belongs to a different Discord member.")
+                # Never let an unverified first-claimer move someone else's
+                # legacy administrator-created reservation.
+                if (owner is None and member["linked_discord"] != discord_id
+                        and db.execute(
+                            "SELECT 1 FROM minister_player_approvals "
+                            "WHERE fid=? AND discord_id=? AND guild_id=?",
+                            (fid,discord_id,guild_id)
+                        ).fetchone() is None):
+                    raise PermissionError(
+                        "This older administrator-created booking needs an admin to confirm its owner before it can be moved.")
         for first,first_time in selections.items():
             for second,second_time in selections.items():
                 if first<second and events[first]==events[second] and first_time==second_time:
                     raise ValueError("Two selected appointments overlap on the same day.")
+        # Claim the FID only when the complete multi-booking transaction succeeds.
+        db.execute(
+            "INSERT OR IGNORE INTO minister_player_claims "
+            "(fid,guild_id,discord_id,claimed_at,claim_source) VALUES(?,?,?,?,?)",
+            (fid,guild_id,discord_id,datetime.now(UTC).isoformat(),
+             "roster_link" if member["linked_discord"]==discord_id else "first_reservation")
+        )
         for typ,time in selections.items():
             db.execute("DELETE FROM appointments WHERE fid=? AND appointment_type=?", (fid,typ))
             db.execute(
@@ -207,14 +285,19 @@ def snapshot_owner(fid, appointment_type):
     """
     with closing(sqlite3.connect(USERS_DB,timeout=30)) as db:
         row=db.execute("SELECT discord_id FROM users WHERE fid=?",(fid,)).fetchone()
-    if not row or row[0] is None:
+    recipient=int(row[0]) if row and row[0] is not None else None
+    if recipient is None:
+        with closing(connect()) as db:
+            claim=db.execute("SELECT discord_id FROM minister_player_claims WHERE fid=?",(fid,)).fetchone()
+        recipient=int(claim["discord_id"]) if claim else None
+    if recipient is None:
         return False
     with closing(connect()) as db:
         migrate(db)
         db.execute("INSERT INTO minister_booking_owners(fid,appointment_type,discord_id) "
                    "VALUES(?,?,?) ON CONFLICT(fid,appointment_type) "
                    "DO UPDATE SET discord_id=excluded.discord_id",
-                   (fid,appointment_type,int(row[0])))
+                   (fid,appointment_type,recipient))
         db.commit()
     return True
 
