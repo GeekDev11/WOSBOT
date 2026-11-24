@@ -603,9 +603,9 @@ class MinisterSelfService(commands.Cog):
             await interaction.response.send_message(str(err),ephemeral=True)
             return
         description=(
-            f"**{member['name']}**\\n"
-            f"Player ID: \`{member['fid']}\`\\n"
-            f"Alliance: **{member['alliance_name']}**\\n\\n"
+            f"**{member['name']}**\n"
+            f"Player ID: `{member['fid']}`\n"
+            f"Alliance: **{member['alliance_name']}**\n\n"
             "Confirm that this is your character to select minister appointments. "
             "If it is not already linked to a Discord account, your first successful "
             "reservation will associate this FID with your Discord account. "
@@ -747,7 +747,7 @@ class MinisterSelfService(commands.Cog):
             await interaction.response.send_message(str(err),ephemeral=True)
             return
         await interaction.response.send_message(
-            f"Minister owner updated for FID \`{player_id}\` to {member.mention}. "
+            f"Minister owner updated for FID `{player_id}` to {member.mention}. "
             f"Previous Discord owner: {f'<@{previous}>' if previous else 'none'}. "
             "Changes were saved in the minister claim audit.",
             ephemeral=True
