@@ -235,3 +235,14 @@ def test_member_menu_unknown_fid_is_rejected(config):
     cog.bot=SimpleNamespace()
     asyncio.run(service.MinisterSelfService.open_player(cog,fake,999999))
     assert sent and "not found" in sent[0][0][0]
+
+
+def test_designated_minister_server_can_look_up_other_alliance_roster(config):
+    with sqlite3.connect(config) as db:
+        db.execute("CREATE TABLE reference(context TEXT PRIMARY KEY,context_id INTEGER)")
+        db.execute("INSERT INTO reference VALUES('minister guild id',501)")
+    member=service.lookup_for_member(15,501,101)
+    assert member["name"]=="Other Server"
+    assert member["alliance_name"]=="OTHER"
+    service.book_many(101,501,15,{"Research Day":"17:00"})
+    assert read(config,"SELECT time FROM appointments WHERE fid=?",15)==[("17:00",)]
