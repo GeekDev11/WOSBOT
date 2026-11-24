@@ -737,9 +737,6 @@ class MinisterSelfService(commands.Cog):
         view=MinisterIDStart(self,interaction.user.id,interaction.guild_id,known)
         await interaction.response.send_message(embed=embed,view=view,ephemeral=True)
 
-    @app_commands.command(name="minister_event_set",description="Admin: set a minister date and open/close its bookings")
-    @app_commands.choices(appointment_type=[app_commands.Choice(name=t,value=t) for t in TYPES])
-    @app_commands.guild_only()
     async def minister_event_set(self,interaction:discord.Interaction,appointment_type:str,date_utc:str,enabled:bool):
         if not PermissionManager.is_global_admin(interaction.user.id,interaction.guild_id):
             await interaction.response.send_message("Global admin access required.",ephemeral=True);return
@@ -770,8 +767,6 @@ class MinisterSelfService(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="minister_reminder_channel",description="Global admin: set channel for personal minister mentions")
-    @app_commands.guild_only()
     async def minister_reminder_channel(self,interaction:discord.Interaction,channel:discord.TextChannel):
         if not PermissionManager.is_global_admin(interaction.user.id,interaction.guild_id):
             await interaction.response.send_message("Global admin access required.",ephemeral=True);return
@@ -791,8 +786,6 @@ class MinisterSelfService(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="minister_approve",description="Admin: approve a linked character for self-service minister booking")
-    @app_commands.guild_only()
     async def minister_approve(self,interaction:discord.Interaction,player_id:int):
         with closing(sqlite3.connect(USERS_DB,timeout=30)) as db:
             row=db.execute("SELECT discord_id,discord_server_id,alliance FROM users WHERE fid=?",
@@ -819,11 +812,6 @@ class MinisterSelfService(commands.Cog):
             f"Approved linked player {player_id} for minister booking and personal reminders.",
             ephemeral=True)
 
-    @app_commands.command(
-        name="minister_claim_transfer",
-        description="Alliance admin: correct the Discord owner of a minister player ID"
-    )
-    @app_commands.guild_only()
     async def minister_claim_transfer(
         self,interaction:discord.Interaction,player_id:int,member:discord.Member
     ):
@@ -860,7 +848,7 @@ class MinisterSelfService(commands.Cog):
         pending=[]
         with closing(connect()) as db:
             migrate(db)
-            for typ,day in active_events(db).items():
+            for typ,day in db.execute("SELECT appointment_type,event_date FROM minister_event_dates"):
                 rows=db.execute(
                     "SELECT a.fid,a.time,o.discord_id FROM appointments a "
                     "JOIN minister_booking_owners o ON o.fid=a.fid AND o.appointment_type=a.appointment_type "
