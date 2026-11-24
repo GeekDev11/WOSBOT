@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/minister-self-service-and-sync-history
+      - fix/minister-roster-self-service
   workflow_dispatch:
 
 permissions:

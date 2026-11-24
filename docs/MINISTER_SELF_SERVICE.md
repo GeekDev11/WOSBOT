@@ -1,84 +1,60 @@
-# Minister booking — staged operational setup
+# Minister Reservations — roster-based member booking
 
-This feature is part of a combined pending update with Player Sync history.
-**Do not enable it in production until the combined PR passes regression checks.**
+The self-service command uses the **existing alliance member roster**. Members do
+not need `/register` or individual `/minister_approve` authorization.
 
-## Member experience
+## Member guide
 
-Run `/minister` in the designated minister scheduling server. Approved registered
-characters are selected automatically, or selected from a menu when there is more than one.
-Choose 1–3 types (Construction, Research, Troops Training), then choose each UTC time.
-The **Same time for all** switch lets members share one clock time across separate dates.
-The last step shows a recap and commits all requested changes together.
+1. Run `/minister`. Returning members are recognized automatically when they have one associated FID; with multiple characters, choose from their own list. New members click **Enter Player ID**, or use `/minister player_id:<FID>`.
+2. Enter the in-game player ID already listed in the alliance roster.
+3. Verify the displayed name and alliance, and confirm it is your character.
+4. Select Construction, Research, and/or Troops Training (1–3 types).
+5. Choose available UTC time slots and confirm all appointments once.
 
-Standard time slots are 00:00, 00:30, ..., 23:30 UTC, 48 slots each 30 minutes.
+Open `/minister` with the same FID to reschedule your **own** booking to a
+free slot. Members cannot cancel or displace someone else's booking.
+Standard times run every 30 minutes, 00:00–23:30 UTC; existing offset mode
+is also supported. Appointments can share a time on different dates,
+but not overlap on the same day.
 
-- A member may book an empty slot for their approved player ID.
-- A member may move **their own** booking to another empty slot.
-- A member may not cancel, replace another player's booking, or modify another FID.
-- A member cannot hold overlapping appointments on the same UTC date/time.
-- A conflicted multi-event submission changes nothing.
-- Administrator-only legacy scheduling commands, menu, archives, and logs remain.
+## Who owns a FID?
+
+An existing roster Discord link takes priority. If a FID has no linked Discord
+account, the **first successful** booking creates an exclusive Discord claim.
+Failed/abandoned bookings do not claim the ID. Another account cannot take an
+already linked or claimed FID or reschedule another person's reservation.
+
+**Limitation:** a FID from a roster is not cryptographic proof of game account
+ownership. First-claim locking does not prevent the first person from entering
+someone else's unlinked ID. Alliance administrators should resolve disputed
+claims and may use `/minister_claim_transfer player_id:<FID> member:@Member`
+after verification. Transfers are recorded in a minister claim audit and
+update reminder recipients. If an existing roster Discord link points to
+another account, correct that link with existing account admin tools first.
+
+Legacy administrator-created reservations without an associated owner cannot
+be moved by an unverified first claimant; an administrator must resolve them.
 
 ## Administrator setup
 
-1. Configure the usual minister appointment channels and a log server using
-   existing Minister Scheduling setup.
-2. Set a **member-visible** reminder channel using
-   `/minister_reminder_channel channel:#minister-reminders`.
-   The bot needs Send Messages and permission to mention users.
-3. Confirm each player's identity. Player linking via `/register` alone is **not**
-   ownership proof. An authorized alliance admin runs
-   `/minister_approve player_id:123456789` after verifying the member.
-   The approval is scoped to the guild and linked player ID.
-4. Set each occurrence date and open it:
-   `/minister_event_set appointment_type:"Research Day" date_utc:2026-12-04 enabled:True`
-   Repeat for Construction and Training as needed.
-5. Members run `/minister` once to book 1, 2, or all 3 types.
+1. Keep the existing minister scheduling channels, slot mode and administrative
+   tools, including `/minister_add`.
+2. Set a **member-visible** channel using `/minister_reminder_channel`.
+3. Set UTC dates and open/close each minister type using `/minister_event_set`.
+4. Verify all alliances and members already exist in this server's roster.
 
-Only global admins can set dates and the reminder channel. Alliance admins can
-approve player IDs in their assigned alliance.
+Personal reminders mention the booking Discord user **5 minutes before** and
+**at appointment start**. No 30-minute reminder. They are mandatory for
+confirmed self-service bookings and do not depend on notification roles.
+Reminder delivery relies on the bot remaining online and having channel access;
+there is a limited recovery window after downtime.
 
-**Important:** The legacy schema only stores one active cycle per minister type.
-Do not set a new event date over an old cycle. Archive and clear its existing
-reservations with the existing admin tools first. The event-date command refuses
-to change dates while bookings are present.
+Changing an event date with bookings is intentionally blocked until the old
+cycle is archived and cleared; historical records must not be silently lost.
 
-If an admin books a player with no linked Discord account, there is no individual
-recipient to mention. Link and verify that account before relying on personal
-reminders.
+## Release verification
 
-## Mandatory personal reminders
-
-The bot sends each booked Discord member a direct `<@user_id>` mention in
-the configured member-visible channel:
-
-- 5 minutes before their appointment.
-- At the appointment start time.
-
-**There is no 30-minute reminder.** Role notification opt-outs do not disable
-these personal appointment alerts. Canceled bookings are excluded, and a moved
-booking derives future reminders from the new reserved time.
-
-Reminder delivery is stored in SQLite. Discord sending and database writing
-cannot form one atomic transaction, so a crash in the tiny window between those
-steps could cause a duplicate on retry; operators should monitor delivery logs.
-The scheduler sends reminders within the first two minutes after each due time;
-an outage longer than that may prevent timely delivery. This is a known
-reliability limitation requiring operational monitoring.
-
-## Player Sync field history
-
-The separate `/sync_history` and `/sync_history_export` admin commands expose
-durable per-field changes by permitted alliance, including former/new values.
-They do not reconstruct changes from before the audit feature was installed.
-Existing Sync Log auto-delete is **off by default**.
-
-## Release checklist
-
-- Confirm SQLite backup and event date migration.
-- Resolve any legacy duplicate minister slot entries before enabling member booking.
-- Run staged minister/Sync History tests and full CI including SimCord tests.
-- Verify bot startup, slash-command synchronization, database persistence,
-  member-visible reminder channel and actual mention delivery in a test server.
-- Keep automatic release publishing paused until final approval.
+Back up database files; verify the bot loads the new commands, the roster
+lookup and FID claims, admin claim correction, multi-event booking,
+rescheduling, and actual Discord personal mentions in a test server.
+Run the full regression suite and SimCord before publishing.
