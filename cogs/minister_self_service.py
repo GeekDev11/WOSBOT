@@ -463,6 +463,76 @@ class BookingWizard(discord.ui.View):
             self.add_item(confirm)
 
 
+class MinisterIDModal(discord.ui.Modal, title="Find Your Alliance Character"):
+    fid=discord.ui.TextInput(
+        label="Player ID (FID)",placeholder="Enter your in-game player ID",
+        min_length=1,max_length=20,required=True
+    )
+
+    def __init__(self, cog, user_id, guild_id):
+        super().__init__()
+        self.cog=cog
+        self.user_id=user_id
+        self.guild_id=guild_id
+
+    async def on_submit(self, interaction):
+        if interaction.user.id!=self.user_id or interaction.guild_id!=self.guild_id:
+            await interaction.response.send_message("This form belongs to another member.",ephemeral=True)
+            return
+        try:
+            fid=int(str(self.fid.value).strip())
+        except ValueError:
+            await interaction.response.send_message("Enter a numeric player ID.",ephemeral=True)
+            return
+        await self.cog.open_player(interaction,fid)
+
+
+class MinisterIDStart(discord.ui.View):
+    def __init__(self,cog,user_id,guild_id):
+        super().__init__(timeout=menu_timeout())
+        self.cog=cog
+        self.user_id=user_id
+        self.guild_id=guild_id
+
+    @discord.ui.button(label="Enter Player ID",style=discord.ButtonStyle.primary)
+    async def start(self,interaction,button):
+        if interaction.user.id!=self.user_id or interaction.guild_id!=self.guild_id:
+            await interaction.response.send_message("This menu belongs to another member.",ephemeral=True)
+            return
+        await interaction.response.send_modal(
+            MinisterIDModal(self.cog,self.user_id,self.guild_id)
+        )
+
+
+class ConfirmMinisterCharacter(discord.ui.View):
+    def __init__(self,cog,user_id,guild_id,member):
+        super().__init__(timeout=menu_timeout())
+        self.cog=cog
+        self.user_id=user_id
+        self.guild_id=guild_id
+        self.member=member
+
+    async def interaction_check(self,interaction):
+        if interaction.user.id!=self.user_id or interaction.guild_id!=self.guild_id:
+            await interaction.response.send_message("This character selection belongs to another member.",ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="This is my character — Continue",style=discord.ButtonStyle.success)
+    async def proceed(self,interaction,button):
+        try:
+            # This is only a preflight check: booking commits identity
+            # atomically with the selected minister slots.
+            await asyncio.to_thread(
+                lookup_for_member,self.member["fid"],self.guild_id,self.user_id
+            )
+        except (PermissionError,ValueError,sqlite3.Error) as err:
+            await interaction.response.send_message(str(err),ephemeral=True)
+            return
+        wizard=BookingWizard(self.user_id,self.guild_id,self.member["fid"],self.cog.bot)
+        await interaction.response.edit_message(content=None,embed=wizard.embed(),view=wizard)
+
+
 class MinisterSelfService(commands.Cog):
     def __init__(self,bot):
         self.bot=bot
@@ -472,33 +542,47 @@ class MinisterSelfService(commands.Cog):
     async def cog_unload(self):
         self.reminders.cancel()
 
-    @app_commands.command(name="minister",description="Book 1–3 minister appointments in one session")
-    @app_commands.guild_only()
-    async def minister(self,interaction:discord.Interaction):
-        eligible=await asyncio.to_thread(permitted_fids,interaction.user.id,interaction.guild_id)
-        if not eligible:
-            await interaction.response.send_message(
-                "No approved linked character. Use /register and ask your alliance admin to approve your player ID.",
-                ephemeral=True
+    async def open_player(self,interaction,fid):
+        try:
+            member=await asyncio.to_thread(
+                lookup_for_member,fid,interaction.guild_id,interaction.user.id
             )
+        except (ValueError,PermissionError,sqlite3.Error) as err:
+            await interaction.response.send_message(str(err),ephemeral=True)
             return
-        if len(eligible)>1:
-            view=discord.ui.View(timeout=menu_timeout())
-            select=discord.ui.Select(placeholder="Choose your character",options=[
-                discord.SelectOption(label=(name or str(fid))[:80],description=str(fid),value=str(fid))
-                for fid,name,_ in eligible[:25]
-            ])
-            async def choose(i):
-                if i.user.id!=interaction.user.id: 
-                    await i.response.send_message("Not your menu.",ephemeral=True);return
-                wizard=BookingWizard(i.user.id,i.guild_id,int(select.values[0]),self.bot)
-                await i.response.edit_message(content=None,embed=wizard.embed(),view=wizard)
-            select.callback=choose
-            view.add_item(select)
-            await interaction.response.send_message("Choose the player ID to reserve for:",view=view,ephemeral=True)
-        else:
-            wizard=BookingWizard(interaction.user.id,interaction.guild_id,eligible[0][0],self.bot)
-            await interaction.response.send_message(embed=wizard.embed(),view=wizard,ephemeral=True)
+        description=(
+            f"**{member['name']}**\\n"
+            f"Player ID: \`{member['fid']}\`\\n"
+            f"Alliance: **{member['alliance_name']}**\\n\\n"
+            "Confirm that this is your character to select minister appointments. "
+            "If it is not already linked to a Discord account, your first successful "
+            "reservation will associate this FID with your Discord account. "
+            "An admin can correct a mistaken claim."
+        )
+        embed=discord.Embed(
+            title="Confirm Your Alliance Character",description=description,
+            color=discord.Color.blurple()
+        )
+        view=ConfirmMinisterCharacter(self,interaction.user.id,interaction.guild_id,member)
+        await interaction.response.send_message(embed=embed,view=view,ephemeral=True)
+
+    @app_commands.command(name="minister",description="Reserve a minister spot using your alliance roster player ID")
+    @app_commands.describe(player_id="Your existing in-game ID (optional; you can enter it in the menu)")
+    @app_commands.guild_only()
+    async def minister(self,interaction:discord.Interaction,player_id:int|None=None):
+        if player_id is not None:
+            await self.open_player(interaction,player_id)
+            return
+        embed=discord.Embed(
+            title="Minister Reservations",
+            description="Enter your existing alliance **Player ID (FID)** to reserve or change "
+                        "your own minister appointments. You do not need /register or prior "
+                        "minister approval. You cannot claim an ID already belonging to "
+                        "another Discord account.",
+            color=discord.Color.blurple()
+        )
+        view=MinisterIDStart(self,interaction.user.id,interaction.guild_id)
+        await interaction.response.send_message(embed=embed,view=view,ephemeral=True)
 
     @app_commands.command(name="minister_event_set",description="Admin: set a minister date and open/close its bookings")
     @app_commands.choices(appointment_type=[app_commands.Choice(name=t,value=t) for t in TYPES])
