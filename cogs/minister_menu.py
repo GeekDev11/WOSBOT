@@ -94,6 +94,7 @@ class UpdateNamesModal(discord.ui.Modal):
             description=(
                 f"{theme.verifiedIcon} **{result_msg}**\n\n"
                 f"Administrative settings for minister scheduling:\n\n"
+                f"**Manage Player Ownership** — Correct a player claim\n\n"
                 f"Available Actions\n"
                 f"{theme.upperDivider}\n\n"
                 f"{theme.editListIcon} **Update Names**\n"
@@ -543,6 +544,24 @@ class MinisterReminderView(discord.ui.View):
         await self.cog.show_channel_setup_menu(interaction)
 
 
+class MinisterOwnershipModal(discord.ui.Modal, title="Manage Player Ownership"):
+    fid = discord.ui.TextInput(label="Player ID", max_length=20)
+    owner = discord.ui.TextInput(label="New Discord user ID", max_length=20)
+
+    async def on_submit(self, interaction):
+        from .minister_self_service import roster_member, transfer_claim
+        try:
+            fid, owner = int(str(self.fid.value)), int(str(self.owner.value))
+            member = await interaction.guild.fetch_member(owner)
+            roster = await asyncio.to_thread(roster_member, fid, interaction.guild_id)
+            if not roster or not PermissionManager.can_access_alliance(interaction.user.id, interaction.guild_id, roster["alliance_id"]):
+                raise PermissionError("You cannot manage this player.")
+            await asyncio.to_thread(transfer_claim, fid, interaction.guild_id, member.id, interaction.user.id)
+        except (ValueError, PermissionError, sqlite3.Error, discord.HTTPException) as err:
+            return await interaction.response.send_message(str(err), ephemeral=True)
+        await interaction.response.send_message("Player ownership updated.", ephemeral=True)
+
+
 class MinisterSettingsView(discord.ui.View):
     def __init__(self, bot, cog, is_global: bool = False):
         super().__init__(timeout=menu_timeout())
@@ -558,6 +577,12 @@ class MinisterSettingsView(discord.ui.View):
                     "Delete All Reservations", "Clear Channels", "Delete Server ID"
                 ]:
                     child.disabled = True
+
+    @discord.ui.button(label="Manage Player Ownership", style=discord.ButtonStyle.secondary, row=0)
+    async def ownership(self, interaction, button):
+        if not await self.cog.is_admin(interaction.user.id):
+            return await interaction.response.send_message("Admin access required.", ephemeral=True)
+        await interaction.response.send_modal(MinisterOwnershipModal())
 
     @discord.ui.button(label="Update Names", style=discord.ButtonStyle.secondary, emoji=f"{theme.editListIcon}", row=1)
     async def update_names(self, interaction: discord.Interaction, button: discord.ui.Button):
