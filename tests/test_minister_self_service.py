@@ -198,3 +198,40 @@ def test_same_player_no_duplicate_booking_after_claim(config):
     service.book_many(101,501,14,{"Research Day":"12:30"})
     service.book_many(101,501,14,{"Research Day":"13:00"})
     assert read(config,"SELECT COUNT(*) FROM appointments WHERE fid=?",14)==[(1,)]
+
+
+def test_member_menu_accepts_roster_id_without_registration(config):
+    import asyncio
+    from types import SimpleNamespace
+    sent=[]
+    async def send_message(**kwargs):
+        sent.append(kwargs)
+    fake=SimpleNamespace(
+        user=SimpleNamespace(id=101),
+        guild_id=501,
+        response=SimpleNamespace(send_message=send_message)
+    )
+    cog=object.__new__(service.MinisterSelfService)
+    cog.bot=SimpleNamespace()
+    asyncio.run(service.MinisterSelfService.open_player(cog,fake,14))
+    assert sent and sent[-1]["ephemeral"] is True
+    assert "Four" in sent[-1]["embed"].description
+    assert "VEN" in sent[-1]["embed"].description
+    assert isinstance(sent[-1]["view"],service.ConfirmMinisterCharacter)
+
+
+def test_member_menu_unknown_fid_is_rejected(config):
+    import asyncio
+    from types import SimpleNamespace
+    sent=[]
+    async def send_message(*args,**kwargs):
+        sent.append((args,kwargs))
+    fake=SimpleNamespace(
+        user=SimpleNamespace(id=101),
+        guild_id=501,
+        response=SimpleNamespace(send_message=send_message)
+    )
+    cog=object.__new__(service.MinisterSelfService)
+    cog.bot=SimpleNamespace()
+    asyncio.run(service.MinisterSelfService.open_player(cog,fake,999999))
+    assert sent and "not found" in sent[0][0][0]
