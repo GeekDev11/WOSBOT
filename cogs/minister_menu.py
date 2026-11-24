@@ -430,6 +430,119 @@ class ActivitySelectView(discord.ui.View):
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.show_settings_menu(interaction)
 
+class MinisterDatesModal(discord.ui.Modal, title="Set Event Dates"):
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+        from .minister_self_service import connect, migrate, TYPES
+        with closing(connect()) as db:
+            migrate(db)
+            dates = dict(db.execute("SELECT appointment_type,event_date FROM minister_event_dates").fetchall())
+        self.fields = {}
+        for typ in TYPES:
+            field = discord.ui.TextInput(label=typ, placeholder="YYYY-MM-DD", default=dates.get(typ), required=False, max_length=10)
+            self.fields[typ] = field
+            self.add_item(field)
+
+    async def on_submit(self, interaction):
+        from .minister_self_service import connect, migrate
+        from datetime import date
+        if not PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id):
+            return await interaction.response.send_message("Global admin access required.", ephemeral=True)
+        try:
+            dates = {typ: date.fromisoformat(str(field.value)).isoformat() for typ, field in self.fields.items() if field.value}
+            with closing(connect()) as db:
+                migrate(db)
+                db.execute("BEGIN IMMEDIATE")
+                for typ, day in dates.items():
+                    old = db.execute("SELECT event_date FROM minister_event_dates WHERE appointment_type=?", (typ,)).fetchone()
+                    if (not old or old[0] != day) and db.execute("SELECT 1 FROM appointments WHERE appointment_type=?", (typ,)).fetchone():
+                        raise ValueError("Archive and clear existing bookings before changing dates.")
+                    db.execute("INSERT INTO minister_event_dates(appointment_type,event_date,enabled,updated_by) VALUES(?,?,0,?) ON CONFLICT(appointment_type) DO UPDATE SET event_date=excluded.event_date,updated_by=excluded.updated_by", (typ,day,interaction.user.id))
+                db.commit()
+        except (ValueError, sqlite3.Error) as err:
+            return await interaction.response.send_message(str(err), ephemeral=True)
+        await self.cog.show_event_dates(interaction)
+
+
+class MinisterDatesView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__(timeout=menu_timeout())
+        self.cog = cog
+
+    async def interaction_check(self, interaction):
+        if PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id):
+            return True
+        await interaction.response.send_message("Global admin access required.", ephemeral=True)
+        return False
+
+    @discord.ui.button(label="Set Dates", style=discord.ButtonStyle.primary)
+    async def dates(self, interaction, button):
+        await interaction.response.send_modal(MinisterDatesModal(self.cog))
+
+    @discord.ui.button(label="Open Reservations", style=discord.ButtonStyle.success)
+    async def open_bookings(self, interaction, button):
+        await self.choose(interaction, True)
+
+    @discord.ui.button(label="Close Reservations", style=discord.ButtonStyle.danger)
+    async def close_bookings(self, interaction, button):
+        await self.choose(interaction, False)
+
+    async def choose(self, interaction, enabled):
+        from .minister_self_service import TYPES, connect, migrate
+        view = MinisterDatesView(self.cog)
+        view.clear_items()
+        select = discord.ui.Select(placeholder="Select events", min_values=1, max_values=len(TYPES), options=[discord.SelectOption(label=t,value=t) for t in TYPES])
+        async def apply(inter):
+            if not await view.interaction_check(inter):
+                return
+            with closing(connect()) as db:
+                migrate(db)
+                db.execute("BEGIN IMMEDIATE")
+                for typ in select.values:
+                    if not db.execute("SELECT 1 FROM minister_event_dates WHERE appointment_type=?", (typ,)).fetchone():
+                        return await inter.response.send_message("Set event dates first.", ephemeral=True)
+                    db.execute("UPDATE minister_event_dates SET enabled=?,updated_by=? WHERE appointment_type=?", (int(enabled),inter.user.id,typ))
+                db.commit()
+            await self.cog.show_event_dates(inter)
+        select.callback = apply
+        view.add_item(select)
+        back = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
+        async def go(inter):
+            await self.cog.show_event_dates(inter)
+        back.callback = go
+        view.add_item(back)
+        await safe_edit_message(interaction, embed=discord.Embed(title="Select events"), view=view)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await self.cog.show_minister_channel_menu(interaction)
+
+
+class MinisterReminderView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__(timeout=menu_timeout())
+        self.cog = cog
+
+    @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text], placeholder="Select reminder channel")
+    async def channel(self, interaction, select):
+        from .minister_self_service import connect, migrate
+        if not PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id):
+            return await interaction.response.send_message("Global admin access required.", ephemeral=True)
+        channel = interaction.guild.get_channel(select.values[0].id)
+        if not channel or not channel.permissions_for(interaction.guild.me).send_messages:
+            return await interaction.response.send_message("Bot needs permission to send messages.", ephemeral=True)
+        with closing(connect()) as db:
+            migrate(db)
+            db.execute("INSERT INTO minister_reminder_channels(guild_id,channel_id) VALUES(?,?) ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id", (interaction.guild_id,channel.id))
+            db.commit()
+        await self.cog.show_channel_setup_menu(interaction)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction, button):
+        await self.cog.show_channel_setup_menu(interaction)
+
+
 class MinisterSettingsView(discord.ui.View):
     def __init__(self, bot, cog, is_global: bool = False):
         super().__init__(timeout=menu_timeout())
@@ -526,7 +639,7 @@ class MinisterChannelView(discord.ui.View):
         if not is_global:
             for child in self.children:
                 if isinstance(child, discord.ui.Button) and child.label in [
-                    "Event Archive"
+                    "Event Archive", "Event Dates"
                 ]:
                     child.disabled = True
 
@@ -541,6 +654,10 @@ class MinisterChannelView(discord.ui.View):
     @discord.ui.button(label="Troops Training Day", style=discord.ButtonStyle.primary, emoji=f"{theme.trainingIcon}")
     async def troops_training_day(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_activity_selection(interaction, "Troops Training Day")
+
+    @discord.ui.button(label="Event Dates", style=discord.ButtonStyle.success, emoji="📅", row=1)
+    async def event_dates(self, interaction, button):
+        await self.cog.show_event_dates(interaction)
 
     @discord.ui.button(label="Channel Setup", style=discord.ButtonStyle.success, emoji=f"{theme.editListIcon}", row=1)
     async def channel_setup(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -659,6 +776,12 @@ class ChannelConfigurationView(discord.ui.View):
     @discord.ui.button(label="Log Channel", style=discord.ButtonStyle.secondary, emoji=f"{theme.documentIcon}")
     async def log_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_channel_selection(interaction, "minister log channel", "general logging")
+
+    @discord.ui.button(label="Member Reminder Channel", style=discord.ButtonStyle.secondary, row=1)
+    async def reminder_channel(self, interaction, button):
+        if not PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id):
+            return await interaction.response.send_message("Global admin access required.", ephemeral=True)
+        await safe_edit_message(interaction, embed=discord.Embed(title="Member Reminder Channel"), view=MinisterReminderView(self.cog))
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.primary, emoji=f"{theme.backIcon}", row=1)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -866,6 +989,18 @@ class MinisterMenu(commands.Cog):
         is_admin, _ = PermissionManager.is_admin(user_id)
         return is_admin
 
+    def event_date_status(self):
+        from .minister_self_service import connect, migrate, TYPES
+        with closing(connect()) as db:
+            migrate(db)
+            dates = {r[0]: (r[1],r[2]) for r in db.execute("SELECT appointment_type,event_date,enabled FROM minister_event_dates")}
+        return "\n".join(f"{typ}: {dates[typ][0]} — {'Open' if dates[typ][1] else 'Closed'}" if typ in dates else f"{typ}: Not set — Closed" for typ in TYPES)
+
+    async def show_event_dates(self, interaction):
+        if not PermissionManager.is_global_admin(interaction.user.id, interaction.guild_id):
+            return await interaction.response.send_message("Global admin access required.", ephemeral=True)
+        await safe_edit_message(interaction, embed=discord.Embed(title="Event Dates", description=self.event_date_status()), view=MinisterDatesView(self))
+
     async def show_minister_channel_menu(self, interaction: discord.Interaction):
         # Store the original interaction for later updates
 
@@ -881,6 +1016,7 @@ class MinisterMenu(commands.Cog):
                 f"{theme.upperDivider}\n"
                 f"{channel_status}\n"
                 f"{theme.middleDivider}\n\n"
+                f"**Event Dates**\n{self.event_date_status()}\n\n"
                 f"**Available Operations**\n"
                 f"{theme.middleDivider}\n"
                 f"{theme.constructionIcon} **Construction Day**\n"
@@ -918,6 +1054,7 @@ class MinisterMenu(commands.Cog):
                 f"└ Shows available Training Day slots\n\n"
                 f"{theme.documentIcon} **Log Channel**\n"
                 f"└ Receives all change notifications\n\n"
+                f"**Member Reminder Channel**\n└ Personal appointment reminders\n\n"
                 f"{theme.lowerDivider}\n\n"
                 f"Select a channel type to configure:"
             ),
