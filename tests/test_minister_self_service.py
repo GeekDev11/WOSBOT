@@ -246,3 +246,15 @@ def test_designated_minister_server_can_look_up_other_alliance_roster(config):
     assert member["alliance_name"]=="OTHER"
     service.book_many(101,501,15,{"Research Day":"17:00"})
     assert read(config,"SELECT time FROM appointments WHERE fid=?",15)==[("17:00",)]
+
+
+def test_returning_member_can_resume_claimed_fid_without_retyping(config):
+    service.book_many(101,501,14,{"Research Day":"13:00"})
+    known=service.known_player_ids(101,501)
+    assert 14 in {m["fid"] for m in known}
+    assert 12 not in {m["fid"] for m in known}
+
+
+def test_member_cannot_see_other_accounts_claimed_characters(config):
+    service.book_many(101,501,14,{"Research Day":"13:00"})
+    assert 14 not in {m["fid"] for m in service.known_player_ids(102,501)}
