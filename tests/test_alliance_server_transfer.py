@@ -20,6 +20,7 @@ def registry(tmp_path, monkeypatch):
     u=folder/"users.sqlite"
     i=folder/"id_channel.sqlite"
     m=folder/"membership_tracking.sqlite"
+    g=folder/"giftcode.sqlite"
     _db(a, """
     CREATE TABLE alliance_list(alliance_id INTEGER PRIMARY KEY,name TEXT,
         discord_server_id INTEGER,kid INTEGER);
@@ -68,10 +69,14 @@ def registry(tmp_path, monkeypatch):
         UNIQUE(guild_id,state_id,game_alliance_id,scope_alliance_id));
     INSERT INTO temporary_alliances VALUES(1,100,1501,200,'S01',5,1,1,'now');
     """)
-    for key,path in (("A",a),("S",s),("U",u),("I",i),("M",m)):
+    _db(g, """
+    CREATE TABLE giftcode_channel(alliance_id INTEGER PRIMARY KEY,channel_id INTEGER);
+    INSERT INTO giftcode_channel VALUES(5,1050);
+    """)
+    for key,path in (("A",a),("S",s),("U",u),("I",i),("M",m),("G",g)):
         monkeypatch.setattr(svc,key,str(path))
     monkeypatch.chdir(tmp_path)
-    return a,s,u,i,m
+    return a,s,u,i,m,g
 
 
 def _row(file,sql):
@@ -80,12 +85,12 @@ def _row(file,sql):
 
 
 def test_transfer_retains_members_history_and_revokes_only_scoped_grants(registry):
-    a,s,u,i,m=registry
+    a,s,u,i,m,g=registry
     snapshot=svc.inspect(5)
     assert snapshot["source"]==100 and snapshot["members"]==2
     backup=svc.transfer(5,expected_source=100,destination=200,actor_id=13,
                         mappings={"id":2000,"log":2040,"redeem":2020,
-                                  "sync":2010,"troop":2030})
+                                  "sync":2010,"troop":2030,"gift":2050})
     assert Path(backup).is_dir()
     assert _row(a,"SELECT alliance_id,discord_server_id FROM alliance_list")==[(5,200)]
     assert _row(u,"SELECT fid,alliance,discord_id,discord_server_id FROM users ORDER BY fid")==[
@@ -97,6 +102,7 @@ def test_transfer_retains_members_history_and_revokes_only_scoped_grants(registr
     assert _row(i,"SELECT guild_id,alliance_id,channel_id FROM id_channels")==[(200,5,2000)]
     assert _row(m,"SELECT guild_id,scope_alliance_id FROM temporary_alliances")==[(200,5)]
     assert _row(a,"SELECT guild_id,channel_id FROM troop_quality_channels")==[(200,2030)]
+    assert _row(g,"SELECT alliance_id,channel_id FROM giftcode_channel")==[(5,2050)]
 
 
 def test_source_mismatch_never_changes_database(registry):
