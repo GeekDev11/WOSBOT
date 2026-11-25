@@ -169,7 +169,19 @@ class TransferView(discord.ui.View):
             self.stage = "alliance"
         await self.show(interaction)
 
+    def check_idle(self):
+        queue = self.bot.get_cog("ProcessQueue")
+        if queue is None:
+            raise ValueError("Process Queue unavailable; cannot verify safe transfer")
+        running = queue.running_info()
+        if running:
+            raise ValueError("A bot operation is running. Finish it before transferring.")
+        pending = queue.queued_processes()
+        if pending:
+            raise ValueError("Bot operations are queued. Finish them before transferring.")
+
     async def check(self):
+        self.check_idle()
         current = await asyncio.to_thread(service.inspect, self.record["id"])
         if current != self.record:
             raise ValueError("Alliance settings changed. Restart the transfer wizard.")
