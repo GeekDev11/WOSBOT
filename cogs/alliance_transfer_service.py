@@ -233,6 +233,14 @@ def transfer(alliance_id, *, expected_source, destination, mappings, actor_id):
                 # Server-wide rules and tracking enablement remain server-owned.
                 db.execute("UPDATE tracking.temporary_alliances SET guild_id=? "
                            "WHERE scope_alliance_id=? AND guild_id=?", (target,aid,source))
+            db.execute("CREATE TABLE IF NOT EXISTS alliance_server_transfers "
+                       "(id INTEGER PRIMARY KEY, alliance_id INTEGER NOT NULL, "
+                       "from_guild INTEGER, to_guild INTEGER, actor_id INTEGER, "
+                       "created_at TEXT, backup_path TEXT)")
+            db.execute("INSERT INTO alliance_server_transfers "
+                       "(alliance_id,from_guild,to_guild,actor_id,created_at,backup_path) "
+                       "VALUES (?,?,?,?,?,?)", (aid,source,target,int(actor_id),
+                       datetime.now(timezone.utc).isoformat(),str(backup_dir)))
             db.commit()
         except Exception:
             db.rollback()
