@@ -2,6 +2,7 @@
 
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
 import sqlite3
 import logging
@@ -18,6 +19,12 @@ logger = logging.getLogger('alliance')
 class AllianceChannels(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @app_commands.command(name="transferalliance",
+                          description="Transfer an alliance to this Discord server (Bot Owner only)")
+    async def transferalliance(self, interaction: discord.Interaction):
+        from .alliance_transfer_ui import show_transfer
+        await show_transfer(self.bot, interaction)
 
     async def show_channel_setup_for(self, interaction: discord.Interaction, alliance_id: int):
         """Open Channel Setup for a specific alliance (called from the Hub)."""
