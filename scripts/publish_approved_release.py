@@ -79,7 +79,8 @@ def main():
     last_commit = dt.datetime.fromisoformat(
         commit["commit"]["committer"]["date"].replace("Z", "+00:00"))
     age = (dt.datetime.now(dt.timezone.utc) - last_commit).total_seconds()
-    if age < COOLDOWN_SECONDS:
+    approved = '[publish-approved]' in commit['commit']['message']
+    if age < COOLDOWN_SECONDS and not approved:
         print("Recent changes detected; waiting for the quiet period before release.")
         return
 

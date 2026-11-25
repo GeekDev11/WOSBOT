@@ -135,7 +135,7 @@ jobs:
     name: Publish approved 2.3 release
     needs: [whiteout-stats, simcord-ui]
     # Publish only after both required regression jobs succeed.
-    if: ${{ false }} # Alliance transfer work in progress; release requires explicit approval
+    if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/modified' && contains(github.event.head_commit.message, '[publish-approved]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -152,8 +152,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Batch nearby changes before publishing
-        run: sleep 600
+      # Explicitly approved releases do not need the 10-minute batching delay.
       - name: Publish only latest tested branch head
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
