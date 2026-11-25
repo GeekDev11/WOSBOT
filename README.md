@@ -7,5 +7,3 @@ Discord Bot written in Python that supports alliance management, event reminders
 ## 🚀 Getting Started
 
 To get started with the bot, head over to the [wiki](https://github.com/whiteout-project/bot/wiki) for instructions and other information.
-
-If you have any issues with the bot, head over to the [common issues](https://github.com/whiteout-project/bot/wiki/Common-Issues) page or join our [discord server](https://discord.gg/apYByj6K2m) for support.
