@@ -106,7 +106,7 @@ def test_transfer_retains_members_history_and_revokes_only_scoped_grants(registr
 
 
 def test_source_mismatch_never_changes_database(registry):
-    a,s,u,i,m=registry
+    a,s,u,i,m,g=registry
     with pytest.raises(ValueError,match="changed"):
         svc.transfer(5,expected_source=777,destination=200,actor_id=13,
                      mappings={k:None for k in svc.KINDS})
