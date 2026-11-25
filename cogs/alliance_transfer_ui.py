@@ -202,6 +202,7 @@ class TransferView(discord.ui.View):
         await self.show(interaction, "Checks passed. Confirm to proceed.")
 
     async def execute(self, interaction):
+        await interaction.response.defer()
         try:
             if not PermissionManager.is_owner(interaction.user.id):
                 raise ValueError("Bot Owner permission changed")
@@ -212,7 +213,7 @@ class TransferView(discord.ui.View):
                 mappings=dict(self.mapping), actor_id=interaction.user.id,
                 admin_role_id=self.admin_role_id)
         except Exception as exc:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Transfer was not completed: " + str(exc)[:1000]
                 + ". Review the bot logs and backups before retrying.", ephemeral=True)
             return
@@ -220,7 +221,7 @@ class TransferView(discord.ui.View):
         PermissionManager._bust_role_cache()
         PermissionManager._admin_cache = None
         self.stop()
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             embed=discord.Embed(
                 title="Alliance transferred",
                 description=self.record["name"] + " now belongs to this server. "
