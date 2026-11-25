@@ -109,6 +109,15 @@ def validate(plan, dest, bot):
                 reserved.update(int(r[0]) for r in db.execute(
                     "SELECT channel_id FROM giftcode_channel WHERE alliance_id IN ("+
                     placeholders+")",parameters) if r[0])
+    approved_role = plan.get("admin_role_id")
+    if approved_role is not None:
+        role = dest.get_role(int(approved_role))
+        if role is None or role.is_default() or role.managed:
+            raise ValueError("Choose an eligible role from the destination server")
+        with closing(sqlite3.connect(S, timeout=30)) as db:
+            if db.execute("SELECT 1 FROM admin_role WHERE role_id=?",
+                          (int(approved_role),)).fetchone():
+                raise ValueError("This role already has an admin grant; configure it separately")
     seen = set()
     for kind, new_id in mappings.items():
         if new_id is None:
@@ -134,7 +143,8 @@ def validate(plan, dest, bot):
     return True
 
 
-def transfer(alliance_id, *, expected_source, destination, mappings, actor_id):
+def transfer(alliance_id, *, expected_source, destination, mappings, actor_id,
+             admin_role_id=None):
     """Execute after live Discord and Bot Owner checks, with source rechecked in DB.
 
     SQLite ATTACH transaction handles ordinary errors. Separate database backups
@@ -197,6 +207,15 @@ def transfer(alliance_id, *, expected_source, destination, mappings, actor_id):
                                (role,))
             db.execute("DELETE FROM settings.adminserver WHERE alliances_id=?", (aid,))
             db.execute("DELETE FROM settings.adminserver_role WHERE alliances_id=?", (aid,))
+            if admin_role_id is not None:
+                if db.execute("SELECT 1 FROM settings.admin_role WHERE role_id=?",
+                              (int(admin_role_id),)).fetchone():
+                    raise ValueError("Destination role permissions changed during transfer")
+                db.execute("INSERT INTO settings.admin_role "
+                           "(role_id,guild_id,is_initial) VALUES (?,?,0)",
+                           (int(admin_role_id),target))
+                db.execute("INSERT INTO settings.adminserver_role "
+                           "(role_id,alliances_id) VALUES (?,?)", (int(admin_role_id),aid))
             db.execute("UPDATE alliance_list SET discord_server_id=? WHERE alliance_id=? AND discord_server_id=?",
                        (target,aid,source))
             db.execute("INSERT OR IGNORE INTO alliancesettings(alliance_id) VALUES (?)", (aid,))
