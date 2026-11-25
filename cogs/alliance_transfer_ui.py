@@ -77,7 +77,7 @@ class TransferView(discord.ui.View):
             kind = service.KINDS[self.index]
             previous = self.record["channels"][kind]
             description = (
-                self.record["name"] + " — mapping " + str(self.index + 1) + "/5: "
+                self.record["name"] + " — mapping " + str(self.index + 1) + "/" + str(len(service.KINDS)) + ": "
                 + kind.upper() + "\nExisting: " + str(previous or "Not configured")
                 + "\nSelect a corresponding destination-server channel.")
         else:
