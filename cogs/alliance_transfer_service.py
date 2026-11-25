@@ -109,6 +109,18 @@ def validate(plan, dest, bot):
                 reserved.update(int(r[0]) for r in db.execute(
                     "SELECT channel_id FROM giftcode_channel WHERE alliance_id IN ("+
                     placeholders+")",parameters) if r[0])
+    if os.path.exists(M):
+        with closing(sqlite3.connect(M, timeout=30)) as tracking:
+            try:
+                enabled = tracking.execute(
+                    "SELECT enabled FROM settings WHERE guild_id=?", (int(source),)).fetchone()
+                target = tracking.execute(
+                    "SELECT enabled FROM settings WHERE guild_id=?", (int(dest.id),)).fetchone()
+                if enabled and enabled[0] and not (target and target[0]):
+                    raise ValueError("Enable Membership Tracking in destination before transfer")
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc).lower():
+                    raise
     approved_role = plan.get("admin_role_id")
     if approved_role is not None:
         role = dest.get_role(int(approved_role))
