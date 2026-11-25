@@ -133,3 +133,54 @@ class TransferView(discord.ui.View):
         else:
             self.stage = "alliance"
         await self.show(interaction)
+
+    async def check(self):
+        current = await asyncio.to_thread(service.inspect, self.record["id"])
+        if current != self.record:
+            raise ValueError("Alliance settings changed. Restart the transfer wizard.")
+        guild = self.bot.get_guild(self.destination)
+        if guild is None:
+            raise ValueError("Destination server is no longer connected")
+        await asyncio.to_thread(
+            service.validate, {**current, "mappings": self.mapping}, guild, self.bot)
+
+    async def validate(self, interaction):
+        try:
+            await self.check()
+        except (ValueError, OSError) as exc:
+            await self.show(interaction, "Validation failed: " + str(exc))
+            return
+        self.stage = "confirm"
+        await self.show(interaction, "Checks passed. Confirm to proceed.")
+
+    async def execute(self, interaction):
+        try:
+            if not PermissionManager.is_owner(interaction.user.id):
+                raise ValueError("Bot Owner permission changed")
+            await self.check()
+            backup = await asyncio.to_thread(
+                service.transfer, self.record["id"],
+                expected_source=self.record["source"], destination=self.destination,
+                mappings=dict(self.mapping), actor_id=interaction.user.id)
+        except Exception as exc:
+            await interaction.response.send_message(
+                "Transfer was not completed: " + str(exc)[:1000]
+                + ". Review the bot logs and backups before retrying.", ephemeral=True)
+            return
+        self.stop()
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Alliance transferred",
+                description=self.record["name"] + " now belongs to this server. "
+                            + "Member records and history were retained. Backup: " + backup,
+                color=theme.emColor3), view=None)
+
+
+async def show_transfer(bot, interaction):
+    if (not interaction.guild_id
+            or not PermissionManager.is_owner(interaction.user.id)):
+        await interaction.response.send_message(
+            "Only the Bot Owner can initiate an alliance transfer.", ephemeral=True)
+        return
+    view = TransferView(bot, interaction.user.id, interaction.guild_id)
+    await view.show(interaction)
