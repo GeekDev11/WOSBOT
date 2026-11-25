@@ -14,7 +14,8 @@ S = "db/settings.sqlite"
 U = "db/users.sqlite"
 I = "db/id_channel.sqlite"
 M = "db/membership_tracking.sqlite"
-KINDS = ("id", "log", "redeem", "sync", "troop")
+G = "db/giftcode.sqlite"
+KINDS = ("id", "log", "redeem", "sync", "troop", "gift")
 
 
 def inspect(alliance_id):
@@ -41,6 +42,15 @@ def inspect(alliance_id):
     with closing(sqlite3.connect(I, timeout=30)) as db:
         ids = db.execute("SELECT channel_id FROM id_channels WHERE alliance_id=?",
                          (int(alliance_id),)).fetchone()
+    gift = None
+    if os.path.exists(G):
+        with closing(sqlite3.connect(G, timeout=30)) as giftdb:
+            try:
+                gift = giftdb.execute(
+                    "SELECT channel_id FROM giftcode_channel WHERE alliance_id=?",
+                    (int(alliance_id),)).fetchone()
+            except sqlite3.OperationalError:
+                pass
     with closing(sqlite3.connect(U, timeout=30)) as db:
         members = db.execute("SELECT COUNT(*) FROM users WHERE alliance=?",
                              (str(alliance_id),)).fetchone()[0]
@@ -50,7 +60,8 @@ def inspect(alliance_id):
                         "log":log[0] if log else None,
                         "redeem":a_settings[1] if a_settings else None,
                         "sync":a_settings[0] if a_settings else None,
-                        "troop":troop[0] if troop else None}}
+                        "troop":troop[0] if troop else None,
+                        "gift":gift[0] if gift else None}}
 
 
 def validate(plan, dest, bot):
@@ -64,7 +75,40 @@ def validate(plan, dest, bot):
         raise ValueError("Bot membership in destination server could not be verified")
     mappings = plan["mappings"]
     if set(mappings) != set(KINDS):
-        raise ValueError("Complete all five channel mappings")
+        raise ValueError("Complete all six channel mappings")
+    # Destination channels must not already serve a different managed alliance.
+    reserved = set()
+    with closing(sqlite3.connect(A, timeout=30)) as db:
+        rows = db.execute(
+            "SELECT a.alliance_id,s.channel_id,s.redemption_channel_id "
+            "FROM alliance_list a LEFT JOIN alliancesettings s "
+            "ON a.alliance_id=s.alliance_id WHERE a.discord_server_id=? "
+            "AND a.alliance_id!=?", (int(dest.id),int(plan["id"]))).fetchall()
+        other_ids = [int(row[0]) for row in rows]
+        reserved.update(int(x) for row in rows for x in row[1:] if x)
+        try:
+            reserved.update(int(r[0]) for r in db.execute(
+                "SELECT channel_id FROM troop_quality_channels "
+                "WHERE guild_id=? AND alliance_id!=?",
+                (int(dest.id),int(plan["id"]))) if r[0])
+        except sqlite3.OperationalError:
+            pass
+    with closing(sqlite3.connect(I, timeout=30)) as db:
+        reserved.update(int(r[0]) for r in db.execute(
+            "SELECT channel_id FROM id_channels WHERE guild_id=? AND alliance_id!=?",
+            (int(dest.id),int(plan["id"]))) if r[0])
+    if other_ids:
+        parameters = tuple(other_ids)
+        placeholders = ",".join("?" for _ in parameters)
+        with closing(sqlite3.connect(S, timeout=30)) as db:
+            reserved.update(int(r[0]) for r in db.execute(
+                "SELECT channel_id FROM alliance_logs WHERE alliance_id IN ("+
+                placeholders+")",parameters) if r[0])
+        if os.path.exists(G):
+            with closing(sqlite3.connect(G, timeout=30)) as db:
+                reserved.update(int(r[0]) for r in db.execute(
+                    "SELECT channel_id FROM giftcode_channel WHERE alliance_id IN ("+
+                    placeholders+")",parameters) if r[0])
     seen = set()
     for kind, new_id in mappings.items():
         if new_id is None:
@@ -80,8 +124,10 @@ def validate(plan, dest, bot):
         perms = channel.permissions_for(bot_member)
         if not (perms.view_channel and perms.send_messages and perms.embed_links):
             raise ValueError(f"Bot needs View, Send and Embed permissions in {kind} channel")
-        if kind == "id" and not perms.read_message_history:
-            raise ValueError("ID channel requires Read Message History permission")
+        if kind in ("id", "gift") and not perms.read_message_history:
+            raise ValueError(f"{kind} channel requires Read Message History permission")
+        if new_id in reserved:
+            raise ValueError(f"{kind} channel is already assigned to another alliance")
         if new_id in seen:
             raise ValueError("Use a separate destination channel for each mapped purpose")
         seen.add(new_id)
@@ -105,7 +151,7 @@ def transfer(alliance_id, *, expected_source, destination, mappings, actor_id):
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_dir = Path("backups") / ("alliance-transfer-" + str(aid) + "-" + stamp)
     backup_dir.mkdir(parents=True, exist_ok=False)
-    files = (A,S,U,I,M)
+    files = (A,S,U,I,M,G)
     # Backup all data BEFORE touching any ownership record. Keep backup on success.
     for src in files:
         if os.path.exists(src):
@@ -119,6 +165,8 @@ def transfer(alliance_id, *, expected_source, destination, mappings, actor_id):
         db.execute("ATTACH DATABASE ? AS iddb", (I,))
         if os.path.exists(M):
             db.execute("ATTACH DATABASE ? AS tracking", (M,))
+        if os.path.exists(G):
+            db.execute("ATTACH DATABASE ? AS gift", (G,))
         db.execute("BEGIN IMMEDIATE")
         try:
             row = db.execute("SELECT discord_server_id FROM alliance_list WHERE alliance_id=?",
@@ -169,6 +217,13 @@ def transfer(alliance_id, *, expected_source, destination, mappings, actor_id):
                     db.execute("INSERT INTO troop_quality_channels "
                                "(alliance_id,guild_id,channel_id,updated_at,updated_by) VALUES (?,?,?,?,?)",
                                (aid,target,mappings["troop"],datetime.now(timezone.utc).isoformat(),actor_id))
+            # Gift Code Distribution listens on its own alliance-specific
+            # channel; it is different from the redemption log channel.
+            if os.path.exists(G):
+                db.execute("DELETE FROM gift.giftcode_channel WHERE alliance_id=?", (aid,))
+                if mappings["gift"] is not None:
+                    db.execute("INSERT INTO gift.giftcode_channel (alliance_id,channel_id) "
+                               "VALUES (?,?)", (aid,mappings["gift"]))
             # Existing Discord identities remain linked to player IDs, but their
             # server binding is cleared until the user registers in destination.
             db.execute("UPDATE usersdb.users SET discord_server_id=NULL WHERE alliance=? "
