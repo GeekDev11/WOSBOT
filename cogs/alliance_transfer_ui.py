@@ -216,6 +216,9 @@ class TransferView(discord.ui.View):
                 "Transfer was not completed: " + str(exc)[:1000]
                 + ". Review the bot logs and backups before retrying.", ephemeral=True)
             return
+        # Role grants and personal admin records changed in the database.
+        PermissionManager._bust_role_cache()
+        PermissionManager._admin_cache = None
         self.stop()
         await interaction.response.edit_message(
             embed=discord.Embed(
