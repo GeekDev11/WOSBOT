@@ -631,6 +631,7 @@ class AllianceManagementEntryView(discord.ui.View):
             "alliance_entry_transfer": can_transfer,
             "alliance_entry_registration": is_global_or_above,
             "alliance_entry_member_states": is_global_or_above,
+            "alliance_entry_migrate_guild": self.tier == TIER_OWNER,
         }
         for child in self.children:
             if isinstance(child, discord.ui.Button):
@@ -736,6 +737,16 @@ class AllianceManagementEntryView(discord.ui.View):
             "show_transfer_members",
             missing_label="Member Management",
         )
+
+    @discord.ui.button(label="Transfer Alliance", emoji=theme.transferIcon,
+                       style=discord.ButtonStyle.secondary,
+                       custom_id="alliance_entry_migrate_guild", row=3)
+    async def transfer_alliance_server(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not PermissionManager.is_owner(interaction.user.id):
+            await interaction.response.send_message("Bot Owner only.", ephemeral=True)
+            return
+        from .alliance_transfer_ui import show_transfer
+        await show_transfer(self.cog.bot, interaction)
 
     @discord.ui.button(
         label="Member States",
