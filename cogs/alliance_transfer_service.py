@@ -264,4 +264,9 @@ def transfer(alliance_id, *, expected_source, destination, mappings, actor_id,
         except Exception:
             db.rollback()
             raise
+    # Scope and administrator records have changed. Bust caches immediately so
+    # a removed Alliance Admin cannot be interpreted as a Server Admin briefly.
+    from .permission_handler import PermissionManager
+    PermissionManager._admin_cache = None
+    PermissionManager._bust_role_cache()
     return str(backup_dir)
