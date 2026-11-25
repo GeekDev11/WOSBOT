@@ -139,7 +139,7 @@ class MainMenu(commands.Cog):
     def build_main_menu_embed(self) -> discord.Embed:
         """Compact main menu; feature descriptions live inside their centers."""
         return discord.Embed(
-            title=f"{theme.settingsIcon} Stalker 2.0 · Command Center",
+            title=f"{theme.settingsIcon} Command Center",
             description=(
                 "Choose a command center."
             ),
