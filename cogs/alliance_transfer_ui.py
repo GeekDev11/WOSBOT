@@ -10,7 +10,7 @@ class TransferView(discord.ui.View):
     def __init__(self, bot, actor, destination):
         super().__init__(timeout=menu_timeout())
         self.bot, self.actor, self.destination = bot, actor, destination
-        self.stage, self.index = "alliance", 0
+        self.stage, self.index, self.page = "alliance", 0, 0
         self.record, self.mapping = None, {}
         self.rebuild()
 
@@ -56,13 +56,14 @@ class TransferView(discord.ui.View):
             if guild:
                 choices.extend(
                     discord.SelectOption(label=channel.name[:90], value=str(channel.id))
-                    for channel in guild.text_channels[:25 - len(choices)])
+                    for channel in guild.text_channels[self.page * (25-len(choices)):(self.page+1) * (25-len(choices))])
             if choices:
                 select = discord.ui.Select(
                     placeholder="Destination " + key.upper(), row=0, options=choices)
                 select.callback = self.pick_channel
                 self.add_item(select)
             self._button("Back", self.back)
+            self._button("More channels", self.more_channels)
         else:
             self._button("Back", self.back)
             self._button(
@@ -107,11 +108,15 @@ class TransferView(discord.ui.View):
         self.rebuild()
         await safe_edit_message(interaction, embed=self.embed(note), view=self, content=None)
 
+    async def more_channels(self, interaction):
+        self.page += 1
+        await self.show(interaction)
+
     async def pick(self, interaction):
         self.record = await asyncio.to_thread(
             service.inspect, int(interaction.data["values"][0]))
         self.mapping = {kind: None for kind in service.KINDS}
-        self.stage, self.index = "channels", 0
+        self.stage, self.index, self.page = "channels", 0, 0
         await self.show(interaction)
 
     async def pick_channel(self, interaction):
@@ -119,11 +124,13 @@ class TransferView(discord.ui.View):
         selected = int(interaction.data["values"][0])
         self.mapping[key] = selected or None
         self.index += 1
+        self.page = 0
         if self.index == len(service.KINDS):
             self.stage = "review"
         await self.show(interaction)
 
     async def back(self, interaction):
+        self.page = 0
         if self.stage == "confirm":
             self.stage = "review"
         elif self.stage == "review":
