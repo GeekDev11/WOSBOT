@@ -63,7 +63,11 @@ class TransferView(discord.ui.View):
                 select.callback = self.pick_channel
                 self.add_item(select)
             self._button("Back", self.back)
-            self._button("More channels", self.more_channels)
+            per_page = 24 if not self.record["channels"][key] else 25
+            if self.page > 0:
+                self._button("Previous channels", self.previous_channels)
+            if guild and (self.page + 1) * per_page < len(guild.text_channels):
+                self._button("More channels", self.more_channels)
         else:
             self._button("Back", self.back)
             self._button(
@@ -107,6 +111,10 @@ class TransferView(discord.ui.View):
     async def show(self, interaction, note=""):
         self.rebuild()
         await safe_edit_message(interaction, embed=self.embed(note), view=self, content=None)
+
+    async def previous_channels(self, interaction):
+        self.page = max(0, self.page - 1)
+        await self.show(interaction)
 
     async def more_channels(self, interaction):
         self.page += 1
