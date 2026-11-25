@@ -11,7 +11,7 @@ class TransferView(discord.ui.View):
         super().__init__(timeout=menu_timeout())
         self.bot, self.actor, self.destination = bot, actor, destination
         self.stage, self.index, self.page = "alliance", 0, 0
-        self.record, self.mapping = None, {}
+        self.record, self.mapping, self.admin_role_id = None, {}, None
         self.rebuild()
 
     async def interaction_check(self, interaction):
@@ -69,6 +69,18 @@ class TransferView(discord.ui.View):
             if guild and (self.page + 1) * per_page < len(guild.text_channels):
                 self._button("More channels", self.more_channels)
         else:
+            if self.stage == "review":
+                guild = self.bot.get_guild(self.destination)
+                options = [discord.SelectOption(label="No automatic admin role", value="0")]
+                if guild:
+                    options.extend(
+                        discord.SelectOption(label=role.name[:90], value=str(role.id))
+                        for role in guild.roles if not role.is_default() and not role.managed)
+                picker = discord.ui.Select(
+                    placeholder="Destination Alliance Admin role (optional)",
+                    options=options[:25], row=0)
+                picker.callback = self.choose_role
+                self.add_item(picker)
             self._button("Back", self.back)
             self._button(
                 "Confirm Transfer" if self.stage == "confirm" else "Validate Permissions",
@@ -99,6 +111,8 @@ class TransferView(discord.ui.View):
                 + "\n\nPermission review: "
                 + str(item["personal_admins"]) + " personal alliance grants and "
                 + str(item["role_grants"]) + " role grants will be revoked."
+                + "\nApproved destination Alliance Admin role: "
+                + str(self.admin_role_id or "None; authorize admins later")
                 + "\nBot Owner and Global Admin remain unchanged; destination Server Admin"
                 + " permissions apply. Old Alliance Admins require new authorization."
                 + "\nExisting player records remain, but old Discord registration server"
@@ -112,6 +126,11 @@ class TransferView(discord.ui.View):
         self.rebuild()
         await safe_edit_message(interaction, embed=self.embed(note), view=self, content=None)
 
+    async def choose_role(self, interaction):
+        value = int(interaction.data["values"][0])
+        self.admin_role_id = value or None
+        await self.show(interaction)
+
     async def previous_channels(self, interaction):
         self.page = max(0, self.page - 1)
         await self.show(interaction)
@@ -124,6 +143,7 @@ class TransferView(discord.ui.View):
         self.record = await asyncio.to_thread(
             service.inspect, int(interaction.data["values"][0]))
         self.mapping = {kind: None for kind in service.KINDS}
+        self.admin_role_id = None
         self.stage, self.index, self.page = "channels", 0, 0
         await self.show(interaction)
 
@@ -157,7 +177,8 @@ class TransferView(discord.ui.View):
         if guild is None:
             raise ValueError("Destination server is no longer connected")
         await asyncio.to_thread(
-            service.validate, {**current, "mappings": self.mapping}, guild, self.bot)
+            service.validate, {**current, "mappings": self.mapping,
+                               "admin_role_id": self.admin_role_id}, guild, self.bot)
 
     async def validate(self, interaction):
         try:
@@ -176,7 +197,8 @@ class TransferView(discord.ui.View):
             backup = await asyncio.to_thread(
                 service.transfer, self.record["id"],
                 expected_source=self.record["source"], destination=self.destination,
-                mappings=dict(self.mapping), actor_id=interaction.user.id)
+                mappings=dict(self.mapping), actor_id=interaction.user.id,
+                admin_role_id=self.admin_role_id)
         except Exception as exc:
             await interaction.response.send_message(
                 "Transfer was not completed: " + str(exc)[:1000]
