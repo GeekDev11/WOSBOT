@@ -135,7 +135,7 @@ jobs:
     name: Publish approved 2.3 release
     needs: [whiteout-stats, simcord-ui]
     # Publish only after both required regression jobs succeed.
-    if: ${{ success() }}
+    if: ${{ false }} # Alliance transfer work in progress; release requires explicit approval
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
