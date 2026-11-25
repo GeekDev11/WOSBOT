@@ -112,3 +112,13 @@ def test_source_mismatch_never_changes_database(registry):
                      mappings={k:None for k in svc.KINDS})
     assert _row(a,"SELECT discord_server_id FROM alliance_list")==[(100,)]
     assert _row(u,"SELECT COUNT(*) FROM users")==[(2,)]
+
+
+def test_explicit_destination_role_replaces_old_guild_role(registry):
+    a,s,u,i,m,g=registry
+    svc.transfer(5,expected_source=100,destination=200,actor_id=13,
+                 admin_role_id=888,
+                 mappings={"id":2000,"log":2040,"redeem":2020,
+                           "sync":2010,"troop":2030,"gift":2050})
+    assert _row(s,"SELECT role_id,guild_id,is_initial FROM admin_role")==[(888,200,0)]
+    assert _row(s,"SELECT role_id,alliances_id FROM adminserver_role")==[(888,5)]
