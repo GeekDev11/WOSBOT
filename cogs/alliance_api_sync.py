@@ -24,7 +24,7 @@ from .gift_redemption import apply_removals, auto_remove_on, maybe_remove_transf
 from . import gift_state_resolver
 from .gift_state_resolver import _put_setting, _settings, left_alliance_state
 from .permission_handler import PermissionManager
-from .pimp_my_bot import count_text, theme
+from .pimp_my_bot import count_text, theme, menu_timeout
 from .process_queue import PLAYER_SYNC, PreemptedException
 from .wos_observations import save_observation
 from . import player_sync_history
@@ -1122,7 +1122,7 @@ def _detail_access(interaction, guild_id, channel_id):
 
 class SyncDetailView(discord.ui.View):
     def __init__(self, user_id, guild_id, channel_id, name, rows):
-        super().__init__(timeout=600)
+        super().__init__(timeout=menu_timeout())
         self.user_id, self.guild_id, self.channel_id = user_id, guild_id, channel_id
         self.name, self.rows = name, rows
         self.category, self.page = "All", 0
@@ -1346,8 +1346,7 @@ class AllianceApiSync(commands.Cog):
         await alliance_api_menu.open_player_sync(self, interaction)
 
     async def cog_load(self):
-        self._detail_button = SyncDetailButton()
-        self.bot.add_view(self._detail_button)
+        self.bot.add_view(SyncDetailButton())
         if self.bot.is_ready():
             self._start()
 
@@ -1367,8 +1366,6 @@ class AllianceApiSync(commands.Cog):
             logger.error("Player Sync: ProcessQueue cog not found, syncs can't run")
 
     async def cog_unload(self):
-        if getattr(self, "_detail_button", None):
-            self._detail_button.stop()
         self.schedule_loop.cancel()
         self.troop_pending_loop.cancel()
         if self._session and not self._session.closed:
