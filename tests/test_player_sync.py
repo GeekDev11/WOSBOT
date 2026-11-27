@@ -1324,9 +1324,11 @@ def test_transfer_notes_come_first_in_the_sync_log(run_dbs):
     result = _run(fetch, reporter=reporter)
     result.transfers[0].removed = True
     asyncio.run(reporter.finish(result))
-    assert found[555].sent[0].text == ("Checked `2` of 2 members.\n\n"
-                                       "`1` Alpha moved to State 456 and was removed from the alliance\n"
-                                       "`2` Bravo: Name Bravo → Bravo2")
+    text = found[555].sent[0].text
+    assert text.startswith("Checked `2` of 2 members.")
+    assert "`1` Alpha moved to State 456 and was removed from the alliance" in text
+    assert "Bravo: Name Bravo → Bravo2" in text
+    assert text.index("State transfers") < text.index("Members with recorded changes")
 
 
 def _removals(monkeypatch, removed=None):

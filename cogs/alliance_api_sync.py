@@ -1048,10 +1048,10 @@ def results_embed(name, done, total, lines, result: RunResult, alliance=None) ->
     text = [f"Checked `{done}` of {count_text(total, 'member')}."]
     rows = result.report_rows.get(str(alliance), [])
     if rows:
-        text += [""] + report_summary(rows)
         transfers = [transfer_note(t) for t in result.transfers if t.alliance == alliance]
         if transfers:
             text += ["", "**State transfers**"] + transfers[:5]
+        text += [""] + report_summary(rows)
         text += ["", "Select View Details for a private breakdown, or download the CSV."]
     elif lines:
         text += [""] + change_lines(lines)
