@@ -96,11 +96,11 @@ class TransferView(discord.ui.View):
             description = (
                 self.record["name"] + " — mapping " + str(self.index + 1) + "/" + str(len(service.KINDS)) + ": "
                 + kind.upper() + "\nExisting: " + str(previous or "Not configured")
-                + "\nSelect a corresponding destination-server channel.")
+                + "\nSelect a destination channel. You may reuse the same channel for multiple purposes.")
         else:
             item = self.record
             pairs = "\n".join(
-                k.upper() + ": " + str(self.mapping.get(k) or "Not configured")
+                k.upper() + ": " + (f"<#{self.mapping[k]}>" if self.mapping.get(k) else "Not configured")
                 for k in service.KINDS)
             description = (
                 item["name"] + " (Alliance " + str(item["id"]) + ")"

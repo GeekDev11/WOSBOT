@@ -122,3 +122,30 @@ def test_explicit_destination_role_replaces_old_guild_role(registry):
                            "sync":2010,"troop":2030,"gift":2050})
     assert _row(s,"SELECT role_id,guild_id,is_initial FROM admin_role")==[(888,200,0)]
     assert _row(s,"SELECT role_id,alliances_id FROM adminserver_role")==[(888,5)]
+
+
+def test_shared_destination_channel_validates_and_transfers(registry):
+    from types import SimpleNamespace
+    a,s,u,i,m,g = registry
+    perms = SimpleNamespace(view_channel=True, send_messages=True,
+                            embed_links=True, read_message_history=True)
+    channel = SimpleNamespace(permissions_for=lambda member: perms, send=lambda: None)
+    dest = SimpleNamespace(id=200, me=object(), get_channel=lambda cid: channel if cid == 2000 else None)
+    bot = SimpleNamespace(get_guild=lambda gid: object() if gid == 100 else None)
+    mappings = dict.fromkeys(svc.KINDS, 2000)
+    plan = {**svc.inspect(5), "mappings": mappings}
+    assert svc.validate(plan, dest, bot)
+    perms.read_message_history = False
+    with pytest.raises(ValueError, match="Read Message History"):
+        svc.validate(plan, dest, bot)
+    perms.read_message_history = True
+    with sqlite3.connect(a) as db:
+        db.execute("INSERT INTO alliance_list VALUES(6,'Other',200,1501)")
+        db.execute("INSERT INTO alliancesettings VALUES(6,2000,NULL)")
+    with pytest.raises(ValueError, match="another alliance"):
+        svc.validate(plan, dest, bot)
+    with sqlite3.connect(a) as db:
+        db.execute("DELETE FROM alliancesettings WHERE alliance_id=6")
+    assert svc.validate(plan, dest, bot)
+    svc.transfer(5, expected_source=100, destination=200, actor_id=13, mappings=mappings)
+    assert svc.inspect(5)["channels"] == mappings

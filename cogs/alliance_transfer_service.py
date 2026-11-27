@@ -130,7 +130,6 @@ def validate(plan, dest, bot):
             if db.execute("SELECT 1 FROM admin_role WHERE role_id=?",
                           (int(approved_role),)).fetchone():
                 raise ValueError("This role already has an admin grant; configure it separately")
-    seen = set()
     for kind, new_id in mappings.items():
         if new_id is None:
             if plan["channels"][kind] is not None:
@@ -149,9 +148,6 @@ def validate(plan, dest, bot):
             raise ValueError(f"{kind} channel requires Read Message History permission")
         if new_id in reserved:
             raise ValueError(f"{kind} channel is already assigned to another alliance")
-        if new_id in seen:
-            raise ValueError("Use a separate destination channel for each mapped purpose")
-        seen.add(new_id)
     return True
 
 
