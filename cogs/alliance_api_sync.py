@@ -1,5 +1,7 @@
 """Player Sync: keeps member names, levels, kingdoms, power and pictures current from a player-data API."""
 import asyncio
+import csv
+import io
 import json
 import logging
 import sqlite3
@@ -458,6 +460,7 @@ class RunResult:
     transfers: list = field(default_factory=list)
     no_data: dict = field(default_factory=dict)
     troop_summaries: dict = field(default_factory=dict)
+    report_rows: dict = field(default_factory=dict)
     error: str | None = None
     stopped: str | None = None
     preempted: bool = False
@@ -653,6 +656,8 @@ def _write_member(conn, fid, alliance, before, values, result):
             conn, run_id=result.run_id, alliance_id=alliance, fid=fid,
             player_name=name, changes=audit,
             guild_id=player_sync_history.guild_of(alliance))
+        result.report_rows.setdefault(str(alliance), []).extend(
+            (fid, name, title, old, new) for title, old, new in audit)
 
 
 def _apply(fid, alliance, values, result):
@@ -700,7 +705,15 @@ async def _sync_member(fetch, profile, fid, alliance, take_slot, sleep, result, 
         except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
             logger.warning("Membership observation could not be stored for %s: %s", fid, exc)
         try:
-            await asyncio.to_thread(save_observation, fid, answer.payload)
+            observed = []
+            await asyncio.to_thread(save_observation, fid, answer.payload, changes_out=observed)
+            player = answer.payload.get("player", {})
+            name = str(player.get("nick_name") or fid)[:NAME_LENGTH] if isinstance(player, dict) else str(fid)
+            rows = result.report_rows.setdefault(str(alliance), [])
+            rows.extend((fid, name, path, old, new) for path, old, new in observed
+                        if report_category(path) != "Other" and path not in {
+                            "player.power", "player.nick_name", "player.furnace_level",
+                            "player.kid", "player.avatar_url"})
         except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
             logger.error("Player Sync: cannot save full observation %s: %s", fid, exc)
         if troop_fetch is not None:
@@ -955,9 +968,92 @@ def paused_embed(name, done, total, lines) -> discord.Embed:
     return _sync_log_embed(name, "\n".join(text), theme.emColor1)
 
 
+def report_category(path):
+    key = path.lower()
+    leaf = key.rsplit(".", 1)[-1]
+    if key == "power" or key == "player.power":
+        return "Power"
+    if leaf in {"kills", "kill", "kill_count", "total_kills", "kill_num"} and (key.startswith("player.") or "." not in key):
+        return "Kills"
+    if key.startswith("heroes"):
+        return "Heroes"
+    if key.startswith("chief_gear"):
+        return "Chief gear"
+    if key.startswith("troops"):
+        return "Troops"
+    if key.startswith("ranks"):
+        return "Rankings"
+    if key.startswith("state") or (key.startswith("player.") and ("alliance" in leaf or leaf == "kid")):
+        return "Membership"
+    if key in {"name", "furnace", "avatar picture"} or (key.startswith("player.") and ("vip" in leaf or "furnace" in leaf)):
+        return "Profile"
+    return "Other"
+
+
+def _report_value(value):
+    if value is None:
+        return "Unknown"
+    return str(value)
+
+
+def _numeric_delta(old, new):
+    if type(old) is int and type(new) is int:
+        return new - old
+    return None
+
+
+def report_summary(rows):
+    groups = {}
+    for row in rows:
+        groups.setdefault(report_category(row[2]), []).append(row)
+    text = [f"**Members with recorded changes:** {len({row[0] for row in rows})}"]
+    for category in ("Power", "Kills"):
+        entries = groups.get(category, [])
+        deltas = [(name, _numeric_delta(old, new)) for _, name, _, old, new in entries]
+        deltas = [(name, delta) for name, delta in deltas if delta is not None]
+        if deltas:
+            gain = sum(delta for _, delta in deltas if delta > 0)
+            loss = sum(delta for _, delta in deltas if delta < 0)
+            text.append(f"**{category}:** +{gain:,} / {loss:,} · Net {gain + loss:+,}")
+            leaders = sorted((item for item in deltas if item[1] > 0), key=lambda item: item[1], reverse=True)[:3]
+            if leaders:
+                text.append("Top gains: " + " · ".join(f"{discord.utils.escape_markdown(name)} +{delta:,}" for name, delta in leaders))
+        elif entries:
+            text.append(f"**{category}:** {len(entries)} recorded updates (no comparable baseline)")
+    for category in ("Profile", "Heroes", "Chief gear", "Troops", "Membership", "Rankings"):
+        entries = groups.get(category, [])
+        if entries:
+            text.append(f"**{category}:** {len({row[0] for row in entries})} members · {len(entries)} field changes")
+            for _, name, path, old, new in entries[:2]:
+                label = path if len(path) <= 65 else path[:62] + "..."
+                text.append(f"• {discord.utils.escape_markdown(name)}: {discord.utils.escape_markdown(label)} "
+                            f"{discord.utils.escape_markdown(_report_value(old)[:35])} → "
+                            f"{discord.utils.escape_markdown(_report_value(new)[:35])}")
+    return text
+
+
+def report_csv(rows):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(("player_id", "player_name", "category", "field", "old_value", "new_value"))
+    def safe(value):
+        text = _report_value(value)
+        return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
+    for fid, name, path, old, new in rows:
+        writer.writerow((fid, safe(name), report_category(path), safe(path), safe(old), safe(new)))
+    return output.getvalue().encode("utf-8-sig")
+
+
 def results_embed(name, done, total, lines, result: RunResult, alliance=None) -> discord.Embed:
     text = [f"Checked `{done}` of {count_text(total, 'member')}."]
-    if lines:
+    rows = result.report_rows.get(str(alliance), [])
+    if rows:
+        text += [""] + report_summary(rows)
+        transfers = [transfer_note(t) for t in result.transfers if t.alliance == alliance]
+        if transfers:
+            text += ["", "**State transfers**"] + transfers[:5]
+        text += ["", "Detailed categorized changes are in the attached CSV."]
+    elif lines:
         text += [""] + change_lines(lines)
     elif done and not result.error:
         text += ["", "Main player profile data: no changes."]
@@ -979,7 +1075,7 @@ def results_embed(name, done, total, lines, result: RunResult, alliance=None) ->
     reason = result.error or result.stopped
     if reason:
         text.append(f"\n{theme.warnIcon} {reason}")
-    return _sync_log_embed(name, "\n".join(text), theme.emColor2 if result.error else theme.emColor3)
+    return _sync_log_embed(name, "\n".join(text)[:4096], theme.emColor2 if result.error else theme.emColor3)
 
 
 def removal_note(keep_minutes) -> str:
@@ -1041,7 +1137,8 @@ class SyncLogReporter:
                 embed = results_embed(post.name, post.done, post.total, lines, result, alliance=alliance)
             if self.keep_minutes:
                 embed.set_footer(text=removal_note(self.keep_minutes))
-            if await self._edit(alliance, embed) and self.keep_minutes:
+            rows = result.report_rows.get(str(alliance), [])
+            if await self._edit(alliance, embed, rows=rows) and self.keep_minutes:
                 await self._delete_later(post)
 
     async def _delete_later(self, post):
@@ -1050,10 +1147,14 @@ class SyncLogReporter:
         except Exception as e:
             logger.warning(f"Player Sync: couldn't schedule removal of the Sync Log message for {post.name}: {e}")
 
-    async def _edit(self, alliance, embed) -> bool:
+    async def _edit(self, alliance, embed, rows=None) -> bool:
         post = self.posts[alliance]
         try:
-            await post.message.edit(embed=embed)
+            if rows:
+                report = discord.File(io.BytesIO(report_csv(rows)), filename="player-sync-changes.csv")
+                await post.message.edit(embed=embed, attachments=[report])
+            else:
+                await post.message.edit(embed=embed)
             return True
         except Exception as e:
             logger.warning(f"Player Sync: couldn't update the Sync Log message for {post.name}: {e}")

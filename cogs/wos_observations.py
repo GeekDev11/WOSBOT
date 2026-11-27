@@ -46,7 +46,7 @@ def _volatile(path):
     return path.rsplit(".", 1)[-1] in EXCLUDED_CHANGE_KEYS
 
 
-def save_observation(chief_id, payload, *, source="whiteoutstats", observed_at=None, path=DB_PATH):
+def save_observation(chief_id, payload, *, source="whiteoutstats", observed_at=None, path=DB_PATH, changes_out=None):
     """Append every valid observation; record changes for values seen in both snapshots."""
     sections = _normalise(payload)
     if not sections:
@@ -95,7 +95,9 @@ def save_observation(chief_id, payload, *, source="whiteoutstats", observed_at=N
         db.executemany(
             "INSERT INTO observation_changes(chief_id, observation_id, observed_at, path, old_json, new_json) "
             "VALUES (?, ?, ?, ?, ?, ?)", changes)
-        return len(changes)
+    if changes_out is not None:
+        changes_out.extend((row[3], json.loads(row[4]), json.loads(row[5])) for row in changes)
+    return len(changes)
 
 
 def fetch_changes(chief_id, *, limit=100, path=DB_PATH):

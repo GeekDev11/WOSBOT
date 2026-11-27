@@ -704,8 +704,9 @@ class FakeMessage:
         self.embeds = [embed]
         self.deleted_after = None
 
-    async def edit(self, embed):
+    async def edit(self, embed, attachments=None):
         self.embeds.append(embed)
+        self.attachments = attachments
 
     async def delete(self, delay=None):
         self.deleted_after = delay
@@ -763,7 +764,8 @@ def test_results_replace_the_progress_message(run_dbs):
     asyncio.run(reporter.finish(result))
     message = found[555].sent[0]
     assert len(found[555].sent) == 1
-    assert message.text.startswith("Checked `2` of 2 members.\n\n`1` Alpha: Name Alpha → Alpha2")
+    assert message.text.startswith("Checked `2` of 2 members.\n\n**Members with recorded changes:** 1")
+    assert "Alpha2" in message.text and message.attachments
     assert message.deleted_after is None and not message.embeds[-1].footer.text
 
 
@@ -1536,3 +1538,14 @@ def test_whiteoutstats_player_sync_does_not_duplicate_base_section():
 def test_custom_provider_player_sync_url_is_unchanged():
     profile=_profile(player_path="/v1/players/{id}?include=heroes")
     assert sync.player_url(profile,789)=="https://api.example.com/v1/players/789?include=heroes"
+
+
+def test_categorized_sync_report():
+    rows = [(1, "Alpha", "Power", 100, 150),
+            (2, "Bravo", "Power", 200, 180),
+            (1, "Alpha", "player.kills", 10, 15),
+            (1, "Alpha", "heroes[0].level", 70, 80)]
+    text = "\n".join(sync.report_summary(rows))
+    assert "Net +30" in text and "Net +5" in text
+    assert "Heroes" in text and "recorded changes:** 2" in text
+    assert b"Heroes" in sync.report_csv(rows)
