@@ -1549,3 +1549,22 @@ def test_categorized_sync_report():
     assert "Net +30" in text and "Net +5" in text
     assert "Heroes" in text and "recorded changes:** 2" in text
     assert b"Heroes" in sync.report_csv(rows)
+
+
+def test_sync_detail_pages():
+    rows = [(i, "Alpha", "Power", 10, 20) for i in range(12)]
+    rows.append((99, "Bravo", "player.kills", 2, 3))
+    selected, page, pages, count = sync.detail_page(rows, "Power", 99)
+    assert (len(selected), page, pages, count) == (2, 2, 3, 12)
+    assert sync.detail_page(rows, "Kills", 0)[0] == [rows[-1]]
+    assert sync.detail_page(rows, "Troops", 0) == ([], 0, 1, 0)
+
+
+def test_sync_detail_report_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(sync, "USERS_DB", str(tmp_path / "users.sqlite"))
+    rows = [(1, "Alpha", "Power", 10, 20)]
+    sync.save_detail_report(123, "run", 10, 20, 30, "Wolves", rows)
+    result = sync.load_detail_report(123)
+    assert result[:4] == (10, 20, 30, "Wolves")
+    assert sync.json.loads(result[4]) == [list(rows[0])]
+    assert sync.load_detail_report(999) is None

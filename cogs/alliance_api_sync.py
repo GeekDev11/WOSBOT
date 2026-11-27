@@ -1052,7 +1052,7 @@ def results_embed(name, done, total, lines, result: RunResult, alliance=None) ->
         transfers = [transfer_note(t) for t in result.transfers if t.alliance == alliance]
         if transfers:
             text += ["", "**State transfers**"] + transfers[:5]
-        text += ["", "Detailed categorized changes are in the attached CSV."]
+        text += ["", "Select View Details for a private breakdown, or download the CSV."]
     elif lines:
         text += [""] + change_lines(lines)
     elif done and not result.error:
@@ -1076,6 +1076,145 @@ def results_embed(name, done, total, lines, result: RunResult, alliance=None) ->
     if reason:
         text.append(f"\n{theme.warnIcon} {reason}")
     return _sync_log_embed(name, "\n".join(text)[:4096], theme.emColor2 if result.error else theme.emColor3)
+
+
+# Store the exact report shown in Discord, not a moving window of player history.
+def _report_store(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS sync_detail_reports (
+        message_id INTEGER PRIMARY KEY, run_id TEXT NOT NULL,
+        alliance_id INTEGER NOT NULL, guild_id INTEGER NOT NULL,
+        channel_id INTEGER NOT NULL, name TEXT NOT NULL,
+        created_at TEXT NOT NULL, rows_json TEXT NOT NULL
+    )""")
+
+
+def save_detail_report(message_id, run_id, alliance_id, guild_id, channel_id, name, rows):
+    with closing(sqlite3.connect(USERS_DB, timeout=30)) as conn:
+        _report_store(conn)
+        conn.execute("INSERT OR REPLACE INTO sync_detail_reports VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     (message_id, run_id, alliance_id, guild_id, channel_id, name, utc_now(),
+                      json.dumps(rows, ensure_ascii=False)))
+        conn.commit()
+
+
+def load_detail_report(message_id):
+    with closing(sqlite3.connect(USERS_DB, timeout=30)) as conn:
+        _report_store(conn)
+        return conn.execute(
+            "SELECT alliance_id, guild_id, channel_id, name, rows_json FROM sync_detail_reports WHERE message_id=?",
+            (message_id,)).fetchone()
+
+
+def detail_page(rows, category, page, size=5):
+    selected = [row for row in rows if category == "All" or report_category(row[2]) == category]
+    pages = max(1, (len(selected) + size - 1) // size)
+    page = max(0, min(page, pages - 1))
+    return selected[page * size:(page + 1) * size], page, pages, len(selected)
+
+
+def _detail_access(interaction, guild_id, channel_id):
+    # The same audience already has access to the public summary and CSV.
+    # Deny use in DMs, other guilds, or channels the member cannot read.
+    permissions = interaction.permissions
+    return (interaction.guild_id == guild_id and interaction.channel_id == channel_id
+            and permissions.view_channel and permissions.read_message_history)
+
+
+class SyncDetailView(discord.ui.View):
+    def __init__(self, user_id, guild_id, channel_id, name, rows):
+        super().__init__(timeout=600)
+        self.user_id, self.guild_id, self.channel_id = user_id, guild_id, channel_id
+        self.name, self.rows = name, rows
+        self.category, self.page = "All", 0
+        categories = ["All"] + [cat for cat in (
+            "Power", "Kills", "Profile", "Heroes", "Chief gear", "Troops", "Membership", "Rankings", "Other")
+            if any(report_category(row[2]) == cat for row in rows)]
+        self.categories.options = [discord.SelectOption(label=cat, value=cat) for cat in categories]
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id == self.user_id and _detail_access(interaction, self.guild_id, self.channel_id):
+            return True
+        await interaction.response.send_message("You cannot access this report.", ephemeral=True)
+        return False
+
+    def render(self):
+        rows, self.page, pages, count = detail_page(self.rows, self.category, self.page)
+        self.previous.disabled = self.page == 0
+        self.next.disabled = self.page >= pages - 1
+        for option in self.categories.options:
+            option.default = option.value == self.category
+        embed = discord.Embed(title=f"Sync details: {self.name}"[:256],
+                              description=f"{self.category} · {count} changes · Page {self.page + 1}/{pages}",
+                              color=theme.emColor1)
+        for fid, name, path, old, new in rows:
+            delta = _numeric_delta(old, new)
+            before = f"{old:,}" if type(old) is int else _report_value(old)
+            after = f"{new:,}" if type(new) is int else _report_value(new)
+            value = (f"{discord.utils.escape_markdown(path)[:200]}\n"
+                     f"{discord.utils.escape_markdown(before)[:280]} → {discord.utils.escape_markdown(after)[:280]}")
+            if delta is not None and report_category(path) in ("Power", "Kills"):
+                value += f"\nChange: {delta:+,}"
+            embed.add_field(name=f"{discord.utils.escape_markdown(name)} ({fid})"[:256],
+                            value=value, inline=False)
+        if not rows:
+            embed.description += "\nNo recorded changes."
+        return embed
+
+    @discord.ui.select(placeholder="Choose a category", options=[discord.SelectOption(label="All")])
+    async def categories(self, interaction, select):
+        self.category, self.page = select.values[0], 0
+        await interaction.response.edit_message(embed=self.render(), view=self)
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
+    async def previous(self, interaction, button):
+        self.page -= 1
+        await interaction.response.edit_message(embed=self.render(), view=self)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
+    async def next(self, interaction, button):
+        self.page += 1
+        await interaction.response.edit_message(embed=self.render(), view=self)
+
+    @discord.ui.button(label="Export CSV", style=discord.ButtonStyle.secondary)
+    async def export(self, interaction, button):
+        await interaction.response.send_message(
+            file=discord.File(io.BytesIO(report_csv(self.rows)), filename="player-sync-changes.csv"),
+            ephemeral=True)
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.secondary)
+    async def close(self, interaction, button):
+        await interaction.response.edit_message(content="Report closed.", embed=None, view=None)
+        self.stop()
+
+
+class SyncDetailButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="View Details", style=discord.ButtonStyle.primary,
+                       custom_id="wosbot:sync:details:v1")
+    async def details(self, interaction, button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            report = await asyncio.to_thread(load_detail_report, interaction.message.id)
+            if not report:
+                await interaction.followup.send("This report is unavailable.", ephemeral=True)
+                return
+            alliance_id, guild_id, channel_id, name, rows_json = report
+            if not _detail_access(interaction, guild_id, channel_id):
+                await interaction.followup.send("You cannot access this report.", ephemeral=True)
+                return
+            # Prevent reports from following an alliance into another server.
+            from . import membership_service
+            home = await asyncio.to_thread(membership_service.home_info, alliance_id)
+            if not home or home[0] != guild_id:
+                await interaction.followup.send("This alliance report is no longer available here.", ephemeral=True)
+                return
+            view = SyncDetailView(interaction.user.id, guild_id, channel_id, name, json.loads(rows_json))
+            await interaction.followup.send(embed=view.render(), view=view, ephemeral=True)
+        except Exception:
+            logger.exception("Player Sync: could not open detail report")
+            await interaction.followup.send("Could not open this report.", ephemeral=True)
 
 
 def removal_note(keep_minutes) -> str:
@@ -1138,7 +1277,7 @@ class SyncLogReporter:
             if self.keep_minutes:
                 embed.set_footer(text=removal_note(self.keep_minutes))
             rows = result.report_rows.get(str(alliance), [])
-            if await self._edit(alliance, embed, rows=rows) and self.keep_minutes:
+            if await self._edit(alliance, embed, rows=rows, run_id=result.run_id) and self.keep_minutes:
                 await self._delete_later(post)
 
     async def _delete_later(self, post):
@@ -1147,12 +1286,22 @@ class SyncLogReporter:
         except Exception as e:
             logger.warning(f"Player Sync: couldn't schedule removal of the Sync Log message for {post.name}: {e}")
 
-    async def _edit(self, alliance, embed, rows=None) -> bool:
+    async def _edit(self, alliance, embed, rows=None, run_id=None) -> bool:
         post = self.posts[alliance]
         try:
             if rows:
                 report = discord.File(io.BytesIO(report_csv(rows)), filename="player-sync-changes.csv")
-                await post.message.edit(embed=embed, attachments=[report])
+                kwargs = {"attachments": [report]}
+                channel = getattr(post.message, "channel", None)
+                guild = getattr(channel, "guild", None)
+                if guild is not None and run_id:
+                    try:
+                        await asyncio.to_thread(save_detail_report, post.message.id, run_id,
+                                                int(alliance), guild.id, channel.id, post.name, rows)
+                        kwargs["view"] = SyncDetailButton()
+                    except Exception:
+                        logger.exception("Player Sync: could not persist detail report; using CSV")
+                await post.message.edit(embed=embed, **kwargs)
             else:
                 await post.message.edit(embed=embed)
             return True
@@ -1197,6 +1346,8 @@ class AllianceApiSync(commands.Cog):
         await alliance_api_menu.open_player_sync(self, interaction)
 
     async def cog_load(self):
+        self._detail_button = SyncDetailButton()
+        self.bot.add_view(self._detail_button)
         if self.bot.is_ready():
             self._start()
 
@@ -1216,6 +1367,8 @@ class AllianceApiSync(commands.Cog):
             logger.error("Player Sync: ProcessQueue cog not found, syncs can't run")
 
     async def cog_unload(self):
+        if getattr(self, "_detail_button", None):
+            self._detail_button.stop()
         self.schedule_loop.cancel()
         self.troop_pending_loop.cancel()
         if self._session and not self._session.closed:
